@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YepNope card mockups — 402×874 (iPhone 17 Pro)</title>
+<style>
+  :root {
+    --bg: #0e0f12;
+    --phone-bg: #17181c;
+    --card-bg: #ffffff;
+    --card-text: #16181d;
+    --muted: #7b818c;
+    --nope: #e5484d;
+    --skip: #8b8f98;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: #d7dae0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  }
+  header.page {
+    padding: 20px 24px 8px;
+  }
+  header.page h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+  header.page p { margin: 0; font-size: 13px; color: var(--muted); }
+  #capacity {
+    margin: 12px 24px 4px;
+    font-size: 13px;
+    border-collapse: collapse;
+  }
+  #capacity td, #capacity th {
+    border: 1px solid #2a2d33;
+    padding: 4px 10px;
+    text-align: left;
+  }
+  #capacity th { color: var(--muted); font-weight: 500; }
+  .controls { margin: 8px 24px 16px; font-size: 13px; }
+  .controls select {
+    background: #1d1f24; color: #d7dae0; border: 1px solid #2a2d33;
+    border-radius: 6px; padding: 4px 8px; font-size: 13px;
+  }
+  .row {
+    display: flex;
+    gap: 32px;
+    padding: 8px 24px 48px;
+    overflow-x: auto;
+    align-items: flex-start;
+  }
+  .mock { flex: 0 0 auto; }
+  .mock > .label {
+    font-size: 13px;
+    margin: 0 0 8px 2px;
+    color: var(--muted);
+  }
+  .mock > .label b { color: #d7dae0; font-weight: 600; }
+
+  /* ---- phone frame: exact CSS-pixel dimensions ---- */
+  .phone {
+    width: 402px;
+    height: 874px;
+    background: var(--phone-bg);
+    border-radius: 48px;
+    border: 1px solid #2a2d33;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .inset-top {
+    height: 59px;
+    flex: 0 0 auto;
+    position: relative;
+  }
+  .island {
+    position: absolute;
+    top: 12px; left: 50%; transform: translateX(-50%);
+    width: 122px; height: 34px;
+    background: #000;
+    border-radius: 17px;
+  }
+  .inset-bottom {
+    height: 34px;
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .home-indicator {
+    width: 140px; height: 5px; border-radius: 3px; background: #3a3d44;
+  }
+  .app {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 16px 0;
+    min-height: 0;
+  }
+  .app-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 4px 2px 10px;
+  }
+  .app-header .project { font-size: 15px; font-weight: 600; color: #eceef2; }
+  .app-header .count { font-size: 13px; color: var(--muted); }
+  .branch-line {
+    display: none;
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 0 2px 10px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .deck {
+    flex: 1 1 auto;
+    position: relative;
+    min-height: 0;
+  }
+  .card-behind {
+    position: absolute;
+    inset: 8px 10px auto;
+    height: 24px;
+    background: #22242a;
+    border-radius: 20px 20px 0 0;
+  }
+  .card {
+    position: absolute;
+    inset: 20px 0 0;
+    background: var(--card-bg);
+    color: var(--card-text);
+    border-radius: 20px;
+    padding: 22px 22px 18px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .card.overflowing { outline: 3px solid var(--nope); }
+  .card .title {
+    font-size: 21px;
+    line-height: 1.25;
+    font-weight: 700;
+    margin: 0 0 12px;
+    flex: 0 0 auto;
+  }
+  .card .body {
+    font-size: 16px;
+    line-height: 1.45;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .card .body p { margin: 0 0 10px; }
+  .card .body ul { margin: 0 0 10px; padding-left: 22px; }
+  .card .body li { margin: 0 0 4px; }
+  .card .body code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.88em;
+    background: #f0f1f4;
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .swipe-hints {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 6px 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .swipe-hints .skip { color: var(--skip); }
+
+  /* ---- layout variants ---- */
+  .layout-b .card .title { font-size: 19px; }
+  .layout-b .card .body { font-size: 15px; line-height: 1.4; }
+  .layout-b .branch-line { display: block; }
+  .layout-c .card .title {
+    font-size: 24px; line-height: 1.2;
+  }
+  .layout-c .card .body { font-size: 17px; line-height: 1.5; }
+  .layout-c .app-header { display: none; }
+  .layout-c .meta-chip {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    font-size: 12px;
+    color: var(--muted);
+    background: #1d1f24;
+    border-radius: 12px;
+    padding: 4px 12px;
+    margin: 0 0 12px 2px;
+  }
+  .mock:not(.layout-c) .meta-chip { display: none; }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <h1>YepNope card mockups — 402×874 CSS px</h1>
+  <p>Red outline = content overflows the card. Capacity table below is measured live by binary search per layout.</p>
+</header>
+
+<table id="capacity">
+  <thead>
+    <tr><th>Layout</th><th>Title fits (chars, 1 line / 2 lines)</th><th>Body capacity (chars, plain)</th><th>Body capacity (chars, with list + code)</th></tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<div class="controls">
+  Sample question:
+  <select id="sample"></select>
+</div>
+
+<div class="row" id="mocks"></div>
+
+<script>
+"use strict";
+
+// ---- sample questions (real lengths, from the spec's own examples) ----
+const SAMPLES = [
+  {
+    name: "Short (Guava bump)",
+    title: "Bump Guava to 33.4 across the monorepo?",
+    body: "`fabric-core` pins 31.1 and blocks the Netty upgrade. 33.4 is source-compatible; 12 modules recompile."
+  },
+  {
+    name: "Medium (TSLogger shim)",
+    title: "Delete the TSLogger compatibility shim?",
+    body: "No call sites left after the SLF4J migration. It ships in the public artifact, so external consumers would break if they still reference it. Removing it now keeps the next release clean and forces stragglers to migrate."
+  },
+  {
+    name: "Risky (PaymentRetry)",
+    title: "Fix the double-charge bug in PaymentRetry?",
+    body: "The fix means changing the retry lock, which could cause duplicate charges if it goes wrong.\n\nContext: found while auditing the billing service in **checkout-api**. The bug fires when a webhook retries during a deploy."
+  },
+  {
+    name: "Long (markdown-heavy)",
+    title: "Adopt the new error envelope in checkout-api?",
+    body: "The platform team's envelope wraps every response in `{data, error}`. Adopting it in **checkout-api** means:\n\n- rewriting 14 handlers\n- updating the OpenAPI spec\n- a coordinated deploy with the mobile team\n\nSaying yes commits us to the migration this sprint. The old shape keeps working during rollout via the `Accept-Version` header."
+  }
+];
+
+// ---- minimal GFM subset: bold, code, lists, paragraphs (MVP scope) ----
+function renderMarkdown(src) {
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = s => esc(s)
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+  const blocks = src.split(/\n\n+/);
+  return blocks.map(block => {
+    const lines = block.split("\n");
+    if (lines.every(l => /^[-*] /.test(l))) {
+      return "<ul>" + lines.map(l => "<li>" + inline(l.slice(2)) + "</li>").join("") + "</ul>";
+    }
+    return "<p>" + lines.map(inline).join("<br>") + "</p>";
+  }).join("");
+}
+
+// ---- layouts ----
+const LAYOUTS = [
+  {
+    id: "layout-a",
+    label: "A — header + deck",
+    note: "project + count header, no branch line, 21px title"
+  },
+  {
+    id: "layout-b",
+    label: "B — dense",
+    note: "adds branch line, 19px title, 15px body"
+  },
+  {
+    id: "layout-c",
+    label: "C — card-forward",
+    note: "no header, project chip only, 24px title, 17px body"
+  }
+];
+
+function phoneTemplate(layout) {
+  return `
+  <p class="label"><b>${layout.label}</b> — ${layout.note}</p>
+  <div class="phone">
+    <div class="inset-top"><div class="island"></div></div>
+    <div class="app">
+      <div class="app-header">
+        <span class="project">platform-upgrades</span>
+        <span class="count">2 of 12</span>
+      </div>
+      <div class="branch-line">fabric · craig/guava-33</div>
+      <div class="meta-chip">platform-upgrades · 2 of 12</div>
+      <div class="deck">
+        <div class="card-behind"></div>
+        <div class="card">
+          <h2 class="title"></h2>
+          <div class="body"></div>
+        </div>
+      </div>
+      <div class="swipe-hints">
+        <span>&larr; nope</span>
+        <span class="skip">&darr; skip</span>
+        <span>yep &rarr;</span>
+      </div>
+    </div>
+    <div class="inset-bottom"><div class="home-indicator"></div></div>
+  </div>`;
+}
+
+const mocksEl = document.getElementById("mocks");
+for (const layout of LAYOUTS) {
+  const div = document.createElement("div");
+  div.className = "mock " + layout.id;
+  div.innerHTML = phoneTemplate(layout);
+  mocksEl.appendChild(div);
+}
+
+const sampleSel = document.getElementById("sample");
+SAMPLES.forEach((s, i) => {
+  const opt = document.createElement("option");
+  opt.value = i;
+  opt.textContent = `${s.name} — title ${s.title.length}ch, body ${s.body.length}ch`;
+  sampleSel.appendChild(opt);
+});
+
+function setCard(mock, title, bodyMarkdown) {
+  mock.querySelector(".title").textContent = title;
+  mock.querySelector(".body").innerHTML = renderMarkdown(bodyMarkdown);
+}
+
+function isOverflowing(mock) {
+  const card = mock.querySelector(".card");
+  const body = mock.querySelector(".body");
+  return body.scrollHeight > body.clientHeight + 1 || card.scrollHeight > card.clientHeight + 1;
+}
+
+function applySample() {
+  const s = SAMPLES[Number(sampleSel.value)];
+  for (const mock of document.querySelectorAll(".mock")) {
+    setCard(mock, s.title, s.body);
+    mock.querySelector(".card").classList.toggle("overflowing", isOverflowing(mock));
+  }
+}
+sampleSel.addEventListener("change", applySample);
+
+// ---- capacity measurement ----
+// Realistic filler: prose with typical word lengths, sliced to n chars.
+const FILLER = ("The migration touches the retry lock in the billing service and " +
+  "changes how webhook retries are serialized during a deploy window. ").repeat(40);
+const RICH_PREFIX = "The **billing service** retry lock changes:\n\n- `PaymentRetry` gains a lease\n- webhook retries serialize\n- deploys drain first\n\n";
+const TITLE_FILLER = "Bump the shared platform dependency across every module now? " +
+  "Bump the shared platform dependency across every module now?";
+const MAX_BODY_CHARS = 4000;
+
+function plainFiller(n) {
+  return FILLER.slice(0, n);
+}
+
+function richFiller(n) {
+  if (n <= RICH_PREFIX.length) return RICH_PREFIX.slice(0, n);
+  return RICH_PREFIX + FILLER.slice(0, n - RICH_PREFIX.length);
+}
+
+// Largest n in [0, max] for which fitsAt(n) is true. fitsAt renders n, then measures.
+function largestFitting(max, fitsAt) {
+  let lo = 0, hi = max;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi + 1) / 2);
+    if (fitsAt(mid)) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+function titleCapacity(mock, lines) {
+  const titleEl = mock.querySelector(".title");
+  const maxHeight = parseFloat(getComputedStyle(titleEl).lineHeight) * lines + 2;
+  return largestFitting(TITLE_FILLER.length, n => {
+    titleEl.textContent = TITLE_FILLER.slice(0, n);
+    return titleEl.scrollHeight <= maxHeight;
+  });
+}
+
+function bodyCapacity(mock, filler) {
+  const bodyEl = mock.querySelector(".body");
+  return largestFitting(MAX_BODY_CHARS, n => {
+    bodyEl.innerHTML = renderMarkdown(filler(n));
+    return !isOverflowing(mock);
+  });
+}
+
+function measure() {
+  const tbody = document.querySelector("#capacity tbody");
+  tbody.innerHTML = "";
+  const referenceTitle = SAMPLES[0].title;
+  for (const layout of LAYOUTS) {
+    const mock = document.querySelector(".mock." + layout.id);
+
+    const oneLine = titleCapacity(mock, 1);
+    const twoLines = titleCapacity(mock, 2);
+
+    mock.querySelector(".title").textContent = referenceTitle;
+    const plain = bodyCapacity(mock, plainFiller);
+    const rich = bodyCapacity(mock, richFiller);
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${layout.label}</td><td>${oneLine} / ${twoLines}</td><td>${plain}</td><td>${rich}</td>`;
+    tbody.appendChild(tr);
+  }
+  applySample();
+}
+
+measure();
+</script>
+</body>
+</html>
