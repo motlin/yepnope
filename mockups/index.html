@@ -1,337 +1,485 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>YepNope card mockups — 402×874 (iPhone 17 Pro)</title>
-<style>
-  :root {
-    --bg: #0e0f12;
-    --phone-bg: #17181c;
-    --card-bg: #ffffff;
-    --card-text: #16181d;
-    --muted: #7b818c;
-    --yep: #2eb872;
-    --nope: #e5484d;
-    --skip: #8b8f98;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: #d7dae0;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-  }
-  header.page {
-    padding: 20px 24px 8px;
-  }
-  header.page h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
-  header.page p { margin: 0; font-size: 13px; color: var(--muted); }
-  #capacity {
-    margin: 12px 24px 16px;
-    font-size: 13px;
-    border-collapse: collapse;
-  }
-  #capacity td, #capacity th {
-    border: 1px solid #2a2d33;
-    padding: 4px 10px;
-    text-align: left;
-  }
-  #capacity th { color: var(--muted); font-weight: 500; }
-  .row {
-    display: flex;
-    gap: 32px;
-    padding: 8px 24px 48px;
-    overflow-x: auto;
-    align-items: flex-start;
-  }
-  .mock { flex: 0 0 auto; }
-  .mock > .label {
-    font-size: 13px;
-    margin: 0 0 8px 2px;
-    color: var(--muted);
-  }
-  .mock > .label b { color: #d7dae0; font-weight: 600; }
-  .mock.active > .label b { color: #fff; }
-  .mock.active > .label::after { content: " · keyboard active"; color: var(--yep); }
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>YepNope card mockups — 402×874 (iPhone 17 Pro)</title>
+		<style>
+			:root {
+				--bg: #0e0f12;
+				--phone-bg: #17181c;
+				--card-bg: #ffffff;
+				--card-text: #16181d;
+				--muted: #7b818c;
+				--yep: #2eb872;
+				--nope: #e5484d;
+				--skip: #8b8f98;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: #d7dae0;
+				font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+			}
+			header.page {
+				padding: 20px 24px 8px;
+			}
+			header.page h1 {
+				margin: 0 0 4px;
+				font-size: 18px;
+				font-weight: 600;
+			}
+			header.page p {
+				margin: 0;
+				font-size: 13px;
+				color: var(--muted);
+			}
+			#capacity {
+				margin: 12px 24px 16px;
+				font-size: 13px;
+				border-collapse: collapse;
+			}
+			#capacity td,
+			#capacity th {
+				border: 1px solid #2a2d33;
+				padding: 4px 10px;
+				text-align: left;
+			}
+			#capacity th {
+				color: var(--muted);
+				font-weight: 500;
+			}
+			.row {
+				display: flex;
+				gap: 32px;
+				padding: 8px 24px 48px;
+				overflow-x: auto;
+				align-items: flex-start;
+			}
+			.mock {
+				flex: 0 0 auto;
+			}
+			.mock > .label {
+				font-size: 13px;
+				margin: 0 0 8px 2px;
+				color: var(--muted);
+			}
+			.mock > .label b {
+				color: #d7dae0;
+				font-weight: 600;
+			}
+			.mock.active > .label b {
+				color: #fff;
+			}
+			.mock.active > .label::after {
+				content: " · keyboard active";
+				color: var(--yep);
+			}
 
-  /* ---- phone frame: exact CSS-pixel dimensions ---- */
-  .phone {
-    width: 402px;
-    height: 874px;
-    background: var(--phone-bg);
-    border-radius: 48px;
-    border: 1px solid #2a2d33;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    user-select: none;
-  }
-  .inset-top {
-    height: 59px;
-    flex: 0 0 auto;
-    position: relative;
-  }
-  .island {
-    position: absolute;
-    top: 12px; left: 50%; transform: translateX(-50%);
-    width: 122px; height: 34px;
-    background: #000;
-    border-radius: 17px;
-  }
-  .inset-bottom {
-    height: 34px;
-    flex: 0 0 auto;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .home-indicator {
-    width: 140px; height: 5px; border-radius: 3px; background: #3a3d44;
-  }
-  .app {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    padding: 6px 16px 0;
-    min-height: 0;
-  }
-  .app-header {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding: 4px 2px 10px;
-  }
-  .app-header .project { font-size: 15px; font-weight: 600; color: #eceef2; }
-  .app-header .count { font-size: 13px; color: var(--muted); }
-  .branch-line {
-    display: none;
-    flex: 0 0 auto;
-    font-size: 12px;
-    color: var(--muted);
-    padding: 0 2px 10px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .deck {
-    flex: 1 1 auto;
-    position: relative;
-    min-height: 0;
-  }
-  .card-behind {
-    position: absolute;
-    inset: 8px 10px auto;
-    height: 24px;
-    background: #22242a;
-    border-radius: 20px 20px 0 0;
-  }
-  .card {
-    position: absolute;
-    inset: 20px 0 0;
-    background: var(--card-bg);
-    color: var(--card-text);
-    border-radius: 20px;
-    padding: 22px 22px 12px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    touch-action: none;
-    cursor: grab;
-    will-change: transform;
-  }
-  .card.dragging { cursor: grabbing; }
-  .card.springing { transition: transform 0.25s ease; }
-  .card.flying { transition: transform 0.3s ease-in, opacity 0.3s ease-in; opacity: 0; }
-  .card.overflowing { outline: 3px solid var(--nope); }
-  .card .title {
-    font-size: 21px;
-    line-height: 1.25;
-    font-weight: 700;
-    margin: 0 0 12px;
-    flex: 0 0 auto;
-  }
-  .card .body {
-    font-size: 16px;
-    line-height: 1.45;
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: hidden;
-  }
-  .card .body p { margin: 0 0 10px; }
-  .card .body ul { margin: 0 0 10px; padding-left: 22px; }
-  .card .body li { margin: 0 0 4px; }
-  .card .body code {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 0.88em;
-    background: #f0f1f4;
-    border-radius: 4px;
-    padding: 1px 5px;
-  }
-  .card .charcount {
-    flex: 0 0 auto;
-    font-size: 11px;
-    color: #a0a5ae;
-    text-align: right;
-    padding-top: 6px;
-    font-variant-numeric: tabular-nums;
-  }
-  .card .charcount .over { color: var(--nope); font-weight: 600; }
-  .stamp {
-    position: absolute;
-    top: 44px;
-    font-size: 40px;
-    font-weight: 800;
-    letter-spacing: 2px;
-    padding: 4px 16px;
-    border: 4px solid;
-    border-radius: 10px;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .stamp.yep  { color: var(--yep);  border-color: var(--yep);  top: auto; bottom: 44px; left: 18px;  transform: rotate(-14deg); }
-  .stamp.nope { color: var(--nope); border-color: var(--nope); top: auto; bottom: 44px; right: 18px; transform: rotate(14deg); }
-  .stamp.skip {
-    color: var(--skip); border-color: var(--skip);
-    left: 50%; transform: translateX(-50%) rotate(-4deg);
-  }
-  .resolved {
-    position: absolute;
-    inset: 20px 0 0;
-    background: #1d1f24;
-    border: 1px solid #2a2d33;
-    border-radius: 20px;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .resolved h3 { margin: 0 0 6px; font-size: 17px; color: #eceef2; }
-  .resolved .item { font-size: 14px; display: flex; justify-content: space-between; gap: 12px; }
-  .resolved .item .q { color: #b9bec7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .resolved .verdict { font-weight: 700; flex: 0 0 auto; }
-  .resolved .verdict.yep { color: var(--yep); }
-  .resolved .verdict.nope { color: var(--nope); }
-  .resolved .verdict.skip { color: var(--skip); }
-  .resolved button {
-    margin-top: auto;
-    background: #2a2d33; color: #d7dae0; border: 0; border-radius: 10px;
-    padding: 10px; font-size: 14px; cursor: pointer;
-  }
-  .actions {
-    flex: 0 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 6px 6px;
-    font-size: 13px;
-  }
-  .actions button {
-    background: none;
-    border: 1.5px solid;
-    border-radius: 18px;
-    padding: 6px 18px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .actions .btn-nope { color: var(--nope); border-color: var(--nope); }
-  .actions .btn-skip { color: var(--skip); border-color: var(--skip); }
-  .actions .btn-yep  { color: var(--yep);  border-color: var(--yep); }
-  .actions button:hover { background: rgba(255,255,255,0.06); }
+			/* ---- phone frame: exact CSS-pixel dimensions ---- */
+			.phone {
+				width: 402px;
+				height: 874px;
+				background: var(--phone-bg);
+				border-radius: 48px;
+				border: 1px solid #2a2d33;
+				position: relative;
+				overflow: hidden;
+				display: flex;
+				flex-direction: column;
+				user-select: none;
+			}
+			.inset-top {
+				height: 59px;
+				flex: 0 0 auto;
+				position: relative;
+			}
+			.island {
+				position: absolute;
+				top: 12px;
+				left: 50%;
+				transform: translateX(-50%);
+				width: 122px;
+				height: 34px;
+				background: #000;
+				border-radius: 17px;
+			}
+			.inset-bottom {
+				height: 34px;
+				flex: 0 0 auto;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+			.home-indicator {
+				width: 140px;
+				height: 5px;
+				border-radius: 3px;
+				background: #3a3d44;
+			}
+			.app {
+				flex: 1 1 auto;
+				display: flex;
+				flex-direction: column;
+				padding: 6px 16px 0;
+				min-height: 0;
+			}
+			.app-header {
+				flex: 0 0 auto;
+				display: flex;
+				align-items: baseline;
+				justify-content: space-between;
+				padding: 4px 2px 10px;
+			}
+			.app-header .project {
+				font-size: 15px;
+				font-weight: 600;
+				color: #eceef2;
+			}
+			.app-header .count {
+				font-size: 13px;
+				color: var(--muted);
+			}
+			.branch-line {
+				display: none;
+				flex: 0 0 auto;
+				font-size: 12px;
+				color: var(--muted);
+				padding: 0 2px 10px;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+			.deck {
+				flex: 1 1 auto;
+				position: relative;
+				min-height: 0;
+			}
+			.card-behind {
+				position: absolute;
+				inset: 8px 10px auto;
+				height: 24px;
+				background: #22242a;
+				border-radius: 20px 20px 0 0;
+			}
+			.card {
+				position: absolute;
+				inset: 20px 0 0;
+				background: var(--card-bg);
+				color: var(--card-text);
+				border-radius: 20px;
+				padding: 22px 22px 12px;
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
+				touch-action: none;
+				cursor: grab;
+				will-change: transform;
+			}
+			.card.dragging {
+				cursor: grabbing;
+			}
+			.card.springing {
+				transition: transform 0.25s ease;
+			}
+			.card.flying {
+				transition:
+					transform 0.3s ease-in,
+					opacity 0.3s ease-in;
+				opacity: 0;
+			}
+			.card.overflowing {
+				outline: 3px solid var(--nope);
+			}
+			.card .title {
+				font-size: 21px;
+				line-height: 1.25;
+				font-weight: 700;
+				margin: 0 0 12px;
+				flex: 0 0 auto;
+			}
+			.card .body {
+				font-size: 16px;
+				line-height: 1.45;
+				flex: 1 1 auto;
+				min-height: 0;
+				overflow: hidden;
+			}
+			.card .body p {
+				margin: 0 0 10px;
+			}
+			.card .body ul {
+				margin: 0 0 10px;
+				padding-left: 22px;
+			}
+			.card .body li {
+				margin: 0 0 4px;
+			}
+			.card .body code {
+				font-family: ui-monospace, "SF Mono", Menlo, monospace;
+				font-size: 0.88em;
+				background: #f0f1f4;
+				border-radius: 4px;
+				padding: 1px 5px;
+			}
+			.card .charcount {
+				flex: 0 0 auto;
+				font-size: 11px;
+				color: #a0a5ae;
+				text-align: right;
+				padding-top: 6px;
+				font-variant-numeric: tabular-nums;
+			}
+			.card .charcount .over {
+				color: var(--nope);
+				font-weight: 600;
+			}
+			.stamp {
+				position: absolute;
+				top: 44px;
+				font-size: 40px;
+				font-weight: 800;
+				letter-spacing: 2px;
+				padding: 4px 16px;
+				border: 4px solid;
+				border-radius: 10px;
+				opacity: 0;
+				pointer-events: none;
+			}
+			.stamp.yep {
+				color: var(--yep);
+				border-color: var(--yep);
+				top: auto;
+				bottom: 44px;
+				left: 18px;
+				transform: rotate(-14deg);
+			}
+			.stamp.nope {
+				color: var(--nope);
+				border-color: var(--nope);
+				top: auto;
+				bottom: 44px;
+				right: 18px;
+				transform: rotate(14deg);
+			}
+			.stamp.skip {
+				color: var(--skip);
+				border-color: var(--skip);
+				left: 50%;
+				transform: translateX(-50%) rotate(-4deg);
+			}
+			.resolved {
+				position: absolute;
+				inset: 20px 0 0;
+				background: #1d1f24;
+				border: 1px solid #2a2d33;
+				border-radius: 20px;
+				padding: 24px;
+				display: flex;
+				flex-direction: column;
+				gap: 10px;
+			}
+			.resolved h3 {
+				margin: 0 0 6px;
+				font-size: 17px;
+				color: #eceef2;
+			}
+			.resolved .item {
+				font-size: 14px;
+				display: flex;
+				justify-content: space-between;
+				gap: 12px;
+			}
+			.resolved .item .q {
+				color: #b9bec7;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.resolved .verdict {
+				font-weight: 700;
+				flex: 0 0 auto;
+			}
+			.resolved .verdict.yep {
+				color: var(--yep);
+			}
+			.resolved .verdict.nope {
+				color: var(--nope);
+			}
+			.resolved .verdict.skip {
+				color: var(--skip);
+			}
+			.resolved button {
+				margin-top: auto;
+				background: #2a2d33;
+				color: #d7dae0;
+				border: 0;
+				border-radius: 10px;
+				padding: 10px;
+				font-size: 14px;
+				cursor: pointer;
+			}
+			.actions {
+				flex: 0 0 auto;
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 12px 6px 6px;
+				font-size: 13px;
+			}
+			.actions button {
+				background: none;
+				border: 1.5px solid;
+				border-radius: 18px;
+				padding: 6px 18px;
+				font-size: 13px;
+				font-weight: 600;
+				cursor: pointer;
+			}
+			.actions .btn-nope {
+				color: var(--nope);
+				border-color: var(--nope);
+			}
+			.actions .btn-skip {
+				color: var(--skip);
+				border-color: var(--skip);
+			}
+			.actions .btn-yep {
+				color: var(--yep);
+				border-color: var(--yep);
+			}
+			.actions button:hover {
+				background: rgba(255, 255, 255, 0.06);
+			}
 
-  /* ---- layout variants ---- */
-  .layout-b .card .title { font-size: 19px; }
-  .layout-b .card .body { font-size: 15px; line-height: 1.4; }
-  .layout-b .branch-line { display: block; }
-  .layout-c .card .title { font-size: 24px; line-height: 1.2; }
-  .layout-c .card .body { font-size: 17px; line-height: 1.5; }
-  .layout-c .app-header { display: none; }
-  .layout-c .meta-chip {
-    flex: 0 0 auto;
-    align-self: flex-start;
-    font-size: 12px;
-    color: var(--muted);
-    background: #1d1f24;
-    border-radius: 12px;
-    padding: 4px 12px;
-    margin: 0 0 12px 2px;
-  }
-  .mock:not(.layout-c) .meta-chip { display: none; }
-</style>
-</head>
-<body>
+			/* ---- layout variants ---- */
+			.layout-b .card .title {
+				font-size: 19px;
+			}
+			.layout-b .card .body {
+				font-size: 15px;
+				line-height: 1.4;
+			}
+			.layout-b .branch-line {
+				display: block;
+			}
+			.layout-c .card .title {
+				font-size: 24px;
+				line-height: 1.2;
+			}
+			.layout-c .card .body {
+				font-size: 17px;
+				line-height: 1.5;
+			}
+			.layout-c .app-header {
+				display: none;
+			}
+			.layout-c .meta-chip {
+				flex: 0 0 auto;
+				align-self: flex-start;
+				font-size: 12px;
+				color: var(--muted);
+				background: #1d1f24;
+				border-radius: 12px;
+				padding: 4px 12px;
+				margin: 0 0 12px 2px;
+			}
+			.mock:not(.layout-c) .meta-chip {
+				display: none;
+			}
+		</style>
+	</head>
+	<body>
+		<header class="page">
+			<h1>YepNope card mockups — 402×874 CSS px</h1>
+			<p>
+				Drag cards left (nope), right (yep), or down (skip) — or use the buttons, or arrow keys on the
+				last-touched phone. Char counts shown on each card; red outline and red count = body clipped. Capacity
+				table measured live by binary search.
+			</p>
+		</header>
 
-<header class="page">
-  <h1>YepNope card mockups — 402×874 CSS px</h1>
-  <p>Drag cards left (nope), right (yep), or down (skip) — or use the buttons, or arrow keys on the last-touched phone.
-     Char counts shown on each card; red outline and red count = body clipped. Capacity table measured live by binary search.</p>
-</header>
+		<table id="capacity">
+			<thead>
+				<tr>
+					<th>Layout</th>
+					<th>Title fits (chars, 1 / 2 / 3 lines)</th>
+					<th>Body capacity (chars, plain)</th>
+					<th>Body capacity (chars, list + code)</th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
 
-<table id="capacity">
-  <thead>
-    <tr><th>Layout</th><th>Title fits (chars, 1 / 2 / 3 lines)</th><th>Body capacity (chars, plain)</th><th>Body capacity (chars, list + code)</th></tr>
-  </thead>
-  <tbody></tbody>
-</table>
+		<div class="row" id="mocks"></div>
 
-<div class="row" id="mocks"></div>
+		<script>
+			"use strict";
 
-<script>
-"use strict";
+			// ---- sample deck: escalating lengths to probe the ceiling ----
+			const SAMPLES = [
+				{
+					title: "Bump Guava to 33.4 across the monorepo?",
+					body: "`fabric-core` pins 31.1 and blocks the Netty upgrade. 33.4 is source-compatible; 12 modules recompile.",
+				},
+				{
+					title: "Delete the TSLogger compatibility shim?",
+					body: "No call sites left after the SLF4J migration. It ships in the public artifact, so external consumers would break if they still reference it. Removing it now keeps the next release clean and forces stragglers to migrate.",
+				},
+				{
+					title: "Fix the double-charge bug in PaymentRetry?",
+					body: "The fix means changing the retry lock, which could cause duplicate charges if it goes wrong.\n\nContext: found while auditing the billing service in **checkout-api**. The bug fires when a webhook retries during a deploy.",
+				},
+				{
+					title: "Adopt the new error envelope in checkout-api?",
+					body: "The platform team's envelope wraps every response in `{data, error}`. Adopting it in **checkout-api** means:\n\n- rewriting 14 handlers\n- updating the OpenAPI spec\n- a coordinated deploy with the mobile team\n\nSaying yes commits us to the migration this sprint. The old shape keeps working during rollout via the `Accept-Version` header.",
+				},
+				{
+					title: "Switch the ingest pipeline to batched writes in the analytics service?",
+					body: 'While profiling the **analytics** service I found the ingest path writes one row per event, and under load that is 40% of total DB time. Batching into groups of 500 cuts write time by an order of magnitude in my benchmark.\n\nSaying yes means:\n\n- a new `BatchWriter` with a 200ms flush interval\n- events can be lost if the process dies inside a flush window\n- the `ingest_lag` metric changes meaning slightly\n\nThe loss window is the real decision: today every acked event is durable; after this an ack means "will be durable within 200ms." Kafka upstream retains 7 days, so anything lost is replayable by hand.',
+				},
+				{
+					title: "Migrate session storage from Redis to Postgres in the auth service?",
+					body: "This is the last thing blocking the Redis cluster decommission that infra asked for in the **platform-consolidation** effort. The auth service keeps sessions in Redis with a 30-day TTL; everything else already moved.\n\nSaying yes means:\n\n- a `sessions` table with an expiry index and a nightly reaper job\n- p99 session lookup goes from ~1ms to ~4ms per the spike I ran in staging\n- a dual-write migration window of one deploy cycle, then cutover\n- rollback is trivial during dual-write, painful after Redis is gone\n\nThe latency cost is real but sits well inside the 50ms auth budget. The alternative is keeping a three-node Redis cluster alive for one table, which infra will keep paging on.\n\nI ran the migration script against a staging snapshot: 2.1M sessions copied in 4 minutes with zero mismatches on verify. The reaper deletes ~70k rows/night at similar scale. Nothing else reads these keys — I checked every consumer of the Redis client in the monorepo.",
+				},
+			];
+			const PROJECT = "platform-upgrades";
 
-// ---- sample deck: escalating lengths to probe the ceiling ----
-const SAMPLES = [
-  {
-    title: "Bump Guava to 33.4 across the monorepo?",
-    body: "`fabric-core` pins 31.1 and blocks the Netty upgrade. 33.4 is source-compatible; 12 modules recompile."
-  },
-  {
-    title: "Delete the TSLogger compatibility shim?",
-    body: "No call sites left after the SLF4J migration. It ships in the public artifact, so external consumers would break if they still reference it. Removing it now keeps the next release clean and forces stragglers to migrate."
-  },
-  {
-    title: "Fix the double-charge bug in PaymentRetry?",
-    body: "The fix means changing the retry lock, which could cause duplicate charges if it goes wrong.\n\nContext: found while auditing the billing service in **checkout-api**. The bug fires when a webhook retries during a deploy."
-  },
-  {
-    title: "Adopt the new error envelope in checkout-api?",
-    body: "The platform team's envelope wraps every response in `{data, error}`. Adopting it in **checkout-api** means:\n\n- rewriting 14 handlers\n- updating the OpenAPI spec\n- a coordinated deploy with the mobile team\n\nSaying yes commits us to the migration this sprint. The old shape keeps working during rollout via the `Accept-Version` header."
-  },
-  {
-    title: "Switch the ingest pipeline to batched writes in the analytics service?",
-    body: "While profiling the **analytics** service I found the ingest path writes one row per event, and under load that is 40% of total DB time. Batching into groups of 500 cuts write time by an order of magnitude in my benchmark.\n\nSaying yes means:\n\n- a new `BatchWriter` with a 200ms flush interval\n- events can be lost if the process dies inside a flush window\n- the `ingest_lag` metric changes meaning slightly\n\nThe loss window is the real decision: today every acked event is durable; after this an ack means \"will be durable within 200ms.\" Kafka upstream retains 7 days, so anything lost is replayable by hand."
-  },
-  {
-    title: "Migrate session storage from Redis to Postgres in the auth service?",
-    body: "This is the last thing blocking the Redis cluster decommission that infra asked for in the **platform-consolidation** effort. The auth service keeps sessions in Redis with a 30-day TTL; everything else already moved.\n\nSaying yes means:\n\n- a `sessions` table with an expiry index and a nightly reaper job\n- p99 session lookup goes from ~1ms to ~4ms per the spike I ran in staging\n- a dual-write migration window of one deploy cycle, then cutover\n- rollback is trivial during dual-write, painful after Redis is gone\n\nThe latency cost is real but sits well inside the 50ms auth budget. The alternative is keeping a three-node Redis cluster alive for one table, which infra will keep paging on.\n\nI ran the migration script against a staging snapshot: 2.1M sessions copied in 4 minutes with zero mismatches on verify. The reaper deletes ~70k rows/night at similar scale. Nothing else reads these keys — I checked every consumer of the Redis client in the monorepo."
-  }
-];
-const PROJECT = "platform-upgrades";
+			// ---- minimal GFM subset: bold, code, lists, paragraphs (MVP scope) ----
+			function renderMarkdown(src) {
+				const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+				const inline = (s) =>
+					esc(s)
+						.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+						.replace(/`([^`]+)`/g, "<code>$1</code>");
+				const blocks = src.split(/\n\n+/);
+				return blocks
+					.map((block) => {
+						const lines = block.split("\n");
+						if (lines.every((l) => /^[-*] /.test(l))) {
+							return "<ul>" + lines.map((l) => "<li>" + inline(l.slice(2)) + "</li>").join("") + "</ul>";
+						}
+						return "<p>" + lines.map(inline).join("<br>") + "</p>";
+					})
+					.join("");
+			}
 
-// ---- minimal GFM subset: bold, code, lists, paragraphs (MVP scope) ----
-function renderMarkdown(src) {
-  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const inline = s => esc(s)
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
-  const blocks = src.split(/\n\n+/);
-  return blocks.map(block => {
-    const lines = block.split("\n");
-    if (lines.every(l => /^[-*] /.test(l))) {
-      return "<ul>" + lines.map(l => "<li>" + inline(l.slice(2)) + "</li>").join("") + "</ul>";
-    }
-    return "<p>" + lines.map(inline).join("<br>") + "</p>";
-  }).join("");
-}
+			// ---- layouts ----
+			const LAYOUTS = [
+				{id: "layout-a", label: "A — header + deck", note: "project + count header, 21px title, 16px body"},
+				{id: "layout-b", label: "B — dense", note: "adds branch line, 19px title, 15px body"},
+				{
+					id: "layout-c",
+					label: "C — card-forward",
+					note: "no header, project chip only, 24px title, 17px body",
+				},
+			];
 
-// ---- layouts ----
-const LAYOUTS = [
-  { id: "layout-a", label: "A — header + deck", note: "project + count header, 21px title, 16px body" },
-  { id: "layout-b", label: "B — dense", note: "adds branch line, 19px title, 15px body" },
-  { id: "layout-c", label: "C — card-forward", note: "no header, project chip only, 24px title, 17px body" }
-];
-
-function phoneTemplate(layout) {
-  return `
+			function phoneTemplate(layout) {
+				return `
   <p class="label"><b>${layout.label}</b> — ${layout.note}</p>
   <div class="phone">
     <div class="inset-top"><div class="island"></div></div>
@@ -361,213 +509,250 @@ function phoneTemplate(layout) {
     </div>
     <div class="inset-bottom"><div class="home-indicator"></div></div>
   </div>`;
-}
+			}
 
-const mocksEl = document.getElementById("mocks");
-for (const layout of LAYOUTS) {
-  const div = document.createElement("div");
-  div.className = "mock " + layout.id;
-  div.innerHTML = phoneTemplate(layout);
-  mocksEl.appendChild(div);
-}
+			const mocksEl = document.getElementById("mocks");
+			for (const layout of LAYOUTS) {
+				const div = document.createElement("div");
+				div.className = "mock " + layout.id;
+				div.innerHTML = phoneTemplate(layout);
+				mocksEl.appendChild(div);
+			}
 
-function isOverflowing(mock) {
-  const body = mock.querySelector(".body");
-  return body.scrollHeight > body.clientHeight + 1;
-}
+			function isOverflowing(mock) {
+				const body = mock.querySelector(".body");
+				return body.scrollHeight > body.clientHeight + 1;
+			}
 
-// ---- capacity measurement (runs before decks initialize, reuses the live card) ----
-const FILLER = ("The migration touches the retry lock in the billing service and " +
-  "changes how webhook retries are serialized during a deploy window. ").repeat(40);
-const FILLER_RICH_PREFIX = "The **billing service** retry lock changes:\n\n- `PaymentRetry` gains a lease\n- webhook retries serialize\n- deploys drain first\n\n";
-const TITLE_FILLER = ("Bump the shared platform dependency across every module now? ").repeat(4);
+			// ---- capacity measurement (runs before decks initialize, reuses the live card) ----
+			const FILLER = (
+				"The migration touches the retry lock in the billing service and " +
+				"changes how webhook retries are serialized during a deploy window. "
+			).repeat(40);
+			const FILLER_RICH_PREFIX =
+				"The **billing service** retry lock changes:\n\n- `PaymentRetry` gains a lease\n- webhook retries serialize\n- deploys drain first\n\n";
+			const TITLE_FILLER = "Bump the shared platform dependency across every module now? ".repeat(4);
 
-function largestFitting(hi, render, overflows) {
-  let lo = 0;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi + 1) / 2);
-    render(mid);
-    if (overflows()) hi = mid - 1; else lo = mid;
-  }
-  render(lo);
-  return lo;
-}
+			function largestFitting(hi, render, overflows) {
+				let lo = 0;
+				while (lo < hi) {
+					const mid = Math.ceil((lo + hi + 1) / 2);
+					render(mid);
+					if (overflows()) hi = mid - 1;
+					else lo = mid;
+				}
+				render(lo);
+				return lo;
+			}
 
-function measure() {
-  const tbody = document.querySelector("#capacity tbody");
-  for (const layout of LAYOUTS) {
-    const mock = document.querySelector(".mock." + layout.id);
-    const bodyEl = mock.querySelector(".body");
-    const titleEl = mock.querySelector(".title");
+			function measure() {
+				const tbody = document.querySelector("#capacity tbody");
+				for (const layout of LAYOUTS) {
+					const mock = document.querySelector(".mock." + layout.id);
+					const bodyEl = mock.querySelector(".body");
+					const titleEl = mock.querySelector(".title");
 
-    const lineHeight = () => parseFloat(getComputedStyle(titleEl).lineHeight);
-    const titleFits = lines => largestFitting(TITLE_FILLER.length,
-      n => { titleEl.textContent = TITLE_FILLER.slice(0, n); },
-      () => titleEl.scrollHeight > lineHeight() * lines + 2);
+					const lineHeight = () => parseFloat(getComputedStyle(titleEl).lineHeight);
+					const titleFits = (lines) =>
+						largestFitting(
+							TITLE_FILLER.length,
+							(n) => {
+								titleEl.textContent = TITLE_FILLER.slice(0, n);
+							},
+							() => titleEl.scrollHeight > lineHeight() * lines + 2,
+						);
 
-    const one = titleFits(1), two = titleFits(2), three = titleFits(3);
+					const one = titleFits(1),
+						two = titleFits(2),
+						three = titleFits(3);
 
-    titleEl.textContent = SAMPLES[0].title;
-    const plain = largestFitting(4000,
-      n => { bodyEl.innerHTML = renderMarkdown(FILLER.slice(0, n)); },
-      () => isOverflowing(mock));
-    const rich = largestFitting(4000,
-      n => {
-        const src = n <= FILLER_RICH_PREFIX.length
-          ? FILLER_RICH_PREFIX.slice(0, n)
-          : FILLER_RICH_PREFIX + FILLER.slice(0, n - FILLER_RICH_PREFIX.length);
-        bodyEl.innerHTML = renderMarkdown(src);
-      },
-      () => isOverflowing(mock));
+					titleEl.textContent = SAMPLES[0].title;
+					const plain = largestFitting(
+						4000,
+						(n) => {
+							bodyEl.innerHTML = renderMarkdown(FILLER.slice(0, n));
+						},
+						() => isOverflowing(mock),
+					);
+					const rich = largestFitting(
+						4000,
+						(n) => {
+							const src =
+								n <= FILLER_RICH_PREFIX.length
+									? FILLER_RICH_PREFIX.slice(0, n)
+									: FILLER_RICH_PREFIX + FILLER.slice(0, n - FILLER_RICH_PREFIX.length);
+							bodyEl.innerHTML = renderMarkdown(src);
+						},
+						() => isOverflowing(mock),
+					);
 
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${layout.label}</td><td>${one} / ${two} / ${three}</td><td>${plain}</td><td>${rich}</td>`;
-    tbody.appendChild(tr);
-  }
-}
+					const tr = document.createElement("tr");
+					tr.innerHTML = `<td>${layout.label}</td><td>${one} / ${two} / ${three}</td><td>${plain}</td><td>${rich}</td>`;
+					tbody.appendChild(tr);
+				}
+			}
 
-// ---- interactive deck ----
-const COMMIT_X = 100;
-const COMMIT_Y = 110;
-let activeMock = null;
+			// ---- interactive deck ----
+			const COMMIT_X = 100;
+			const COMMIT_Y = 110;
+			let activeMock = null;
 
-function setActiveMock(mock) {
-  if (activeMock === mock) return;
-  document.querySelectorAll(".mock").forEach(m => m.classList.remove("active"));
-  mock.classList.add("active");
-  activeMock = mock;
-}
+			function setActiveMock(mock) {
+				if (activeMock === mock) return;
+				document.querySelectorAll(".mock").forEach((m) => m.classList.remove("active"));
+				mock.classList.add("active");
+				activeMock = mock;
+			}
 
-function initDeck(mock) {
-  const card = mock.querySelector(".card");
-  const deck = mock.querySelector(".deck");
-  const state = { i: 0, answers: [] };
+			function initDeck(mock) {
+				const card = mock.querySelector(".card");
+				const deck = mock.querySelector(".deck");
+				const state = {i: 0, answers: []};
 
-  const stamps = {
-    yep: card.querySelector(".stamp.yep"),
-    nope: card.querySelector(".stamp.nope"),
-    skip: card.querySelector(".stamp.skip")
-  };
+				const stamps = {
+					yep: card.querySelector(".stamp.yep"),
+					nope: card.querySelector(".stamp.nope"),
+					skip: card.querySelector(".stamp.skip"),
+				};
 
-  function setStamps(yep, nope, skip) {
-    stamps.yep.style.opacity = yep;
-    stamps.nope.style.opacity = nope;
-    stamps.skip.style.opacity = skip;
-  }
+				function setStamps(yep, nope, skip) {
+					stamps.yep.style.opacity = yep;
+					stamps.nope.style.opacity = nope;
+					stamps.skip.style.opacity = skip;
+				}
 
-  function render() {
-    const q = SAMPLES[state.i];
-    card.style.transform = "";
-    card.classList.remove("flying", "springing", "dragging");
-    setStamps(0, 0, 0);
-    mock.querySelector(".count").textContent = `${state.i + 1} of ${SAMPLES.length}`;
-    mock.querySelector(".meta-chip").textContent = `${PROJECT} · ${state.i + 1} of ${SAMPLES.length}`;
-    card.querySelector(".title").textContent = q.title;
-    card.querySelector(".body").innerHTML = renderMarkdown(q.body);
-    mock.querySelector(".card-behind").style.visibility =
-      state.i < SAMPLES.length - 1 ? "visible" : "hidden";
-    const over = isOverflowing(mock);
-    card.classList.toggle("overflowing", over);
-    card.querySelector(".charcount").innerHTML =
-      `title ${q.title.length} ch · body <span class="${over ? "over" : ""}">${q.body.length} ch${over ? " — clipped" : ""}</span>`;
-  }
+				function render() {
+					const q = SAMPLES[state.i];
+					card.style.transform = "";
+					card.classList.remove("flying", "springing", "dragging");
+					setStamps(0, 0, 0);
+					mock.querySelector(".count").textContent = `${state.i + 1} of ${SAMPLES.length}`;
+					mock.querySelector(".meta-chip").textContent = `${PROJECT} · ${state.i + 1} of ${SAMPLES.length}`;
+					card.querySelector(".title").textContent = q.title;
+					card.querySelector(".body").innerHTML = renderMarkdown(q.body);
+					mock.querySelector(".card-behind").style.visibility =
+						state.i < SAMPLES.length - 1 ? "visible" : "hidden";
+					const over = isOverflowing(mock);
+					card.classList.toggle("overflowing", over);
+					card.querySelector(".charcount").innerHTML =
+						`title ${q.title.length} ch · body <span class="${over ? "over" : ""}">${q.body.length} ch${over ? " — clipped" : ""}</span>`;
+				}
 
-  function showResolved() {
-    card.style.display = "none";
-    mock.querySelector(".card-behind").style.visibility = "hidden";
-    const panel = document.createElement("div");
-    panel.className = "resolved";
-    panel.innerHTML = "<h3>Batch resolved — agent unblocked</h3>" +
-      state.answers.map((a, i) =>
-        `<div class="item"><span class="q">${SAMPLES[i].title}</span>` +
-        `<span class="verdict ${a}">${a.toUpperCase()}</span></div>`).join("") +
-      `<button>Reset deck</button>`;
-    panel.querySelector("button").addEventListener("click", () => {
-      panel.remove();
-      state.i = 0;
-      state.answers = [];
-      card.style.display = "";
-      render();
-    });
-    deck.appendChild(panel);
-  }
+				function showResolved() {
+					card.style.display = "none";
+					mock.querySelector(".card-behind").style.visibility = "hidden";
+					const panel = document.createElement("div");
+					panel.className = "resolved";
+					panel.innerHTML =
+						"<h3>Batch resolved — agent unblocked</h3>" +
+						state.answers
+							.map(
+								(a, i) =>
+									`<div class="item"><span class="q">${SAMPLES[i].title}</span>` +
+									`<span class="verdict ${a}">${a.toUpperCase()}</span></div>`,
+							)
+							.join("") +
+						`<button>Reset deck</button>`;
+					panel.querySelector("button").addEventListener("click", () => {
+						panel.remove();
+						state.i = 0;
+						state.answers = [];
+						card.style.display = "";
+						render();
+					});
+					deck.appendChild(panel);
+				}
 
-  function commit(answer) {
-    if (card.style.display === "none" || card.classList.contains("flying")) return;
-    state.answers.push(answer);
-    const fly = { yep: "translate(600px, -40px) rotate(20deg)",
-                  nope: "translate(-600px, -40px) rotate(-20deg)",
-                  skip: "translate(0, 700px) rotate(4deg)" }[answer];
-    setStamps(answer === "yep" ? 1 : 0, answer === "nope" ? 1 : 0, answer === "skip" ? 1 : 0);
-    card.classList.remove("dragging", "springing");
-    card.classList.add("flying");
-    card.style.transform = fly;
-    setTimeout(() => {
-      card.style.opacity = "";
-      if (state.i + 1 >= SAMPLES.length) { showResolved(); return; }
-      state.i += 1;
-      render();
-    }, 300);
-  }
+				function commit(answer) {
+					if (card.style.display === "none" || card.classList.contains("flying")) return;
+					state.answers.push(answer);
+					const fly = {
+						yep: "translate(600px, -40px) rotate(20deg)",
+						nope: "translate(-600px, -40px) rotate(-20deg)",
+						skip: "translate(0, 700px) rotate(4deg)",
+					}[answer];
+					setStamps(answer === "yep" ? 1 : 0, answer === "nope" ? 1 : 0, answer === "skip" ? 1 : 0);
+					card.classList.remove("dragging", "springing");
+					card.classList.add("flying");
+					card.style.transform = fly;
+					setTimeout(() => {
+						card.style.opacity = "";
+						if (state.i + 1 >= SAMPLES.length) {
+							showResolved();
+							return;
+						}
+						state.i += 1;
+						render();
+					}, 300);
+				}
 
-  // drag
-  let drag = null;
-  card.addEventListener("pointerdown", e => {
-    if (card.classList.contains("flying")) return;
-    setActiveMock(mock);
-    drag = { x: e.clientX, y: e.clientY };
-    card.classList.add("dragging");
-    card.classList.remove("springing");
-    card.setPointerCapture(e.pointerId);
-  });
-  card.addEventListener("pointermove", e => {
-    if (!drag) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
-    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx * 0.05}deg)`;
-    const vertical = dy > 0 && dy > Math.abs(dx);
-    setStamps(
-      !vertical && dx > 0 ? Math.min(1, dx / 80) : 0,
-      !vertical && dx < 0 ? Math.min(1, -dx / 80) : 0,
-      vertical ? Math.min(1, dy / 90) : 0
-    );
-  });
-  card.addEventListener("pointerup", e => {
-    if (!drag) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
-    drag = null;
-    card.classList.remove("dragging");
-    const vertical = dy > 0 && dy > Math.abs(dx);
-    if (!vertical && dx > COMMIT_X) commit("yep");
-    else if (!vertical && dx < -COMMIT_X) commit("nope");
-    else if (vertical && dy > COMMIT_Y) commit("skip");
-    else {
-      card.classList.add("springing");
-      card.style.transform = "";
-      setStamps(0, 0, 0);
-    }
-  });
+				// drag
+				let drag = null;
+				card.addEventListener("pointerdown", (e) => {
+					if (card.classList.contains("flying")) return;
+					setActiveMock(mock);
+					drag = {x: e.clientX, y: e.clientY};
+					card.classList.add("dragging");
+					card.classList.remove("springing");
+					card.setPointerCapture(e.pointerId);
+				});
+				card.addEventListener("pointermove", (e) => {
+					if (!drag) return;
+					const dx = e.clientX - drag.x;
+					const dy = e.clientY - drag.y;
+					card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx * 0.05}deg)`;
+					const vertical = dy > 0 && dy > Math.abs(dx);
+					setStamps(
+						!vertical && dx > 0 ? Math.min(1, dx / 80) : 0,
+						!vertical && dx < 0 ? Math.min(1, -dx / 80) : 0,
+						vertical ? Math.min(1, dy / 90) : 0,
+					);
+				});
+				card.addEventListener("pointerup", (e) => {
+					if (!drag) return;
+					const dx = e.clientX - drag.x;
+					const dy = e.clientY - drag.y;
+					drag = null;
+					card.classList.remove("dragging");
+					const vertical = dy > 0 && dy > Math.abs(dx);
+					if (!vertical && dx > COMMIT_X) commit("yep");
+					else if (!vertical && dx < -COMMIT_X) commit("nope");
+					else if (vertical && dy > COMMIT_Y) commit("skip");
+					else {
+						card.classList.add("springing");
+						card.style.transform = "";
+						setStamps(0, 0, 0);
+					}
+				});
 
-  mock.querySelector(".btn-yep").addEventListener("click", () => { setActiveMock(mock); commit("yep"); });
-  mock.querySelector(".btn-nope").addEventListener("click", () => { setActiveMock(mock); commit("nope"); });
-  mock.querySelector(".btn-skip").addEventListener("click", () => { setActiveMock(mock); commit("skip"); });
+				mock.querySelector(".btn-yep").addEventListener("click", () => {
+					setActiveMock(mock);
+					commit("yep");
+				});
+				mock.querySelector(".btn-nope").addEventListener("click", () => {
+					setActiveMock(mock);
+					commit("nope");
+				});
+				mock.querySelector(".btn-skip").addEventListener("click", () => {
+					setActiveMock(mock);
+					commit("skip");
+				});
 
-  mock._commit = commit;
-  render();
-}
+				mock._commit = commit;
+				render();
+			}
 
-measure();
-document.querySelectorAll(".mock").forEach(initDeck);
-setActiveMock(document.querySelector(".mock"));
+			measure();
+			document.querySelectorAll(".mock").forEach(initDeck);
+			setActiveMock(document.querySelector(".mock"));
 
-document.addEventListener("keydown", e => {
-  if (!activeMock) return;
-  const key = { ArrowRight: "yep", ArrowLeft: "nope", ArrowDown: "skip" }[e.key];
-  if (!key) return;
-  e.preventDefault();
-  activeMock._commit(key);
-});
-</script>
-</body>
+			document.addEventListener("keydown", (e) => {
+				if (!activeMock) return;
+				const key = {ArrowRight: "yep", ArrowLeft: "nope", ArrowDown: "skip"}[e.key];
+				if (!key) return;
+				e.preventDefault();
+				activeMock._commit(key);
+			});
+		</script>
+	</body>
 </html>

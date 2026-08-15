@@ -1,0 +1,58 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "07:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 25
+    cooldown:
+      default-days: 7
+    labels:
+      - "dependencies"
+    groups:
+      typescript-ecosystem:
+        patterns:
+          - "typescript"
+      vite-ecosystem:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+      testing:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "@testing-library/*"
+          - "playwright"
+      react-ecosystem:
+        patterns:
+          - "react"
+          - "@types/react*"
+          - "react-*"
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+      firebase:
+        patterns:
+          - "firebase"
+          - "firebase-*"
+          - "react-firebase-*"
+    commit-message:
+      prefix: "dependabot"
+      include: "scope"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "07:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 25
+    cooldown:
+      default-days: 7
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "dependabot"
+      include: "scope"
