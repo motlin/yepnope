@@ -11,6 +11,7 @@
     --card-bg: #ffffff;
     --card-text: #16181d;
     --muted: #7b818c;
+    --yep: #2eb872;
     --nope: #e5484d;
     --skip: #8b8f98;
   }
@@ -27,7 +28,7 @@
   header.page h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
   header.page p { margin: 0; font-size: 13px; color: var(--muted); }
   #capacity {
-    margin: 12px 24px 4px;
+    margin: 12px 24px 16px;
     font-size: 13px;
     border-collapse: collapse;
   }
@@ -37,11 +38,6 @@
     text-align: left;
   }
   #capacity th { color: var(--muted); font-weight: 500; }
-  .controls { margin: 8px 24px 16px; font-size: 13px; }
-  .controls select {
-    background: #1d1f24; color: #d7dae0; border: 1px solid #2a2d33;
-    border-radius: 6px; padding: 4px 8px; font-size: 13px;
-  }
   .row {
     display: flex;
     gap: 32px;
@@ -56,6 +52,8 @@
     color: var(--muted);
   }
   .mock > .label b { color: #d7dae0; font-weight: 600; }
+  .mock.active > .label b { color: #fff; }
+  .mock.active > .label::after { content: " · keyboard active"; color: var(--yep); }
 
   /* ---- phone frame: exact CSS-pixel dimensions ---- */
   .phone {
@@ -68,6 +66,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    user-select: none;
   }
   .inset-top {
     height: 59px;
@@ -131,11 +130,17 @@
     background: var(--card-bg);
     color: var(--card-text);
     border-radius: 20px;
-    padding: 22px 22px 18px;
+    padding: 22px 22px 12px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    touch-action: none;
+    cursor: grab;
+    will-change: transform;
   }
+  .card.dragging { cursor: grabbing; }
+  .card.springing { transition: transform 0.25s ease; }
+  .card.flying { transition: transform 0.3s ease-in, opacity 0.3s ease-in; opacity: 0; }
   .card.overflowing { outline: 3px solid var(--nope); }
   .card .title {
     font-size: 21px;
@@ -161,23 +166,83 @@
     border-radius: 4px;
     padding: 1px 5px;
   }
-  .swipe-hints {
+  .card .charcount {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: #a0a5ae;
+    text-align: right;
+    padding-top: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .card .charcount .over { color: var(--nope); font-weight: 600; }
+  .stamp {
+    position: absolute;
+    top: 44px;
+    font-size: 40px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    padding: 4px 16px;
+    border: 4px solid;
+    border-radius: 10px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .stamp.yep  { color: var(--yep);  border-color: var(--yep);  left: 18px;  transform: rotate(-14deg); }
+  .stamp.nope { color: var(--nope); border-color: var(--nope); right: 18px; transform: rotate(14deg); }
+  .stamp.skip {
+    color: var(--skip); border-color: var(--skip);
+    top: auto; bottom: 44px; left: 50%; transform: translateX(-50%) rotate(-4deg);
+  }
+  .resolved {
+    position: absolute;
+    inset: 20px 0 0;
+    background: #1d1f24;
+    border: 1px solid #2a2d33;
+    border-radius: 20px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .resolved h3 { margin: 0 0 6px; font-size: 17px; color: #eceef2; }
+  .resolved .item { font-size: 14px; display: flex; justify-content: space-between; gap: 12px; }
+  .resolved .item .q { color: #b9bec7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .resolved .verdict { font-weight: 700; flex: 0 0 auto; }
+  .resolved .verdict.yep { color: var(--yep); }
+  .resolved .verdict.nope { color: var(--nope); }
+  .resolved .verdict.skip { color: var(--skip); }
+  .resolved button {
+    margin-top: auto;
+    background: #2a2d33; color: #d7dae0; border: 0; border-radius: 10px;
+    padding: 10px; font-size: 14px; cursor: pointer;
+  }
+  .actions {
     flex: 0 0 auto;
     display: flex;
     justify-content: space-between;
+    align-items: center;
     padding: 12px 6px 6px;
-    font-size: 12px;
-    color: var(--muted);
+    font-size: 13px;
   }
-  .swipe-hints .skip { color: var(--skip); }
+  .actions button {
+    background: none;
+    border: 1.5px solid;
+    border-radius: 18px;
+    padding: 6px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .actions .btn-nope { color: var(--nope); border-color: var(--nope); }
+  .actions .btn-skip { color: var(--skip); border-color: var(--skip); }
+  .actions .btn-yep  { color: var(--yep);  border-color: var(--yep); }
+  .actions button:hover { background: rgba(255,255,255,0.06); }
 
   /* ---- layout variants ---- */
   .layout-b .card .title { font-size: 19px; }
   .layout-b .card .body { font-size: 15px; line-height: 1.4; }
   .layout-b .branch-line { display: block; }
-  .layout-c .card .title {
-    font-size: 24px; line-height: 1.2;
-  }
+  .layout-c .card .title { font-size: 24px; line-height: 1.2; }
   .layout-c .card .body { font-size: 17px; line-height: 1.5; }
   .layout-c .app-header { display: none; }
   .layout-c .meta-chip {
@@ -197,49 +262,50 @@
 
 <header class="page">
   <h1>YepNope card mockups — 402×874 CSS px</h1>
-  <p>Red outline = content overflows the card. Capacity table below is measured live by binary search per layout.</p>
+  <p>Drag cards left (nope), right (yep), or down (skip) — or use the buttons, or arrow keys on the last-touched phone.
+     Char counts shown on each card; red outline and red count = body clipped. Capacity table measured live by binary search.</p>
 </header>
 
 <table id="capacity">
   <thead>
-    <tr><th>Layout</th><th>Title fits (chars, 1 line / 2 lines)</th><th>Body capacity (chars, plain)</th><th>Body capacity (chars, with list + code)</th></tr>
+    <tr><th>Layout</th><th>Title fits (chars, 1 / 2 / 3 lines)</th><th>Body capacity (chars, plain)</th><th>Body capacity (chars, list + code)</th></tr>
   </thead>
   <tbody></tbody>
 </table>
-
-<div class="controls">
-  Sample question:
-  <select id="sample"></select>
-</div>
 
 <div class="row" id="mocks"></div>
 
 <script>
 "use strict";
 
-// ---- sample questions (real lengths, from the spec's own examples) ----
+// ---- sample deck: escalating lengths to probe the ceiling ----
 const SAMPLES = [
   {
-    name: "Short (Guava bump)",
     title: "Bump Guava to 33.4 across the monorepo?",
     body: "`fabric-core` pins 31.1 and blocks the Netty upgrade. 33.4 is source-compatible; 12 modules recompile."
   },
   {
-    name: "Medium (TSLogger shim)",
     title: "Delete the TSLogger compatibility shim?",
     body: "No call sites left after the SLF4J migration. It ships in the public artifact, so external consumers would break if they still reference it. Removing it now keeps the next release clean and forces stragglers to migrate."
   },
   {
-    name: "Risky (PaymentRetry)",
     title: "Fix the double-charge bug in PaymentRetry?",
     body: "The fix means changing the retry lock, which could cause duplicate charges if it goes wrong.\n\nContext: found while auditing the billing service in **checkout-api**. The bug fires when a webhook retries during a deploy."
   },
   {
-    name: "Long (markdown-heavy)",
     title: "Adopt the new error envelope in checkout-api?",
     body: "The platform team's envelope wraps every response in `{data, error}`. Adopting it in **checkout-api** means:\n\n- rewriting 14 handlers\n- updating the OpenAPI spec\n- a coordinated deploy with the mobile team\n\nSaying yes commits us to the migration this sprint. The old shape keeps working during rollout via the `Accept-Version` header."
+  },
+  {
+    title: "Switch the ingest pipeline to batched writes in the analytics service?",
+    body: "While profiling the **analytics** service I found the ingest path writes one row per event, and under load that is 40% of total DB time. Batching into groups of 500 cuts write time by an order of magnitude in my benchmark.\n\nSaying yes means:\n\n- a new `BatchWriter` with a 200ms flush interval\n- events can be lost if the process dies inside a flush window\n- the `ingest_lag` metric changes meaning slightly\n\nThe loss window is the real decision: today every acked event is durable; after this an ack means \"will be durable within 200ms.\" Kafka upstream retains 7 days, so anything lost is replayable by hand."
+  },
+  {
+    title: "Migrate session storage from Redis to Postgres in the auth service?",
+    body: "This is the last thing blocking the Redis cluster decommission that infra asked for in the **platform-consolidation** effort. The auth service keeps sessions in Redis with a 30-day TTL; everything else already moved.\n\nSaying yes means:\n\n- a `sessions` table with an expiry index and a nightly reaper job\n- p99 session lookup goes from ~1ms to ~4ms per the spike I ran in staging\n- a dual-write migration window of one deploy cycle, then cutover\n- rollback is trivial during dual-write, painful after Redis is gone\n\nThe latency cost is real but sits well inside the 50ms auth budget. The alternative is keeping a three-node Redis cluster alive for one table, which infra will keep paging on.\n\nI ran the migration script against a staging snapshot: 2.1M sessions copied in 4 minutes with zero mismatches on verify. The reaper deletes ~70k rows/night at similar scale. Nothing else reads these keys — I checked every consumer of the Redis client in the monorepo."
   }
 ];
+const PROJECT = "platform-upgrades";
 
 // ---- minimal GFM subset: bold, code, lists, paragraphs (MVP scope) ----
 function renderMarkdown(src) {
@@ -259,21 +325,9 @@ function renderMarkdown(src) {
 
 // ---- layouts ----
 const LAYOUTS = [
-  {
-    id: "layout-a",
-    label: "A — header + deck",
-    note: "project + count header, no branch line, 21px title"
-  },
-  {
-    id: "layout-b",
-    label: "B — dense",
-    note: "adds branch line, 19px title, 15px body"
-  },
-  {
-    id: "layout-c",
-    label: "C — card-forward",
-    note: "no header, project chip only, 24px title, 17px body"
-  }
+  { id: "layout-a", label: "A — header + deck", note: "project + count header, 21px title, 16px body" },
+  { id: "layout-b", label: "B — dense", note: "adds branch line, 19px title, 15px body" },
+  { id: "layout-c", label: "C — card-forward", note: "no header, project chip only, 24px title, 17px body" }
 ];
 
 function phoneTemplate(layout) {
@@ -283,22 +337,26 @@ function phoneTemplate(layout) {
     <div class="inset-top"><div class="island"></div></div>
     <div class="app">
       <div class="app-header">
-        <span class="project">platform-upgrades</span>
-        <span class="count">2 of 12</span>
+        <span class="project">${PROJECT}</span>
+        <span class="count"></span>
       </div>
       <div class="branch-line">fabric · craig/guava-33</div>
-      <div class="meta-chip">platform-upgrades · 2 of 12</div>
+      <div class="meta-chip"></div>
       <div class="deck">
         <div class="card-behind"></div>
         <div class="card">
           <h2 class="title"></h2>
           <div class="body"></div>
+          <div class="charcount"></div>
+          <div class="stamp yep">YEP</div>
+          <div class="stamp nope">NOPE</div>
+          <div class="stamp skip">SKIP</div>
         </div>
       </div>
-      <div class="swipe-hints">
-        <span>&larr; nope</span>
-        <span class="skip">&darr; skip</span>
-        <span>yep &rarr;</span>
+      <div class="actions">
+        <button class="btn-nope">&larr; Nope</button>
+        <button class="btn-skip">&darr; Skip</button>
+        <button class="btn-yep">Yep &rarr;</button>
       </div>
     </div>
     <div class="inset-bottom"><div class="home-indicator"></div></div>
@@ -313,101 +371,203 @@ for (const layout of LAYOUTS) {
   mocksEl.appendChild(div);
 }
 
-const sampleSel = document.getElementById("sample");
-SAMPLES.forEach((s, i) => {
-  const opt = document.createElement("option");
-  opt.value = i;
-  opt.textContent = `${s.name} — title ${s.title.length}ch, body ${s.body.length}ch`;
-  sampleSel.appendChild(opt);
-});
-
-function setCard(mock, title, bodyMarkdown) {
-  mock.querySelector(".title").textContent = title;
-  mock.querySelector(".body").innerHTML = renderMarkdown(bodyMarkdown);
-}
-
 function isOverflowing(mock) {
-  const card = mock.querySelector(".card");
   const body = mock.querySelector(".body");
-  return body.scrollHeight > body.clientHeight + 1 || card.scrollHeight > card.clientHeight + 1;
+  return body.scrollHeight > body.clientHeight + 1;
 }
 
-function applySample() {
-  const s = SAMPLES[Number(sampleSel.value)];
-  for (const mock of document.querySelectorAll(".mock")) {
-    setCard(mock, s.title, s.body);
-    mock.querySelector(".card").classList.toggle("overflowing", isOverflowing(mock));
-  }
-}
-sampleSel.addEventListener("change", applySample);
-
-// ---- capacity measurement ----
-// Realistic filler: prose with typical word lengths, sliced to n chars.
+// ---- capacity measurement (runs before decks initialize, reuses the live card) ----
 const FILLER = ("The migration touches the retry lock in the billing service and " +
   "changes how webhook retries are serialized during a deploy window. ").repeat(40);
-const RICH_PREFIX = "The **billing service** retry lock changes:\n\n- `PaymentRetry` gains a lease\n- webhook retries serialize\n- deploys drain first\n\n";
-const TITLE_FILLER = "Bump the shared platform dependency across every module now? " +
-  "Bump the shared platform dependency across every module now?";
-const MAX_BODY_CHARS = 4000;
+const FILLER_RICH_PREFIX = "The **billing service** retry lock changes:\n\n- `PaymentRetry` gains a lease\n- webhook retries serialize\n- deploys drain first\n\n";
+const TITLE_FILLER = ("Bump the shared platform dependency across every module now? ").repeat(4);
 
-function plainFiller(n) {
-  return FILLER.slice(0, n);
-}
-
-function richFiller(n) {
-  if (n <= RICH_PREFIX.length) return RICH_PREFIX.slice(0, n);
-  return RICH_PREFIX + FILLER.slice(0, n - RICH_PREFIX.length);
-}
-
-// Largest n in [0, max] for which fitsAt(n) is true. fitsAt renders n, then measures.
-function largestFitting(max, fitsAt) {
-  let lo = 0, hi = max;
+function largestFitting(hi, render, overflows) {
+  let lo = 0;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi + 1) / 2);
-    if (fitsAt(mid)) lo = mid; else hi = mid - 1;
+    render(mid);
+    if (overflows()) hi = mid - 1; else lo = mid;
   }
+  render(lo);
   return lo;
-}
-
-function titleCapacity(mock, lines) {
-  const titleEl = mock.querySelector(".title");
-  const maxHeight = parseFloat(getComputedStyle(titleEl).lineHeight) * lines + 2;
-  return largestFitting(TITLE_FILLER.length, n => {
-    titleEl.textContent = TITLE_FILLER.slice(0, n);
-    return titleEl.scrollHeight <= maxHeight;
-  });
-}
-
-function bodyCapacity(mock, filler) {
-  const bodyEl = mock.querySelector(".body");
-  return largestFitting(MAX_BODY_CHARS, n => {
-    bodyEl.innerHTML = renderMarkdown(filler(n));
-    return !isOverflowing(mock);
-  });
 }
 
 function measure() {
   const tbody = document.querySelector("#capacity tbody");
-  tbody.innerHTML = "";
-  const referenceTitle = SAMPLES[0].title;
   for (const layout of LAYOUTS) {
     const mock = document.querySelector(".mock." + layout.id);
+    const bodyEl = mock.querySelector(".body");
+    const titleEl = mock.querySelector(".title");
 
-    const oneLine = titleCapacity(mock, 1);
-    const twoLines = titleCapacity(mock, 2);
+    const lineHeight = () => parseFloat(getComputedStyle(titleEl).lineHeight);
+    const titleFits = lines => largestFitting(TITLE_FILLER.length,
+      n => { titleEl.textContent = TITLE_FILLER.slice(0, n); },
+      () => titleEl.scrollHeight > lineHeight() * lines + 2);
 
-    mock.querySelector(".title").textContent = referenceTitle;
-    const plain = bodyCapacity(mock, plainFiller);
-    const rich = bodyCapacity(mock, richFiller);
+    const one = titleFits(1), two = titleFits(2), three = titleFits(3);
+
+    titleEl.textContent = SAMPLES[0].title;
+    const plain = largestFitting(4000,
+      n => { bodyEl.innerHTML = renderMarkdown(FILLER.slice(0, n)); },
+      () => isOverflowing(mock));
+    const rich = largestFitting(4000,
+      n => {
+        const src = n <= FILLER_RICH_PREFIX.length
+          ? FILLER_RICH_PREFIX.slice(0, n)
+          : FILLER_RICH_PREFIX + FILLER.slice(0, n - FILLER_RICH_PREFIX.length);
+        bodyEl.innerHTML = renderMarkdown(src);
+      },
+      () => isOverflowing(mock));
 
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${layout.label}</td><td>${oneLine} / ${twoLines}</td><td>${plain}</td><td>${rich}</td>`;
+    tr.innerHTML = `<td>${layout.label}</td><td>${one} / ${two} / ${three}</td><td>${plain}</td><td>${rich}</td>`;
     tbody.appendChild(tr);
   }
-  applySample();
+}
+
+// ---- interactive deck ----
+const COMMIT_X = 100;
+const COMMIT_Y = 110;
+let activeMock = null;
+
+function setActiveMock(mock) {
+  if (activeMock === mock) return;
+  document.querySelectorAll(".mock").forEach(m => m.classList.remove("active"));
+  mock.classList.add("active");
+  activeMock = mock;
+}
+
+function initDeck(mock) {
+  const card = mock.querySelector(".card");
+  const deck = mock.querySelector(".deck");
+  const state = { i: 0, answers: [] };
+
+  const stamps = {
+    yep: card.querySelector(".stamp.yep"),
+    nope: card.querySelector(".stamp.nope"),
+    skip: card.querySelector(".stamp.skip")
+  };
+
+  function setStamps(yep, nope, skip) {
+    stamps.yep.style.opacity = yep;
+    stamps.nope.style.opacity = nope;
+    stamps.skip.style.opacity = skip;
+  }
+
+  function render() {
+    const q = SAMPLES[state.i];
+    card.style.transform = "";
+    card.classList.remove("flying", "springing", "dragging");
+    setStamps(0, 0, 0);
+    mock.querySelector(".count").textContent = `${state.i + 1} of ${SAMPLES.length}`;
+    mock.querySelector(".meta-chip").textContent = `${PROJECT} · ${state.i + 1} of ${SAMPLES.length}`;
+    card.querySelector(".title").textContent = q.title;
+    card.querySelector(".body").innerHTML = renderMarkdown(q.body);
+    mock.querySelector(".card-behind").style.visibility =
+      state.i < SAMPLES.length - 1 ? "visible" : "hidden";
+    const over = isOverflowing(mock);
+    card.classList.toggle("overflowing", over);
+    card.querySelector(".charcount").innerHTML =
+      `title ${q.title.length} ch · body <span class="${over ? "over" : ""}">${q.body.length} ch${over ? " — clipped" : ""}</span>`;
+  }
+
+  function showResolved() {
+    card.style.display = "none";
+    mock.querySelector(".card-behind").style.visibility = "hidden";
+    const panel = document.createElement("div");
+    panel.className = "resolved";
+    panel.innerHTML = "<h3>Batch resolved — agent unblocked</h3>" +
+      state.answers.map((a, i) =>
+        `<div class="item"><span class="q">${SAMPLES[i].title}</span>` +
+        `<span class="verdict ${a}">${a.toUpperCase()}</span></div>`).join("") +
+      `<button>Reset deck</button>`;
+    panel.querySelector("button").addEventListener("click", () => {
+      panel.remove();
+      state.i = 0;
+      state.answers = [];
+      card.style.display = "";
+      render();
+    });
+    deck.appendChild(panel);
+  }
+
+  function commit(answer) {
+    if (card.style.display === "none" || card.classList.contains("flying")) return;
+    state.answers.push(answer);
+    const fly = { yep: "translate(600px, -40px) rotate(20deg)",
+                  nope: "translate(-600px, -40px) rotate(-20deg)",
+                  skip: "translate(0, 700px) rotate(4deg)" }[answer];
+    setStamps(answer === "yep" ? 1 : 0, answer === "nope" ? 1 : 0, answer === "skip" ? 1 : 0);
+    card.classList.remove("dragging", "springing");
+    card.classList.add("flying");
+    card.style.transform = fly;
+    setTimeout(() => {
+      card.style.opacity = "";
+      if (state.i + 1 >= SAMPLES.length) { showResolved(); return; }
+      state.i += 1;
+      render();
+    }, 300);
+  }
+
+  // drag
+  let drag = null;
+  card.addEventListener("pointerdown", e => {
+    if (card.classList.contains("flying")) return;
+    setActiveMock(mock);
+    drag = { x: e.clientX, y: e.clientY };
+    card.classList.add("dragging");
+    card.classList.remove("springing");
+    card.setPointerCapture(e.pointerId);
+  });
+  card.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx * 0.05}deg)`;
+    const vertical = dy > 0 && dy > Math.abs(dx);
+    setStamps(
+      !vertical && dx > 0 ? Math.min(1, dx / 80) : 0,
+      !vertical && dx < 0 ? Math.min(1, -dx / 80) : 0,
+      vertical ? Math.min(1, dy / 90) : 0
+    );
+  });
+  card.addEventListener("pointerup", e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    drag = null;
+    card.classList.remove("dragging");
+    const vertical = dy > 0 && dy > Math.abs(dx);
+    if (!vertical && dx > COMMIT_X) commit("yep");
+    else if (!vertical && dx < -COMMIT_X) commit("nope");
+    else if (vertical && dy > COMMIT_Y) commit("skip");
+    else {
+      card.classList.add("springing");
+      card.style.transform = "";
+      setStamps(0, 0, 0);
+    }
+  });
+
+  mock.querySelector(".btn-yep").addEventListener("click", () => { setActiveMock(mock); commit("yep"); });
+  mock.querySelector(".btn-nope").addEventListener("click", () => { setActiveMock(mock); commit("nope"); });
+  mock.querySelector(".btn-skip").addEventListener("click", () => { setActiveMock(mock); commit("skip"); });
+
+  mock._commit = commit;
+  render();
 }
 
 measure();
+document.querySelectorAll(".mock").forEach(initDeck);
+setActiveMock(document.querySelector(".mock"));
+
+document.addEventListener("keydown", e => {
+  if (!activeMock) return;
+  const key = { ArrowRight: "yep", ArrowLeft: "nope", ArrowDown: "skip" }[e.key];
+  if (!key) return;
+  e.preventDefault();
+  activeMock._commit(key);
+});
 </script>
 </body>
 </html>
