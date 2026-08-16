@@ -8,7 +8,7 @@ async function getAfk(token: string): Promise<{status: number; afk?: boolean}> {
 	if (response.status !== 200) {
 		return {status: response.status};
 	}
-	const body = (await response.json()) as {afk: boolean};
+	const body = await response.json<{afk: boolean}>();
 	return {status: response.status, afk: body.afk};
 }
 
@@ -62,7 +62,7 @@ describe("AFK mode", () => {
 			body: JSON.stringify({project: "demo", questions: [{title: "Ship?", body: ""}]}),
 		});
 		expect(response.status).toBe(409);
-		const body = (await response.json()) as {error: string; message: string};
+		const body = await response.json<{error: string; message: string}>();
 		expect(body.error).toBe("afk_off");
 		expect(body.message).toContain("AskUserQuestion");
 	});
@@ -76,7 +76,7 @@ describe("AFK mode", () => {
 		const listResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 			headers: {Authorization: `Bearer ${token}`},
 		});
-		const listed = (await listResponse.json()) as {questions: Array<{question_id: string}>};
+		const listed = await listResponse.json<{questions: Array<{question_id: string}>}>();
 		expect(listed.questions.map((question) => question.question_id)).toEqual([questionId]);
 
 		const answered = await postAnswers(token, [{question_id: questionId, disposition: "yep"}]);

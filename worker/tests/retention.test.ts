@@ -1,24 +1,10 @@
 import {runDurableObjectAlarm, runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
-import {RETENTION_MILLISECONDS} from "../validation";
+import {HEARTBEAT_GRACE_MILLISECONDS, RETENTION_MILLISECONDS} from "../validation";
 import {createBatchOverHttp, postAnswers, registerMachineToken, required} from "./helpers";
 
 describe("7 day retention alarm", () => {
-	it("arms the alarm at created_at + 7 days on batch insert", async () => {
-		const userId = "retention-arm";
-		const token = await registerMachineToken(userId);
-		const before = Date.now();
-		await createBatchOverHttp(token, "demo", [{title: "Keep?", body: ""}]);
-
-		const stub = env.USER_DO.getByName(userId);
-		await runInDurableObject(stub, async (_instance, state) => {
-			const alarm = await state.storage.getAlarm();
-			expect(alarm).toBeGreaterThanOrEqual(before + RETENTION_MILLISECONDS);
-			expect(alarm).toBeLessThanOrEqual(Date.now() + RETENTION_MILLISECONDS);
-		});
-	});
-
 	it("keeps the earlier alarm when a second batch arrives", async () => {
 		const userId = "retention-earliest";
 		const token = await registerMachineToken(userId);
@@ -60,11 +46,15 @@ describe("7 day retention alarm", () => {
 				.one();
 			expect(questionCount["total"]).toBe(0);
 
+			// 💓 The survivor is unresolved, so its heartbeat grace deadline precedes retention.
 			const survivorRow = state.storage.sql
-				.exec("SELECT created_at FROM batches WHERE id = ?", survivor.batch_id)
+				.exec("SELECT last_heartbeat_at FROM batches WHERE id = ?", survivor.batch_id)
 				.one();
-			const survivorCreatedAt = required(survivorRow["created_at"], "survivor created_at") as number;
-			expect(await state.storage.getAlarm()).toBe(survivorCreatedAt + RETENTION_MILLISECONDS);
+			const survivorHeartbeatAt = required(
+				survivorRow["last_heartbeat_at"],
+				"survivor last_heartbeat_at",
+			) as number;
+			expect(await state.storage.getAlarm()).toBe(survivorHeartbeatAt + HEARTBEAT_GRACE_MILLISECONDS);
 		});
 	});
 

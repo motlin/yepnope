@@ -7,6 +7,10 @@ export const BODY_MAX_CHARACTERS = 800;
 export const MAX_REQUEST_BYTES = 256 * 1024;
 // 🗑️ Retention is derived from created_at, never stored (spec §13.1).
 export const RETENTION_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
+// 💓 Heartbeat-and-delete grace (option C in .llm/decisions.md, spec §5): long enough that a
+// closing laptop lid does not yank a deck mid-swipe, short enough that dead-agent cards do
+// not linger. The shim beats every 30 s, so this is ten missed beats.
+export const HEARTBEAT_GRACE_MILLISECONDS = 5 * 60 * 1000;
 
 export const dispositionSchema = z.enum(["yep", "nope", "skip"]);
 export type Disposition = z.infer<typeof dispositionSchema>;

@@ -31,7 +31,7 @@ async function listQuestions(token: string): Promise<ListedQuestion[]> {
 	const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 		headers: {Authorization: `Bearer ${token}`},
 	});
-	const body = (await response.json()) as {questions: ListedQuestion[]};
+	const body = await response.json<{questions: ListedQuestion[]}>();
 	return body.questions;
 }
 
@@ -91,13 +91,13 @@ describe("POST /api/v1/hook", () => {
 				tool_input: {questions: []},
 			});
 			expect(response.status).toBe(200);
-			const body = (await response.json()) as {
+			const body = await response.json<{
 				hookSpecificOutput: {
 					hookEventName: string;
 					permissionDecision: string;
 					permissionDecisionReason: string;
 				};
-			};
+			}>();
 			expect(body.hookSpecificOutput.hookEventName).toBe("PreToolUse");
 			expect(body.hookSpecificOutput.permissionDecision).toBe("deny");
 			expect(body.hookSpecificOutput.permissionDecisionReason).toContain("ask_yep_nope");
@@ -150,9 +150,7 @@ describe("POST /api/v1/hook", () => {
 			await postAnswers(token, [{question_id: question.question_id, disposition: "yep"}]);
 			const response = await hookResponse;
 			expect(response.status).toBe(200);
-			const body = (await response.json()) as {
-				hookSpecificOutput: {hookEventName: string; decision: {behavior: string}};
-			};
+			const body = await response.json();
 			expect(body).toEqual({
 				hookSpecificOutput: {hookEventName: "PermissionRequest", decision: {behavior: "allow"}},
 			});
@@ -165,9 +163,9 @@ describe("POST /api/v1/hook", () => {
 			await postAnswers(token, [{question_id: question.question_id, disposition: "nope"}]);
 			const response = await hookResponse;
 			expect(response.status).toBe(200);
-			const body = (await response.json()) as {
-				hookSpecificOutput: {hookEventName: string; decision: {behavior: string; message: string}};
-			};
+			const body = await response.json<{
+				hookSpecificOutput: {decision: {behavior: string; message: string}};
+			}>();
 			expect(body.hookSpecificOutput.decision.behavior).toBe("deny");
 			expect(body.hookSpecificOutput.decision.message).toContain("denied");
 		});

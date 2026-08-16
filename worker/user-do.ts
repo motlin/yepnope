@@ -9,6 +9,7 @@ import {hashToken} from "./auth";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
 import {
 	dispositionSchema,
+	HEARTBEAT_GRACE_MILLISECONDS,
 	pushSubscriptionSchema,
 	RETENTION_MILLISECONDS,
 	type CreateBatchRequest,
@@ -71,7 +72,8 @@ export class UserDurableObject extends DurableObject<Env> {
 			.update(state)
 			.set({questionsAsked: sql`${state.questionsAsked} + ${questionRows.length}`})
 			.where(eq(state.id, STATE_ROW_ID));
-		await this.armRetentionAlarm(now + RETENTION_MILLISECONDS);
+		// 💓 The heartbeat grace deadline always precedes retention; the alarm handler re-arms for both.
+		await this.armAlarm(now + HEARTBEAT_GRACE_MILLISECONDS);
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
 	}
 
@@ -265,40 +267,83 @@ export class UserDurableObject extends DurableObject<Env> {
 		await this.sendCurrentState(socket, batchId);
 	}
 
-	// 🗑️ Seven-day retention via the single DO alarm (spec §13.1).
+	// 🗑️ The single DO alarm serves two deadlines: 7 day retention (spec §13.1) and
+	// heartbeat-and-delete retraction (option C in .llm/decisions.md, spec §5).
 	override async alarm(): Promise<void> {
 		const now = Date.now();
 		const expired = await this.database
 			.select({id: batches.id})
 			.from(batches)
 			.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
-		const expiredBatchIds = expired.map((row) => row.id);
-		if (expiredBatchIds.length > 0) {
-			for (const batchId of expiredBatchIds) {
-				for (const socket of this.ctx.getWebSockets(batchId)) {
-					socket.send(errorFrame("batch_expired", "this batch passed the 7 day retention limit"));
-					socket.close(1000, "batch expired");
-				}
-			}
-			const expiredQuestions = await this.database
-				.select({id: questions.id})
-				.from(questions)
-				.where(inArray(questions.batchId, expiredBatchIds));
-			const expiredQuestionIds = expiredQuestions.map((row) => row.id);
-			if (expiredQuestionIds.length > 0) {
-				await this.database.delete(answers).where(inArray(answers.questionId, expiredQuestionIds));
-			}
-			await this.database.delete(questions).where(inArray(questions.batchId, expiredBatchIds));
-			await this.database.delete(batches).where(inArray(batches.id, expiredBatchIds));
+		await this.deleteBatches(
+			expired.map((row) => row.id),
+			errorFrame("batch_expired", "this batch passed the 7 day retention limit"),
+			"batch expired",
+		);
+		// 💀 Unanswered questions whose agent stopped heartbeating: retract rather than let the
+		// user answer into a void. Resolved batches keep their answers until retention so a
+		// returning agent can still collect them.
+		const stale = await this.database
+			.selectDistinct({id: batches.id})
+			.from(batches)
+			.innerJoin(questions, eq(questions.batchId, batches.id))
+			.leftJoin(answers, eq(answers.questionId, questions.id))
+			.where(and(isNull(answers.questionId), lte(batches.lastHeartbeatAt, now - HEARTBEAT_GRACE_MILLISECONDS)));
+		await this.deleteBatches(
+			stale.map((row) => row.id),
+			errorFrame("batch_retracted", "the agent asking these questions stopped heartbeating"),
+			"batch retracted",
+		);
+		await this.armNextDeadline();
+	}
+
+	private async deleteBatches(batchIds: string[], closeFrame: string, closeReason: string): Promise<void> {
+		if (batchIds.length === 0) {
+			return;
 		}
-		const oldest = await this.database.select({createdAt: min(batches.createdAt)}).from(batches);
-		const oldestCreatedAt = oldest[0]?.createdAt;
-		if (oldestCreatedAt !== null && oldestCreatedAt !== undefined) {
-			await this.ctx.storage.setAlarm(oldestCreatedAt + RETENTION_MILLISECONDS);
+		for (const batchId of batchIds) {
+			for (const socket of this.ctx.getWebSockets(batchId)) {
+				socket.send(closeFrame);
+				socket.close(1000, closeReason);
+			}
+		}
+		const doomedQuestions = await this.database
+			.select({id: questions.id})
+			.from(questions)
+			.where(inArray(questions.batchId, batchIds));
+		const doomedQuestionIds = doomedQuestions.map((row) => row.id);
+		if (doomedQuestionIds.length > 0) {
+			await this.database.delete(answers).where(inArray(answers.questionId, doomedQuestionIds));
+		}
+		await this.database.delete(questions).where(inArray(questions.batchId, batchIds));
+		await this.database.delete(batches).where(inArray(batches.id, batchIds));
+	}
+
+	// ⏰ Re-arm for whichever deadline comes sooner: retention on any batch, or heartbeat
+	// staleness on a batch that still has unanswered questions.
+	private async armNextDeadline(): Promise<void> {
+		const oldestCreated = await this.database.select({value: min(batches.createdAt)}).from(batches);
+		const oldestUnresolvedHeartbeat = await this.database
+			.select({value: min(batches.lastHeartbeatAt)})
+			.from(batches)
+			.innerJoin(questions, eq(questions.batchId, batches.id))
+			.leftJoin(answers, eq(answers.questionId, questions.id))
+			.where(isNull(answers.questionId));
+		const deadlines: number[] = [];
+		const createdAt = oldestCreated[0]?.value;
+		if (createdAt !== null && createdAt !== undefined) {
+			deadlines.push(createdAt + RETENTION_MILLISECONDS);
+		}
+		const heartbeatAt = oldestUnresolvedHeartbeat[0]?.value;
+		if (heartbeatAt !== null && heartbeatAt !== undefined) {
+			deadlines.push(heartbeatAt + HEARTBEAT_GRACE_MILLISECONDS);
+		}
+		if (deadlines.length > 0) {
+			await this.ctx.storage.setAlarm(Math.min(...deadlines));
 		}
 	}
 
-	private async armRetentionAlarm(expiry: number): Promise<void> {
+	private async armAlarm(expiry: number): Promise<void> {
 		const current = await this.ctx.storage.getAlarm();
 		if (current === null || current > expiry) {
 			await this.ctx.storage.setAlarm(expiry);
