@@ -43,3 +43,6 @@ storybook-static
 # Cloudflare
 /.wrangler/
 worker-configuration.d.ts
+
+# shim bundle
+/shim/dist

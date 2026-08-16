@@ -27,6 +27,7 @@ const frameSchema = z.looseObject({
 	type: z.string(),
 	batch_id: z.string().optional(),
 	code: z.string().optional(),
+	message: z.string().optional(),
 	dispositions: z.record(z.string(), dispositionSchema.nullable()).optional(),
 });
 

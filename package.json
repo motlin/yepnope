@@ -2,6 +2,9 @@
 	"name": "yepnope",
 	"version": "0.0.0",
 	"description": "Swipe to answer your coding agent's yes/no questions.",
+	"bin": {
+		"yepnope-mcp": "shim/dist/yepnope-mcp.cjs"
+	},
 	"type": "module",
 	"scripts": {
 		"preinstall": "npx only-allow pnpm",
@@ -15,7 +18,7 @@
 		"fmt:ci": "vp fmt --check",
 		"fallow": "fallow fix --yes",
 		"fallow:ci": "fallow dead-code",
-		"typecheck": "wrangler types && tsc --noEmit && tsc -p worker/tsconfig.json",
+		"typecheck": "wrangler types && tsc --noEmit && tsc -p worker/tsconfig.json && tsc -p shim/tsconfig.json",
 		"test": "node node_modules/vitest/dist/cli.js",
 		"test:ui": "node node_modules/vitest/dist/cli.js --ui",
 		"storybook": "storybook dev -p 6006",
@@ -23,13 +26,16 @@
 		"test-storybook": "npx concurrently -k -s first -n \"SB,TEST\" -c \"magenta,blue\" \"npx http-server storybook-static --port 6006 --silent\" \"npx wait-on tcp:127.0.0.1:6006 && test-storybook\"",
 		"prepare": "VITE_GIT_HOOKS=0 vp config",
 		"test:worker": "node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts",
+		"build:shim": "esbuild shim/cli.ts --bundle --platform=node --target=node20 --format=cjs --outfile=shim/dist/yepnope-mcp.cjs --banner:js='#!/usr/bin/env node' --external:bufferutil --external:utf-8-validate --log-level=warning",
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.30.0",
 		"agentation": "^3.0.2",
 		"drizzle-orm": "^0.45.2",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
+		"ws": "^8.21.3",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
@@ -45,8 +51,10 @@
 		"@types/node": "^26.1.2",
 		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3",
+		"@types/ws": "^8.18.1",
 		"@vitejs/plugin-react": "^6.0.5",
 		"drizzle-kit": "^0.31.10",
+		"esbuild": "^0.28.2",
 		"eslint": "^10.8.0",
 		"eslint-plugin-storybook": "^10.5.8",
 		"fallow": "^3.10.0",
