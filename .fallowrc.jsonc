@@ -7,6 +7,9 @@
 		"src/main.{ts,tsx,js,jsx}",
 		"src/**/*.mdx",
 		"worker/index.ts",
+		// The service worker is fetched by URL at runtime; the icon script is run by hand.
+		"public/sw.js",
+		"scripts/generate-icons.mjs",
 		"worker/tests/**/*.test.ts",
 		"worker/tests/apply-migrations.ts",
 		"drizzle-do.config.ts",
@@ -21,6 +24,7 @@
 		"@storybook/addon-docs",
 		"@storybook/addon-onboarding",
 		"@storybook/addon-vitest",
+		"@storybook/react-vite",
 		"@storybook/test-runner",
 		"eslint-plugin-storybook",
 		"jiti",
@@ -28,4 +32,14 @@
 	"rules": {
 		"unused-dependencies": "warn",
 	},
+	"ignoreExports": [
+		{
+			"file": "worker/tests/push-helpers.ts",
+			"exports": ["*"],
+		},
+		{
+			"file": "worker/webpush.ts",
+			"exports": ["*"],
+		},
+	],
 }

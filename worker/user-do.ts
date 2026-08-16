@@ -5,8 +5,16 @@ import {drizzle, type DrizzleSqliteDODatabase} from "drizzle-orm/durable-sqlite"
 import {migrate} from "drizzle-orm/durable-sqlite/migrator";
 import {answers, batches, devices, questions, state} from "./db/do-schema";
 import migrationBundle from "./migrations/do/migrations.js";
+import {hashToken} from "./auth";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
-import {dispositionSchema, RETENTION_MILLISECONDS, type CreateBatchRequest, type Disposition} from "./validation";
+import {
+	dispositionSchema,
+	pushSubscriptionSchema,
+	RETENTION_MILLISECONDS,
+	type CreateBatchRequest,
+	type Disposition,
+} from "./validation";
+import {buildPushRequest, parseVapidJwk, type PushSubscription} from "./webpush";
 
 export interface CreatedBatch {
 	batchId: string;
@@ -137,10 +145,83 @@ export class UserDurableObject extends DurableObject<Env> {
 		}
 	}
 
-	// 📣 Push delivery lands with the PWA (build plan days 4 to 6); until devices register this pushes to nobody.
-	async sendBatchPush(_batchId: string): Promise<number> {
-		const rows = await this.database.select({id: devices.id}).from(devices);
-		return rows.length;
+	// 🧪 Delivery seam: tests replace this to observe pushes without a live push service.
+	pushTransport: (
+		endpoint: string,
+		request: {headers: Record<string, string>; body: Uint8Array},
+	) => number | Promise<number> = async (endpoint, request) => {
+		const response = await fetch(endpoint, {method: "POST", headers: request.headers, body: request.body});
+		return response.status;
+	};
+
+	async registerDevice(subscription: PushSubscription): Promise<void> {
+		const serialized = JSON.stringify(subscription);
+		await this.database
+			.insert(devices)
+			.values({id: await hashToken(subscription.endpoint), pushSubscription: serialized, createdAt: Date.now()})
+			.onConflictDoUpdate({target: devices.id, set: {pushSubscription: serialized}});
+	}
+
+	// 📣 One push per batch (spec §6.2). The payload carries ids and counts, never question text,
+	// except a single-question batch, whose title makes notification action buttons usable.
+	async sendBatchPush(batchId: string): Promise<number> {
+		const batchRows = await this.database
+			.select({project: batches.project})
+			.from(batches)
+			.where(eq(batches.id, batchId));
+		const batch = batchRows[0];
+		if (batch === undefined) {
+			return 0;
+		}
+		const batchQuestions = await this.database
+			.select({id: questions.id, title: questions.title})
+			.from(questions)
+			.where(eq(questions.batchId, batchId))
+			.orderBy(asc(questions.position));
+		const outstanding = (await this.getOutstandingQuestions()).length;
+		const single = batchQuestions.length === 1 ? batchQuestions[0] : undefined;
+		const payload = JSON.stringify({
+			batch_id: batchId,
+			project: batch.project,
+			count: batchQuestions.length,
+			outstanding,
+			...(single === undefined ? {} : {title: single.title, question_id: single.id}),
+		});
+
+		const deviceRows = await this.database.select().from(devices);
+		if (deviceRows.length === 0) {
+			return 0;
+		}
+		const vapidPrivateJwk = parseVapidJwk(this.env.VAPID_PRIVATE_JWK);
+		let delivered = 0;
+		for (const device of deviceRows) {
+			const stored: unknown = JSON.parse(device.pushSubscription);
+			const subscription = pushSubscriptionSchema.safeParse(stored);
+			if (!subscription.success) {
+				await this.database.delete(devices).where(eq(devices.id, device.id));
+				continue;
+			}
+			const request = await buildPushRequest({
+				subscription: subscription.data,
+				payload,
+				vapidPrivateJwk,
+				vapidSubject: this.env.VAPID_SUBJECT,
+			});
+			// 🚧 An unreachable push service must not fail the whole loop or the waitUntil.
+			let status = 0;
+			try {
+				status = await this.pushTransport(request.endpoint, {headers: request.headers, body: request.body});
+			} catch {
+				status = 0;
+			}
+			if (status === 404 || status === 410) {
+				// 🧹 The push service says this subscription is gone for good.
+				await this.database.delete(devices).where(eq(devices.id, device.id));
+			} else if (status >= 200 && status < 300) {
+				delivered += 1;
+			}
+		}
+		return delivered;
 	}
 
 	override async fetch(request: Request): Promise<Response> {

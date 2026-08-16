@@ -73,3 +73,23 @@ export function teachingRejection(violations: LengthViolation[]): string {
 		"Rewrite the over-length questions shorter and resend the whole batch; nothing is truncated for you.",
 	].join(" ");
 }
+
+// 🤝 Pairing codes expire ten minutes after issue (spec §12).
+export const PAIRING_CODE_TTL_MILLISECONDS = 10 * 60 * 1000;
+
+export const pairClaimRequestSchema = z.object({
+	code: z
+		.string()
+		.min(1)
+		.max(12)
+		.transform((raw) => raw.trim().toUpperCase()),
+	label: z.string().min(1).max(100),
+});
+
+export const pushSubscriptionSchema = z.object({
+	endpoint: z.url(),
+	keys: z.object({
+		p256dh: z.string().min(1),
+		auth: z.string().min(1),
+	}),
+});

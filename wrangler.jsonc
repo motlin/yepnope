@@ -17,5 +17,10 @@
 		},
 	],
 	"rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
+	// 🔑 Committed key is for local dev and tests only; production overrides both via `wrangler secret put`.
+	"vars": {
+		"VAPID_PRIVATE_JWK": "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"P2UcKzI-O7pCxMgZn7O1nuxR0PhhT6mT6tOykdMFguU\",\"y\":\"l-fC1-ic-sn3gMPXjJdSkP_PS55_eSOZ6WNobUL0gto\",\"d\":\"Ns5xclmJIPX3nl-JGchKKjUTJsrYm-TTrhG0UKSjjXc\"}",
+		"VAPID_SUBJECT": "mailto:push@yepnope.app",
+	},
 	"observability": {"enabled": true},
 }

@@ -337,5 +337,9 @@ export default defineConfig({
 	server: {
 		port: 3000,
 		allowedHosts: process.env["VITE_ALLOWED_HOSTS"]?.split(",") ?? [],
+		// The Worker API runs under `wrangler dev` (port 8787) during local development.
+		proxy: {
+			"/api": {target: "http://localhost:8787", ws: true},
+		},
 	},
 });

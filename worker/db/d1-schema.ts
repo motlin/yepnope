@@ -9,7 +9,6 @@ export const machineTokens = sqliteTable("machine_tokens", {
 	createdAt: integer("created_at").notNull(),
 });
 
-// fallow-ignore-next-line unused-export -- pairing flow lands with the PWA (build plan days 4 to 6); the table already exists in migrations
 export const pairingCodes = sqliteTable("pairing_codes", {
 	code: text("code").primaryKey(),
 	userId: text("user_id").notNull(),

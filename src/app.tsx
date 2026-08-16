@@ -1,0 +1,213 @@
+import {useCallback, useEffect, useState, type ReactElement} from "react";
+import {fetchQuestions, issuePairingCode, pairNew, submitAnswer, type IssuedPairingCode} from "./api";
+import {Deck, type DeckQuestion, type Disposition} from "./deck";
+import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
+import {loadToken, saveToken} from "./token-store";
+
+// 🌟 Harness icon placeholder: an 8-ray starburst standing in for the asking harness's logo.
+function HarnessIcon(): ReactElement {
+	return (
+		<svg viewBox="0 0 24 24" role="img" aria-label="harness" className="harness">
+			<g stroke="#d97757" strokeWidth="2.6" strokeLinecap="round">
+				<line x1="12" y1="2.5" x2="12" y2="21.5" />
+				<line x1="2.5" y1="12" x2="21.5" y2="12" />
+				<line x1="5.3" y1="5.3" x2="18.7" y2="18.7" />
+				<line x1="18.7" y1="5.3" x2="5.3" y2="18.7" />
+			</g>
+		</svg>
+	);
+}
+
+function IosInstallHint(): ReactElement | null {
+	if (!isIos() || isStandalone()) {
+		return null;
+	}
+	// 📲 iOS only delivers web push to an installed PWA (spec §6.3).
+	return (
+		<div className="hint">
+			<h3>Install first</h3>
+			<p>
+				iPhone notifications only work after the app is on your home screen: tap <b>Share</b>, then{" "}
+				<b>Add to Home Screen</b>, then reopen YepNope from the icon and enable notifications.
+			</p>
+		</div>
+	);
+}
+
+interface SettingsProps {
+	token: string;
+	onBack: () => void;
+}
+
+function Settings({token, onBack}: SettingsProps): ReactElement {
+	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
+	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">(
+		"Notification" in window && Notification.permission === "granted" ? "subscribed" : "idle",
+	);
+
+	return (
+		<div className="settings">
+			<IosInstallHint />
+			<div className="hint">
+				<h3>Notifications</h3>
+				{pushState === "subscribed" ? (
+					<p>Enabled. One notification per batch of questions.</p>
+				) : (
+					<>
+						<p>Get one notification per batch of questions, then swipe.</p>
+						<button
+							type="button"
+							onClick={() => {
+								enablePush(token).then(setPushState, () => {
+									setPushState("error");
+								});
+							}}
+						>
+							Enable notifications
+						</button>
+						{pushState === "denied" && <p>Notifications are blocked for this app in system settings.</p>}
+						{pushState === "unsupported" && <p>This browser does not support web push.</p>}
+						{pushState === "error" && <p>Could not subscribe. Try again.</p>}
+					</>
+				)}
+			</div>
+			<div className="hint">
+				<h3>Pair a machine</h3>
+				{pairing === null ? (
+					<>
+						<p>Generate a code, then enter it in the CLI on the machine running your agent.</p>
+						<button
+							type="button"
+							onClick={() => {
+								issuePairingCode(token).then(setPairing, () => {
+									setPairing(null);
+								});
+							}}
+						>
+							Generate pairing code
+						</button>
+					</>
+				) : (
+					<>
+						<p className="pairing-code">{pairing.code}</p>
+						<p>Expires in ten minutes. Codes are single-use.</p>
+					</>
+				)}
+			</div>
+			<button type="button" className="back" onClick={onBack}>
+				Back to the deck
+			</button>
+		</div>
+	);
+}
+
+export function App(): ReactElement {
+	const [token, setToken] = useState<string | null>(null);
+	const [questions, setQuestions] = useState<DeckQuestion[] | null>(null);
+	const [view, setView] = useState<"deck" | "settings">("deck");
+
+	useEffect(() => {
+		let cancelled = false;
+		async function boot(): Promise<void> {
+			const existing = loadToken();
+			const minted = existing ?? (await pairNew());
+			await saveToken(minted);
+			if (!cancelled) {
+				setToken(minted);
+			}
+		}
+		boot().catch(() => {
+			// Offline or the API is down; leave the loading state up.
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const refresh = useCallback(() => {
+		if (token === null) {
+			return;
+		}
+		fetchQuestions(token).then(
+			(fetched) => {
+				setQuestions(fetched);
+				updateBadge(fetched.length);
+			},
+			() => {
+				// Keep showing what we have; the next refresh will retry.
+			},
+		);
+	}, [token]);
+
+	useEffect(() => {
+		refresh();
+		function onVisible(): void {
+			if (document.visibilityState === "visible") {
+				refresh();
+			}
+		}
+		function onServiceWorkerMessage(): void {
+			refresh();
+		}
+		document.addEventListener("visibilitychange", onVisible);
+		const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
+		workerContainer?.addEventListener("message", onServiceWorkerMessage);
+		return () => {
+			document.removeEventListener("visibilitychange", onVisible);
+			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
+		};
+	}, [refresh]);
+
+	function onAnswer(questionId: string, disposition: Disposition): void {
+		if (token === null) {
+			return;
+		}
+		setQuestions((current) => {
+			const remaining = (current ?? []).filter((question) => question.questionId !== questionId);
+			updateBadge(remaining.length);
+			return remaining;
+		});
+		submitAnswer(token, questionId, disposition).catch(() => {
+			refresh();
+		});
+	}
+
+	function currentView(): ReactElement {
+		if (token === null || questions === null) {
+			return <div className="loading">Connecting…</div>;
+		}
+		if (view === "settings") {
+			return (
+				<Settings
+					token={token}
+					onBack={() => {
+						setView("deck");
+					}}
+				/>
+			);
+		}
+		return <Deck questions={questions} onAnswer={onAnswer} />;
+	}
+
+	return (
+		<div className="app">
+			<div className="app-header">
+				<span className="brand">YepNope</span>
+				<span className="meta">
+					<HarnessIcon />
+					<button
+						type="button"
+						className="settings-button"
+						aria-label="Settings"
+						onClick={() => {
+							setView(view === "deck" ? "settings" : "deck");
+						}}
+					>
+						&#9881;
+					</button>
+				</span>
+			</div>
+			{currentView()}
+		</div>
+	);
+}
