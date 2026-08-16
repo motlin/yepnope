@@ -1,0 +1,21 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "yepnope",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-08-01",
+	"routes": [{"pattern": "yepnope.app/api/*", "zone_name": "yepnope.app"}],
+	"durable_objects": {
+		"bindings": [{"name": "USER_DO", "class_name": "UserDurableObject"}],
+	},
+	"migrations": [{"tag": "v1", "new_sqlite_classes": ["UserDurableObject"]}],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "yepnope",
+			"database_id": "063099d0-41c7-4b2b-8f6d-2acf3e9aac2f",
+			"migrations_dir": "worker/migrations/d1",
+		},
+	],
+	"rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
+	"observability": {"enabled": true},
+}

@@ -1,0 +1,37 @@
+CREATE TABLE `answers` (
+	`question_id` text PRIMARY KEY NOT NULL,
+	`disposition` text NOT NULL,
+	`answered_at` integer NOT NULL,
+	FOREIGN KEY (`question_id`) REFERENCES `questions`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `batches` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`last_heartbeat_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `devices` (
+	`id` text PRIMARY KEY NOT NULL,
+	`push_subscription` text NOT NULL,
+	`created_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `questions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`batch_id` text NOT NULL,
+	`position` integer NOT NULL,
+	`title` text NOT NULL,
+	`body` text NOT NULL,
+	FOREIGN KEY (`batch_id`) REFERENCES `batches`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `state` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`afk` integer DEFAULT true NOT NULL,
+	`questions_asked` integer DEFAULT 0 NOT NULL,
+	`yep_count` integer DEFAULT 0 NOT NULL,
+	`nope_count` integer DEFAULT 0 NOT NULL,
+	`skip_count` integer DEFAULT 0 NOT NULL
+);

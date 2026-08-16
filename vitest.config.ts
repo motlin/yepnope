@@ -7,6 +7,7 @@ export default mergeConfig(
 	viteConfig,
 	defineConfig({
 		test: {
+			exclude: ["**/node_modules/**", "worker/**"],
 			globals: true,
 			environment: "node",
 			pool: "threads",

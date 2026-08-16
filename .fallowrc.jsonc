@@ -2,7 +2,16 @@
 	"$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
 	// src/**/*.mdx mirrors the Storybook stories glob in .storybook/main.ts;
 	// fallow's storybook plugin only detects *.stories.* files, not docs pages.
-	"entry": ["src/index.{ts,tsx,js,jsx}", "src/main.{ts,tsx,js,jsx}", "src/**/*.mdx"],
+	"entry": [
+		"src/index.{ts,tsx,js,jsx}",
+		"src/main.{ts,tsx,js,jsx}",
+		"src/**/*.mdx",
+		"worker/index.ts",
+		"worker/tests/**/*.test.ts",
+		"worker/tests/apply-migrations.ts",
+		"drizzle-do.config.ts",
+		"drizzle-d1.config.ts",
+	],
 	"ignorePatterns": [".storybook/**"],
 	// Referenced only from .storybook/main.ts, the test-storybook script, and
 	// the eslint block in vite.config.ts — places fallow does not scan.

@@ -39,3 +39,7 @@ eslint_report.json
 *storybook.log
 storybook-static
 .fallow/
+
+# Cloudflare
+/.wrangler/
+worker-configuration.d.ts

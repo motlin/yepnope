@@ -16,6 +16,7 @@ peerDependencyRules:
     vitest: "*"
 allowBuilds:
   "@swc/core": true
+  workerd: true
   esbuild: true
   fallow: true
   unrs-resolver: true
