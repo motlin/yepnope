@@ -25,8 +25,7 @@ describe("POST /api/v1/questions", () => {
 			{title: "Squash the branch?", body: ""},
 		]);
 		expect(created.batch_id).toMatch(/^[0-9a-f-]{36}$/);
-		expect(created.question_ids).toHaveLength(2);
-		expect(new Set(created.question_ids).size).toBe(2);
+		expect(created.question_ids).toEqual([`${created.batch_id}:0`, `${created.batch_id}:1`]);
 	});
 
 	it("rejects a title over 100 characters", async () => {

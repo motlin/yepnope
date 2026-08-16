@@ -15,6 +15,7 @@ const questionInputSchema = z.object({
 	title: z.string().min(1).max(TITLE_MAX_CHARACTERS),
 	body: z.string().max(BODY_MAX_CHARACTERS),
 });
+export type QuestionInput = z.infer<typeof questionInputSchema>;
 
 export const createBatchRequestSchema = z.object({
 	project: z.string().min(1).max(TITLE_MAX_CHARACTERS),
@@ -32,3 +33,43 @@ export const submitAnswersRequestSchema = z.object({
 		)
 		.min(1),
 });
+
+// 🧑‍🏫 Shim-layer check (spec §7.2): instruction, not a stack trace. The Worker's
+// 413/400 stays rude; this message is the prompt-engineering surface the model sees.
+export interface LengthViolation {
+	ordinal: number;
+	field: "title" | "body";
+	actualCharacters: number;
+	maxCharacters: number;
+}
+
+const LENGTH_LIMITED_FIELDS = [
+	{field: "title", maxCharacters: TITLE_MAX_CHARACTERS},
+	{field: "body", maxCharacters: BODY_MAX_CHARACTERS},
+] as const;
+
+export function findLengthViolations(questions: QuestionInput[]): LengthViolation[] {
+	const violations: LengthViolation[] = [];
+	questions.forEach((question, ordinal) => {
+		for (const {field, maxCharacters} of LENGTH_LIMITED_FIELDS) {
+			const actualCharacters = question[field].length;
+			if (actualCharacters > maxCharacters) {
+				violations.push({ordinal, field, actualCharacters, maxCharacters});
+			}
+		}
+	});
+	return violations;
+}
+
+export function teachingRejection(violations: LengthViolation[]): string {
+	const named = violations.map(
+		(violation) =>
+			`questions[${violation.ordinal}].${violation.field} is ${violation.actualCharacters} characters; ` +
+			`the limit is ${violation.maxCharacters}.`,
+	);
+	return [
+		...named,
+		`Titles fit in ${TITLE_MAX_CHARACTERS} characters and bodies in ${BODY_MAX_CHARACTERS}.`,
+		"Rewrite the over-length questions shorter and resend the whole batch; nothing is truncated for you.",
+	].join(" ");
+}

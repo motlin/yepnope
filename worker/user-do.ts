@@ -46,8 +46,9 @@ export class UserDurableObject extends DurableObject<Env> {
 	async createBatch(request: CreateBatchRequest): Promise<CreatedBatch> {
 		const now = Date.now();
 		const batchId = crypto.randomUUID();
+		// 🆔 Derived, not minted (spec appendix A.1): there is no reason for an id to be random.
 		const questionRows = request.questions.map((question, position) => ({
-			id: crypto.randomUUID(),
+			id: `${batchId}:${position}`,
 			batchId,
 			position,
 			title: question.title,
