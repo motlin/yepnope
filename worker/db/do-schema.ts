@@ -20,6 +20,12 @@ export const devices = sqliteTable("devices", {
 export const batches = sqliteTable("batches", {
 	id: text("id").primaryKey(),
 	project: text("project").notNull(),
+	// 🧭 Card chips (variant 2 in .llm/decisions.md): shim-derived, null for
+	// hook-sourced and non-git batches.
+	repo: text("repo"),
+	branch: text("branch"),
+	worktree: text("worktree"),
+	directory: text("directory"),
 	createdAt: integer("created_at").notNull(),
 	lastHeartbeatAt: integer("last_heartbeat_at").notNull(),
 });

@@ -141,6 +141,10 @@ async function listQuestions(stub: DurableObjectStub<UserDurableObject>): Promis
 		questions: outstanding.map((question) => ({
 			batch_id: question.batchId,
 			project: question.project,
+			repo: question.repo,
+			branch: question.branch,
+			worktree: question.worktree,
+			directory: question.directory,
 			question_id: question.questionId,
 			position: question.position,
 			title: question.title,

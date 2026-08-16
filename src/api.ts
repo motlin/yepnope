@@ -48,6 +48,9 @@ const questionsResponseSchema = z.object({
 		z.object({
 			batch_id: z.string(),
 			project: z.string(),
+			repo: z.string().nullable(),
+			branch: z.string().nullable(),
+			directory: z.string().nullable(),
 			question_id: z.string(),
 			position: z.number(),
 			title: z.string(),
@@ -63,6 +66,9 @@ export async function fetchQuestions(token: string): Promise<DeckQuestion[]> {
 		questionId: question.question_id,
 		batchId: question.batch_id,
 		project: question.project,
+		repo: question.repo,
+		branch: question.branch,
+		directory: question.directory,
 		title: question.title,
 		body: question.body,
 	}));

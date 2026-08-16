@@ -8,6 +8,13 @@
 			"when": 1786914671494,
 			"tag": "0000_initial-schema",
 			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "6",
+			"when": 1786923059733,
+			"tag": "0001_add-batch-git-context",
+			"breakpoints": true
 		}
 	]
 }

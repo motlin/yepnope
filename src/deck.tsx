@@ -11,6 +11,11 @@ export interface DeckQuestion {
 	questionId: string;
 	batchId: string;
 	project: string;
+	// 🧭 Card chips (variant 2 in .llm/decisions.md): shim-derived, null for
+	// hook-sourced and non-git batches.
+	repo: string | null;
+	branch: string | null;
+	directory: string | null;
 	title: string;
 	body: string;
 }
@@ -74,6 +79,30 @@ function stampOpacities(drag: DragState | null, flying: Disposition | null): Rec
 		nope: !vertical && drag.dx < 0 ? Math.min(1, -drag.dx / 80) : 0,
 		skip: vertical ? Math.min(1, drag.dy / 90) : 0,
 	};
+}
+
+interface CardChipsProps {
+	card: DeckQuestion;
+}
+
+function CardChips({card}: CardChipsProps): ReactElement | null {
+	const chips = [
+		{field: "repo", value: card.repo},
+		{field: "branch", value: card.branch},
+		{field: "directory", value: card.directory},
+	].filter((chip) => chip.value !== null);
+	if (chips.length === 0) {
+		return null;
+	}
+	return (
+		<div className="chip-row">
+			{chips.map((chip) => (
+				<span key={chip.field} className="chip">
+					{chip.value}
+				</span>
+			))}
+		</div>
+	);
 }
 
 export function Deck({questions, onAnswer}: DeckProps): ReactElement {
@@ -188,6 +217,7 @@ export function Deck({questions, onAnswer}: DeckProps): ReactElement {
 						commit(disposition);
 					}}
 				>
+					<CardChips card={card} />
 					<h2 className="title">{card.title}</h2>
 					<div className="body">{renderMarkdown(card.body)}</div>
 					<div className="stamp yep" style={{opacity: stamps.yep}}>

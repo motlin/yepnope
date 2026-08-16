@@ -102,6 +102,90 @@ describe("GET /api/v1/questions", () => {
 		});
 	});
 
+	it("round-trips repo, branch, worktree, and directory to the card list", async () => {
+		const token = await registerMachineToken("user-git-context");
+		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}], {
+			repo: "github.com/acme/rocket",
+			branch: "migrate-build",
+			worktree: "/w/rocket",
+			directory: "/w/rocket/core",
+		});
+
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+			headers: {Authorization: `Bearer ${token}`},
+		});
+		expect(response.status).toBe(200);
+		const listed = await response.json<{questions: unknown[]}>();
+		expect(listed.questions).toEqual([
+			{
+				batch_id: created.batch_id,
+				project: "demo",
+				question_id: created.question_ids[0],
+				position: 0,
+				title: "Ship it?",
+				body: "",
+				created_at: expect.any(Number) as number,
+				repo: "github.com/acme/rocket",
+				branch: "migrate-build",
+				worktree: "/w/rocket",
+				directory: "/w/rocket/core",
+			},
+		]);
+	});
+
+	it("drops malformed context fields instead of rejecting the batch", async () => {
+		const token = await registerMachineToken("user-oversized-context");
+		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}], {
+			branch: "migrate-build",
+			directory: "/deep".repeat(60),
+		});
+
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+			headers: {Authorization: `Bearer ${token}`},
+		});
+		const listed = await response.json<{questions: unknown[]}>();
+		expect(listed.questions).toEqual([
+			{
+				batch_id: created.batch_id,
+				project: "demo",
+				question_id: created.question_ids[0],
+				position: 0,
+				title: "Ship it?",
+				body: "",
+				created_at: expect.any(Number) as number,
+				repo: null,
+				branch: "migrate-build",
+				worktree: null,
+				directory: null,
+			},
+		]);
+	});
+
+	it("returns null context fields for batches created without git context", async () => {
+		const token = await registerMachineToken("user-no-git-context");
+		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}]);
+
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+			headers: {Authorization: `Bearer ${token}`},
+		});
+		const listed = await response.json<{questions: unknown[]}>();
+		expect(listed.questions).toEqual([
+			{
+				batch_id: created.batch_id,
+				project: "demo",
+				question_id: created.question_ids[0],
+				position: 0,
+				title: "Ship it?",
+				body: "",
+				created_at: expect.any(Number) as number,
+				repo: null,
+				branch: null,
+				worktree: null,
+				directory: null,
+			},
+		]);
+	});
+
 	it("keeps users isolated in separate Durable Objects", async () => {
 		const tokenA = await registerMachineToken("user-a");
 		const tokenB = await registerMachineToken("user-b");

@@ -25,6 +25,10 @@ export interface CreatedBatch {
 export interface OutstandingQuestion {
 	batchId: string;
 	project: string;
+	repo: string | null;
+	branch: string | null;
+	worktree: string | null;
+	directory: string | null;
 	questionId: string;
 	position: number;
 	title: string;
@@ -63,9 +67,16 @@ export class UserDurableObject extends DurableObject<Env> {
 			title: question.title,
 			body: question.body,
 		}));
-		await this.database
-			.insert(batches)
-			.values({id: batchId, project: request.project, createdAt: now, lastHeartbeatAt: now});
+		await this.database.insert(batches).values({
+			id: batchId,
+			project: request.project,
+			repo: request.repo ?? null,
+			branch: request.branch ?? null,
+			worktree: request.worktree ?? null,
+			directory: request.directory ?? null,
+			createdAt: now,
+			lastHeartbeatAt: now,
+		});
 		await this.database.insert(questions).values(questionRows);
 		// 📊 Quota bookkeeping only: enforcement is cut from the MVP (spec §17).
 		await this.database
@@ -92,6 +103,10 @@ export class UserDurableObject extends DurableObject<Env> {
 			.select({
 				batchId: batches.id,
 				project: batches.project,
+				repo: batches.repo,
+				branch: batches.branch,
+				worktree: batches.worktree,
+				directory: batches.directory,
 				questionId: questions.id,
 				position: questions.position,
 				title: questions.title,

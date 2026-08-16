@@ -10,6 +10,9 @@ const QUESTIONS: DeckQuestion[] = [
 		project: "monorepo-migration",
 		title: "Delete the legacy build?",
 		body: "It has been **unused** for a year.",
+		repo: "github.com/acme/rocket",
+		branch: "migrate-build",
+		directory: "/w/rocket/core",
 	},
 	{
 		questionId: "b1:1",
@@ -17,6 +20,9 @@ const QUESTIONS: DeckQuestion[] = [
 		project: "monorepo-migration",
 		title: "Squash the branch?",
 		body: "Runs `git rebase -i` for you.",
+		repo: "github.com/acme/rocket",
+		branch: "migrate-build",
+		directory: "/w/rocket/core",
 	},
 ];
 
@@ -32,6 +38,21 @@ function flyOut(): void {
 	act(() => {
 		vi.advanceTimersByTime(FLY_OUT_MILLISECONDS);
 	});
+}
+
+function cardWithChips(chips: Pick<DeckQuestion, "repo" | "branch" | "directory">): DeckQuestion {
+	return {questionId: "b2:0", batchId: "b2", project: "demo", title: "Ship it?", body: "", ...chips};
+}
+
+function renderDeck(questions: DeckQuestion[]): HTMLElement {
+	const {container} = render(
+		<Deck questions={questions} onAnswer={vi.fn<(questionId: string, disposition: Disposition) => void>()} />,
+	);
+	return container;
+}
+
+function chipTexts(container: HTMLElement): (string | null)[] {
+	return [...container.querySelectorAll(".chip")].map((chip) => chip.textContent);
 }
 
 describe("Deck", () => {
@@ -107,6 +128,20 @@ describe("Deck", () => {
 		rerender(<Deck questions={QUESTIONS.slice(1)} onAnswer={onAnswer} />);
 		expect(screen.getByText("2 of 2")).toBeDefined();
 		expect(screen.getByText("Squash the branch?")).toBeDefined();
+	});
+
+	it("shows repo, branch, and directory chips on the card", () => {
+		expect(chipTexts(renderDeck(QUESTIONS))).toEqual(["github.com/acme/rocket", "migrate-build", "/w/rocket/core"]);
+	});
+
+	it("shows only the chips that have values", () => {
+		const container = renderDeck([cardWithChips({repo: null, branch: "migrate-build", directory: null})]);
+		expect(chipTexts(container)).toEqual(["migrate-build"]);
+	});
+
+	it("renders no chip row when the batch has no git context", () => {
+		const container = renderDeck([cardWithChips({repo: null, branch: null, directory: null})]);
+		expect(container.querySelector(".chip-row")).toBeNull();
 	});
 
 	it("shows the all-caught-up panel when the deck is empty", () => {

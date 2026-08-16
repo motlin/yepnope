@@ -1,5 +1,6 @@
 import {env, exports} from "cloudflare:workers";
 import {hashToken} from "../auth";
+import type {CreateBatchRequest} from "../validation";
 
 export const API_ORIGIN = "https://yepnope.app";
 
@@ -25,15 +26,18 @@ export interface CreatedBatchResponse {
 	question_ids: string[];
 }
 
+export type BatchGitContext = Pick<CreateBatchRequest, "repo" | "branch" | "worktree" | "directory">;
+
 export async function createBatchOverHttp(
 	token: string,
 	project: string,
 	questions: Array<{title: string; body: string}>,
+	context: BatchGitContext = {},
 ): Promise<CreatedBatchResponse> {
 	const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 		method: "POST",
 		headers: {Authorization: `Bearer ${token}`, "Content-Type": "application/json"},
-		body: JSON.stringify({project, questions}),
+		body: JSON.stringify({project, questions, ...context}),
 	});
 	if (response.status !== 201) {
 		throw new Error(`expected 201, got ${response.status}`);
