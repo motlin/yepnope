@@ -143,6 +143,16 @@
 				font-size: 13px;
 				color: var(--muted);
 			}
+			.app-header .meta {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+			.app-header .harness svg {
+				width: 14px;
+				height: 14px;
+				display: block;
+			}
 			.ctx-line {
 				display: none;
 				flex: 0 0 auto;
@@ -426,9 +436,18 @@
 				repo: "twosigma/fabric",
 				branch: "craig/guava-33",
 				directory: "core/billing",
-				asked: "asked 2h ago",
 				harness: "claude-code",
 			};
+
+			// 8-ray starburst standing in for the asking harness's logo
+			const HARNESS_ICON = `<svg viewBox="0 0 24 24" role="img" aria-label="${CONTEXT.harness}">
+				<g stroke="#d97757" stroke-width="2.6" stroke-linecap="round">
+					<line x1="12" y1="2.5" x2="12" y2="21.5"/>
+					<line x1="2.5" y1="12" x2="21.5" y2="12"/>
+					<line x1="5.3" y1="5.3" x2="18.7" y2="18.7"/>
+					<line x1="18.7" y1="5.3" x2="5.3" y2="18.7"/>
+				</g>
+			</svg>`;
 
 			// ---- long samples, longest first: 3-line titles, escalating bodies ----
 			const SAMPLES = [
@@ -484,7 +503,7 @@
 				{
 					id: "v3",
 					label: "3 — full context",
-					note: "repo · branch plus directory, age, and harness lines",
+					note: "repo · branch plus a directory line",
 				},
 			];
 
@@ -496,10 +515,10 @@
 		<div class="app">
 			<div class="app-header">
 				<span class="project">${CONTEXT.project}</span>
-				<span class="count"></span>
+				<span class="meta"><span class="harness" title="${CONTEXT.harness}">${HARNESS_ICON}</span><span class="count"></span></span>
 			</div>
 			<div class="ctx-line line1"><code>${CONTEXT.repo}</code><span class="sep">·</span><code>${CONTEXT.branch}</code></div>
-			<div class="ctx-line line2"><code>${CONTEXT.directory}</code><span class="sep">·</span>${CONTEXT.asked}<span class="sep">·</span>${CONTEXT.harness}</div>
+			<div class="ctx-line line2"><code>${CONTEXT.directory}</code></div>
 			<div class="deck">
 				<div class="card-behind"></div>
 				<div class="card">
