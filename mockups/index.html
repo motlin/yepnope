@@ -645,7 +645,7 @@
 			function initDeck(mock) {
 				const card = mock.querySelector(".card");
 				const deck = mock.querySelector(".deck");
-				const state = { i: 0, answers: [] };
+				const state = {i: 0, answers: []};
 
 				const stamps = {
 					yep: card.querySelector(".stamp.yep"),
@@ -729,7 +729,7 @@
 				card.addEventListener("pointerdown", (e) => {
 					if (card.classList.contains("flying")) return;
 					setActiveMock(mock);
-					drag = { x: e.clientX, y: e.clientY };
+					drag = {x: e.clientX, y: e.clientY};
 					card.classList.add("dragging");
 					card.classList.remove("springing");
 					card.setPointerCapture(e.pointerId);
@@ -786,7 +786,7 @@
 
 			document.addEventListener("keydown", (e) => {
 				if (!activeMock) return;
-				const key = { ArrowRight: "yep", ArrowLeft: "nope", ArrowDown: "skip" }[e.key];
+				const key = {ArrowRight: "yep", ArrowLeft: "nope", ArrowDown: "skip"}[e.key];
 				if (!key) return;
 				e.preventDefault();
 				activeMock._commit(key);
