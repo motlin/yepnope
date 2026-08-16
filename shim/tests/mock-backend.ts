@@ -6,6 +6,7 @@ import {WebSocketServer, type WebSocket} from "ws";
 export interface MockBackend {
 	baseUrl: string;
 	batchBodies: unknown[];
+	claimBodies: unknown[];
 	authorizationHeaders: Array<string | undefined>;
 	heartbeats: string[];
 	connections: WebSocket[];
@@ -15,6 +16,8 @@ export interface MockBackend {
 export interface MockBackendOptions {
 	createStatus?: number;
 	createBody?: unknown;
+	claimStatus?: number;
+	claimBody?: unknown;
 	onConnection?: (socket: WebSocket, backend: MockBackend) => void;
 }
 
@@ -24,6 +27,7 @@ export async function startMockBackend(options: MockBackendOptions = {}): Promis
 	const backend: MockBackend = {
 		baseUrl: "",
 		batchBodies: [],
+		claimBodies: [],
 		authorizationHeaders: [],
 		heartbeats: [],
 		connections: [],
@@ -54,6 +58,12 @@ export async function startMockBackend(options: MockBackendOptions = {}): Promis
 				response.end(
 					JSON.stringify(options.createBody ?? {batch_id: "bat_1", question_ids: ["bat_1:0", "bat_1:1"]}),
 				);
+				return;
+			}
+			if (request.method === "POST" && request.url === "/api/v1/pair/claim") {
+				backend.claimBodies.push(JSON.parse(body));
+				response.writeHead(options.claimStatus ?? 201, {"Content-Type": "application/json"});
+				response.end(JSON.stringify(options.claimBody ?? {token: "ynp_mock_machine_token"}));
 				return;
 			}
 			response.writeHead(404);

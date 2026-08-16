@@ -6,10 +6,23 @@ Agents ask brief, self-contained questions through an MCP tool or the Claude Cod
 permission hook; the questions land on your phone as swipe cards. Right is yep,
 left is nope, down is skip. The agent blocks until every card is answered.
 
+## Pairing
+
+Generate a six-character pairing code in the app (it expires after ten
+minutes), then claim it from the machine you are pairing:
+
+```sh
+npx yepnope-mcp pair ABC234 --label craig-mbp
+```
+
+The label names the machine's token in the app so it can be revoked later; it
+defaults to the hostname. The command prints the machine token as an
+`export YEPNOPE_TOKEN=...` line ready for your shell profile.
+
 ## Hook install (Claude Code)
 
-The Worker itself is the permission hook: no npm package, no local process. Pair
-a machine to get a token, export it as `YEPNOPE_TOKEN`, and add this to
+The Worker itself is the permission hook: no npm package, no local process.
+Pair a machine to get a token, export it as `YEPNOPE_TOKEN`, and add this to
 `settings.json`:
 
 ```json
