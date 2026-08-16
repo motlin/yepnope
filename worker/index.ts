@@ -1,7 +1,9 @@
 import {authenticateMachineToken} from "./auth";
+import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
 import {claimPairingCode, createAppIdentity, createPairingCode} from "./pairing";
 import type {UserDurableObject} from "./user-do";
 import {
+	afkRequestSchema,
 	createBatchRequestSchema,
 	MAX_REQUEST_BYTES,
 	pairClaimRequestSchema,
@@ -16,13 +18,15 @@ const STREAM_PATH = /^\/api\/v1\/questions\/[^/]+\/stream$/;
 
 export default {
 	async fetch(request, env, executionContext): Promise<Response> {
+		const url = new URL(request.url);
 		// 🛡️ Rude by design: reject on Content-Length before reading the body (spec §7.2).
+		// The hook route carries whole tool_inputs and gets a higher ceiling (spec §10).
+		const byteCeiling = url.pathname === "/api/v1/hook" ? MAX_HOOK_REQUEST_BYTES : MAX_REQUEST_BYTES;
 		const contentLength = Number(request.headers.get("Content-Length") ?? "0");
-		if (contentLength > MAX_REQUEST_BYTES) {
+		if (contentLength > byteCeiling) {
 			return new Response(null, {status: 413});
 		}
 
-		const url = new URL(request.url);
 		// 🤝 The pairing entry points and the VAPID key are the only unauthenticated routes.
 		if (url.pathname === "/api/v1/pair/new" && request.method === "POST") {
 			const identity = await createAppIdentity(env.DB);
@@ -51,6 +55,15 @@ export default {
 		if (request.method === "GET" && STREAM_PATH.test(url.pathname)) {
 			return stub.fetch(request);
 		}
+		if (url.pathname === "/api/v1/hook" && request.method === "POST") {
+			return handleHookEvent(request, stub, executionContext);
+		}
+		if (url.pathname === "/api/v1/afk" && request.method === "GET") {
+			return Response.json({afk: await stub.getAfk()});
+		}
+		if (url.pathname === "/api/v1/afk" && request.method === "PUT") {
+			return setAfk(request, stub);
+		}
 		if (url.pathname === "/api/v1/questions" && request.method === "POST") {
 			return createQuestions(request, stub, executionContext);
 		}
@@ -63,6 +76,16 @@ export default {
 		return new Response(null, {status: 404});
 	},
 } satisfies ExportedHandler<Env>;
+
+// 🧍 AFK endpoints (spec §11.1): the DO boolean is the single source of truth, read per request.
+async function setAfk(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
+	const parsed = afkRequestSchema.safeParse(await request.json().catch(() => null));
+	if (!parsed.success) {
+		return new Response(null, {status: 400});
+	}
+	await stub.setAfk(parsed.data.afk);
+	return Response.json({afk: parsed.data.afk});
+}
 
 async function claimPairing(request: Request, database: D1Database): Promise<Response> {
 	const parsed = pairClaimRequestSchema.safeParse(await request.json().catch(() => null));
@@ -93,6 +116,18 @@ async function createQuestions(
 	const parsed = createBatchRequestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
 		return new Response(null, {status: 400});
+	}
+	// 🧍 Interception point 3 (spec §11.3): with AFK off, ask_yep_nope gets a teaching error instead of a batch.
+	if (!(await stub.getAfk())) {
+		return Response.json(
+			{
+				error: "afk_off",
+				message:
+					"The user is at their keyboard, so questions are not being routed to their phone. " +
+					"Use the AskUserQuestion tool instead of ask_yep_nope for this question.",
+			},
+			{status: 409},
+		);
 	}
 	const created = await stub.createBatch(parsed.data);
 	// 📣 One push per batch, sent outside the response path (spec §6.1/§6.2).

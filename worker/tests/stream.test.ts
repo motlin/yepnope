@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import type {DispositionMap} from "../protocol";
+import type {Frame} from "../protocol";
 import {
 	API_ORIGIN,
 	createBatchOverHttp,
@@ -9,13 +9,6 @@ import {
 	required,
 	worker,
 } from "./helpers";
-
-interface Frame {
-	type: string;
-	batch_id?: string;
-	dispositions?: DispositionMap;
-	code?: string;
-}
 
 async function openStream(token: string, batchId: string): Promise<Response> {
 	return worker.fetch(`${API_ORIGIN}/api/v1/questions/${batchId}/stream`, {

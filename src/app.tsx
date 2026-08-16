@@ -1,5 +1,13 @@
 import {useCallback, useEffect, useState, type ReactElement} from "react";
-import {fetchQuestions, issuePairingCode, pairNew, submitAnswer, type IssuedPairingCode} from "./api";
+import {
+	fetchAfk,
+	fetchQuestions,
+	issuePairingCode,
+	pairNew,
+	submitAnswer,
+	updateAfk,
+	type IssuedPairingCode,
+} from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
 import {loadToken, saveToken} from "./token-store";
@@ -31,6 +39,28 @@ function IosInstallHint(): ReactElement | null {
 				<b>Add to Home Screen</b>, then reopen YepNope from the icon and enable notifications.
 			</p>
 		</div>
+	);
+}
+
+// 🧍 AFK toggle (spec §11.5): the primary flip path, prominent, effective for new questions only.
+// A null state means the server has not answered yet, so the toggle reads neutral and inert.
+interface AfkToggleProps {
+	afk: boolean | null;
+	onToggle: () => void;
+}
+
+function AfkToggle({afk, onToggle}: AfkToggleProps): ReactElement {
+	const armed = afk === true;
+	return (
+		<button
+			type="button"
+			className={armed ? "afk-toggle afk-on" : "afk-toggle"}
+			aria-pressed={armed}
+			disabled={afk === null}
+			onClick={onToggle}
+		>
+			{armed ? "AFK armed" : "AFK off"}
+		</button>
 	);
 }
 
@@ -104,6 +134,7 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 export function App(): ReactElement {
 	const [token, setToken] = useState<string | null>(null);
 	const [questions, setQuestions] = useState<DeckQuestion[] | null>(null);
+	const [afk, setAfkState] = useState<boolean | null>(null);
 	const [view, setView] = useState<"deck" | "settings">("deck");
 
 	useEffect(() => {
@@ -137,6 +168,9 @@ export function App(): ReactElement {
 				// Keep showing what we have; the next refresh will retry.
 			},
 		);
+		fetchAfk(token).then(setAfkState, () => {
+			// Unknown state renders as a neutral toggle; the next refresh will retry.
+		});
 	}, [token]);
 
 	useEffect(() => {
@@ -172,6 +206,17 @@ export function App(): ReactElement {
 		});
 	}
 
+	function onToggleAfk(): void {
+		if (token === null || afk === null) {
+			return;
+		}
+		const next = !afk;
+		setAfkState(next);
+		updateAfk(token, next).then(setAfkState, () => {
+			setAfkState(afk);
+		});
+	}
+
 	function currentView(): ReactElement {
 		if (token === null || questions === null) {
 			return <div className="loading">Connecting…</div>;
@@ -194,6 +239,7 @@ export function App(): ReactElement {
 			<div className="app-header">
 				<span className="brand">YepNope</span>
 				<span className="meta">
+					<AfkToggle afk={afk} onToggle={onToggleAfk} />
 					<HarnessIcon />
 					<button
 						type="button"

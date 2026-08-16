@@ -82,6 +82,22 @@ export async function submitAnswer(token: string, questionId: string, dispositio
 	);
 }
 
+const afkResponseSchema = z.object({afk: z.boolean()});
+
+export async function fetchAfk(token: string): Promise<boolean> {
+	const body = await requestJson("/api/v1/afk", {headers: authHeaders(token)}, afkResponseSchema);
+	return body.afk;
+}
+
+export async function updateAfk(token: string, afk: boolean): Promise<boolean> {
+	const body = await requestJson(
+		"/api/v1/afk",
+		{method: "PUT", headers: authHeaders(token), body: JSON.stringify({afk})},
+		afkResponseSchema,
+	);
+	return body.afk;
+}
+
 const publicKeyResponseSchema = z.object({public_key: z.string()});
 
 export async function fetchVapidPublicKey(): Promise<string> {

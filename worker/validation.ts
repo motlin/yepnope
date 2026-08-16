@@ -74,6 +74,9 @@ export function teachingRejection(violations: LengthViolation[]): string {
 	].join(" ");
 }
 
+// 🧍 AFK mode (spec §11): a single server-side boolean, read per request, never cached.
+export const afkRequestSchema = z.object({afk: z.boolean()});
+
 // 🤝 Pairing codes expire ten minutes after issue (spec §12).
 export const PAIRING_CODE_TTL_MILLISECONDS = 10 * 60 * 1000;
 

@@ -69,6 +69,24 @@ body {
 	display: block;
 }
 
+.afk-toggle {
+	border: 1px solid var(--muted);
+	border-radius: 999px;
+	background: none;
+	color: var(--muted);
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	padding: 3px 10px;
+	cursor: pointer;
+}
+
+.afk-toggle.afk-on {
+	border-color: #d97757;
+	background: rgb(217 119 87 / 18%);
+	color: #d97757;
+}
+
 .settings-button {
 	background: none;
 	border: 0;

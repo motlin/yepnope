@@ -75,6 +75,15 @@ export class UserDurableObject extends DurableObject<Env> {
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
 	}
 
+	async getAfk(): Promise<boolean> {
+		const rows = await this.database.select({afk: state.afk}).from(state).where(eq(state.id, STATE_ROW_ID));
+		return rows[0]?.afk ?? true;
+	}
+
+	async setAfk(afk: boolean): Promise<void> {
+		await this.database.update(state).set({afk}).where(eq(state.id, STATE_ROW_ID));
+	}
+
 	async getOutstandingQuestions(): Promise<OutstandingQuestion[]> {
 		const oldestLiveCreation = Date.now() - RETENTION_MILLISECONDS;
 		const rows = await this.database
