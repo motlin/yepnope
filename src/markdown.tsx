@@ -25,20 +25,65 @@ function renderParagraphLines(lines: string[], keyPrefix: string): ReactNode[] {
 }
 
 export function renderMarkdown(source: string): ReactNode[] {
-	return source
-		.split(/\n{2,}/)
-		.filter((block) => block.trim() !== "")
-		.map((block, blockIndex) => {
+	const rendered: ReactNode[] = [];
+	const lines = source.split(/\r?\n/);
+	let textLines: string[] = [];
+	let blockIndex = 0;
+
+	function renderTextBlocks(): void {
+		const firstContentLine = textLines.findIndex((line) => line.trim() !== "");
+		if (firstContentLine === -1) {
+			textLines = [];
+			return;
+		}
+		let lastContentLine = textLines.length - 1;
+		while (textLines[lastContentLine]?.trim() === "") {
+			lastContentLine -= 1;
+		}
+
+		const blocks = textLines
+			.slice(firstContentLine, lastContentLine + 1)
+			.join("\n")
+			.split(/\n{2,}/);
+		for (const block of blocks) {
 			const lines = block.split("\n");
 			if (lines.every((line) => /^[-*] /.test(line))) {
-				return (
+				rendered.push(
 					<ul key={blockIndex}>
 						{lines.map((line, lineIndex) => (
 							<li key={lineIndex}>{renderInline(line.slice(2), `${blockIndex}-${lineIndex}`)}</li>
 						))}
-					</ul>
+					</ul>,
 				);
+				blockIndex += 1;
+				continue;
 			}
-			return <p key={blockIndex}>{renderParagraphLines(lines, String(blockIndex))}</p>;
-		});
+			rendered.push(<p key={blockIndex}>{renderParagraphLines(lines, String(blockIndex))}</p>);
+			blockIndex += 1;
+		}
+		textLines = [];
+	}
+
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+		if (/^```[^`]*$/.test(lines[lineIndex] ?? "")) {
+			const closingFenceIndex = lines.findIndex(
+				(line, candidateIndex) => candidateIndex > lineIndex && /^```[\t ]*$/.test(line),
+			);
+			if (closingFenceIndex !== -1) {
+				renderTextBlocks();
+				rendered.push(
+					<pre key={blockIndex}>
+						<code>{lines.slice(lineIndex + 1, closingFenceIndex).join("\n")}</code>
+					</pre>,
+				);
+				blockIndex += 1;
+				lineIndex = closingFenceIndex;
+				continue;
+			}
+		}
+		textLines.push(lines[lineIndex] ?? "");
+	}
+
+	renderTextBlocks();
+	return rendered;
 }
