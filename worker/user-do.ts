@@ -67,22 +67,28 @@ export class UserDurableObject extends DurableObject<Env> {
 			title: question.title,
 			body: question.body,
 		}));
-		await this.database.insert(batches).values({
-			id: batchId,
-			project: request.project,
-			repo: request.repo ?? null,
-			branch: request.branch ?? null,
-			worktree: request.worktree ?? null,
-			directory: request.directory ?? null,
-			createdAt: now,
-			lastHeartbeatAt: now,
+		this.database.transaction((transaction) => {
+			transaction
+				.insert(batches)
+				.values({
+					id: batchId,
+					project: request.project,
+					repo: request.repo ?? null,
+					branch: request.branch ?? null,
+					worktree: request.worktree ?? null,
+					directory: request.directory ?? null,
+					createdAt: now,
+					lastHeartbeatAt: now,
+				})
+				.run();
+			transaction.insert(questions).values(questionRows).run();
+			// 📊 Quota bookkeeping only: enforcement is cut from the MVP (spec §17).
+			transaction
+				.update(state)
+				.set({questionsAsked: sql`${state.questionsAsked} + ${questionRows.length}`})
+				.where(eq(state.id, STATE_ROW_ID))
+				.run();
 		});
-		await this.database.insert(questions).values(questionRows);
-		// 📊 Quota bookkeeping only: enforcement is cut from the MVP (spec §17).
-		await this.database
-			.update(state)
-			.set({questionsAsked: sql`${state.questionsAsked} + ${questionRows.length}`})
-			.where(eq(state.id, STATE_ROW_ID));
 		// 💓 The heartbeat grace deadline always precedes retention; the alarm handler re-arms for both.
 		await this.armAlarm(now + HEARTBEAT_GRACE_MILLISECONDS);
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
@@ -122,50 +128,58 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {
-		const questionIds = submitted.map((answer) => answer.question_id);
-		if (new Set(questionIds).size !== questionIds.length) {
-			throw new Error("duplicate_question: the same question_id appears twice in one request");
-		}
-		const found = await this.database
-			.select({id: questions.id, batchId: questions.batchId})
-			.from(questions)
-			.where(inArray(questions.id, questionIds));
-		const foundById = new Map(found.map((row) => [row.id, row]));
-		for (const questionId of questionIds) {
-			if (!foundById.has(questionId)) {
-				throw new Error(`unknown_question: ${questionId}`);
+		const affectedBatchIds = this.database.transaction((transaction) => {
+			const questionIds = submitted.map((answer) => answer.question_id);
+			if (new Set(questionIds).size !== questionIds.length) {
+				throw new Error("duplicate_question: the same question_id appears twice in one request");
 			}
-		}
-		const alreadyAnswered = await this.database
-			.select({questionId: answers.questionId})
-			.from(answers)
-			.where(inArray(answers.questionId, questionIds));
-		if (alreadyAnswered.length > 0) {
-			throw new Error(`already_answered: ${alreadyAnswered[0]?.questionId}`);
-		}
+			const found = transaction
+				.select({id: questions.id, batchId: questions.batchId})
+				.from(questions)
+				.where(inArray(questions.id, questionIds))
+				.all();
+			const foundById = new Map(found.map((row) => [row.id, row]));
+			for (const questionId of questionIds) {
+				if (!foundById.has(questionId)) {
+					throw new Error(`unknown_question: ${questionId}`);
+				}
+			}
+			const alreadyAnswered = transaction
+				.select({questionId: answers.questionId})
+				.from(answers)
+				.where(inArray(answers.questionId, questionIds))
+				.all();
+			if (alreadyAnswered.length > 0) {
+				throw new Error(`already_answered: ${alreadyAnswered[0]?.questionId}`);
+			}
 
-		const now = Date.now();
-		await this.database.insert(answers).values(
-			submitted.map((answer) => ({
-				questionId: answer.question_id,
-				disposition: answer.disposition,
-				answeredAt: now,
-			})),
-		);
-		const counts = {yep: 0, nope: 0, skip: 0};
-		for (const answer of submitted) {
-			counts[answer.disposition] += 1;
-		}
-		await this.database
-			.update(state)
-			.set({
-				yepCount: sql`${state.yepCount} + ${counts.yep}`,
-				nopeCount: sql`${state.nopeCount} + ${counts.nope}`,
-				skipCount: sql`${state.skipCount} + ${counts.skip}`,
-			})
-			.where(eq(state.id, STATE_ROW_ID));
+			const now = Date.now();
+			transaction
+				.insert(answers)
+				.values(
+					submitted.map((answer) => ({
+						questionId: answer.question_id,
+						disposition: answer.disposition,
+						answeredAt: now,
+					})),
+				)
+				.run();
+			const counts = {yep: 0, nope: 0, skip: 0};
+			for (const answer of submitted) {
+				counts[answer.disposition] += 1;
+			}
+			transaction
+				.update(state)
+				.set({
+					yepCount: sql`${state.yepCount} + ${counts.yep}`,
+					nopeCount: sql`${state.nopeCount} + ${counts.nope}`,
+					skipCount: sql`${state.skipCount} + ${counts.skip}`,
+				})
+				.where(eq(state.id, STATE_ROW_ID))
+				.run();
+			return new Set(found.map((row) => row.batchId));
+		});
 
-		const affectedBatchIds = new Set(found.map((row) => row.batchId));
 		for (const batchId of affectedBatchIds) {
 			await this.broadcastBatchState(batchId);
 		}

@@ -1,3 +1,5 @@
+import {runInDurableObject} from "cloudflare:test";
+import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import {API_ORIGIN, createBatchOverHttp, registerMachineToken, worker} from "./helpers";
 
@@ -26,6 +28,32 @@ describe("POST /api/v1/questions", () => {
 		]);
 		expect(created.batch_id).toMatch(/^[0-9a-f-]{36}$/);
 		expect(created.question_ids).toEqual([`${created.batch_id}:0`, `${created.batch_id}:1`]);
+	});
+
+	it("rolls back the batch and questions when counter bookkeeping fails", async () => {
+		const userId = "user-atomic-batch";
+		const stub = env.USER_DO.getByName(userId);
+
+		await runInDurableObject(stub, async (instance, state) => {
+			state.storage.sql.exec(`
+				CREATE TRIGGER reject_question_counter
+				BEFORE UPDATE OF questions_asked ON state
+				BEGIN
+					SELECT RAISE(ABORT, 'test counter failure');
+				END
+			`);
+
+			await expect(
+				instance.createBatch({project: "atomic-test", questions: [{title: "Ship it?", body: ""}]}),
+			).rejects.toThrow("test counter failure");
+
+			expect({
+				batches: state.storage.sql.exec("SELECT COUNT(*) AS total FROM batches").one()["total"],
+				questions: state.storage.sql.exec("SELECT COUNT(*) AS total FROM questions").one()["total"],
+				questionsAsked: state.storage.sql.exec("SELECT questions_asked FROM state").one()["questions_asked"],
+				alarm: await state.storage.getAlarm(),
+			}).toStrictEqual({batches: 0, questions: 0, questionsAsked: 0, alarm: null});
+		});
 	});
 
 	it("rejects a title over 100 characters", async () => {
