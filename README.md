@@ -128,6 +128,13 @@ development. See Claude Code's official
 [statusline documentation](https://code.claude.com/docs/en/statusline) for
 composition with an existing status line and other settings.
 
+## Privacy and retention
+
+YepNope can read question bodies and answers stored by the service. End-to-end
+encryption is not part of the MVP. Question bodies and answers are deleted seven
+days after each batch is created. Content-free counters are retained after that
+content is deleted.
+
 ## Development
 
 ```sh

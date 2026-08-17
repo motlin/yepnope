@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import {act, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import type {QuestionsStream} from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
@@ -62,6 +62,22 @@ afterEach(() => {
 });
 
 describe("App live question synchronization", () => {
+	it("discloses readable content, the lack of end-to-end encryption, and seven-day retention", async () => {
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+
+		expect(screen.getByRole("heading", {name: "Privacy and retention"}).parentElement?.textContent).toBe(
+			"Privacy and retentionYepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies and answers are deleted seven days after each batch is created.",
+		);
+	});
+
 	it("drops retracted cards as soon as the server publishes its empty state", async () => {
 		render(<App />);
 		await waitFor(() => {

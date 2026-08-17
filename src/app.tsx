@@ -125,6 +125,13 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 					</>
 				)}
 			</div>
+			<div className="hint">
+				<h3>Privacy and retention</h3>
+				<p>
+					YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP.{" "}
+					Question bodies and answers are deleted seven days after each batch is created.
+				</p>
+			</div>
 			<button type="button" className="back" onClick={onBack}>
 				Back to the deck
 			</button>
