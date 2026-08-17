@@ -40,7 +40,6 @@ body {
 	flex-direction: column;
 	padding: calc(6px + env(safe-area-inset-top)) 16px calc(6px + env(safe-area-inset-bottom));
 	min-height: 0;
-	user-select: none;
 }
 
 .app-header {
@@ -141,6 +140,7 @@ body {
 	flex-direction: column;
 	overflow: hidden;
 	touch-action: none;
+	user-select: none;
 	cursor: grab;
 	will-change: transform;
 }
@@ -362,12 +362,32 @@ body {
 	cursor: pointer;
 }
 
+.pairing-code-row {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	margin: 12px 0 8px;
+}
+
 .pairing-code {
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
-	font-size: 34px;
-	letter-spacing: 8px;
-	text-align: center;
+	font-size: 30px;
+	letter-spacing: 6px;
 	color: #eceef2 !important;
+	user-select: text;
+	cursor: text;
+}
+
+.pairing-code-row button {
+	background: rgb(217 119 87 / 18%);
+	color: #d97757;
+	border: 1px solid #d97757;
+	padding: 7px 10px;
+}
+
+.copy-status {
+	min-height: 1.4em;
 }
 
 .settings .back {

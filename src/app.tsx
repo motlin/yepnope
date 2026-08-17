@@ -72,9 +72,22 @@ interface SettingsProps {
 
 function Settings({token, onBack}: SettingsProps): ReactElement {
 	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
+	const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">(
 		"Notification" in window && Notification.permission === "granted" ? "subscribed" : "idle",
 	);
+
+	async function copyPairingCode(): Promise<void> {
+		if (pairing === null) {
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(pairing.code);
+			setCopyState("copied");
+		} catch {
+			setCopyState("error");
+		}
+	}
 
 	return (
 		<div className="settings">
@@ -110,9 +123,15 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 						<button
 							type="button"
 							onClick={() => {
-								issuePairingCode(token).then(setPairing, () => {
-									setPairing(null);
-								});
+								issuePairingCode(token).then(
+									(issued) => {
+										setPairing(issued);
+										setCopyState("idle");
+									},
+									() => {
+										setPairing(null);
+									},
+								);
 							}}
 						>
 							Generate pairing code
@@ -120,8 +139,17 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 					</>
 				) : (
 					<>
-						<p className="pairing-code">{pairing.code}</p>
-						<p>Expires in ten minutes. Codes are single-use.</p>
+						<div className="pairing-code-row">
+							<code className="pairing-code">{pairing.code}</code>
+							<button type="button" onClick={() => void copyPairingCode()}>
+								Copy code
+							</button>
+						</div>
+						<p className="copy-status" aria-live="polite">
+							{copyState === "copied" && "Copied to clipboard."}
+							{copyState === "error" && "Could not copy automatically. Select the code and copy it."}
+						</p>
+						<p>The code is selectable, expires in ten minutes, and works once.</p>
 					</>
 				)}
 			</div>

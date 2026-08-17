@@ -50,6 +50,7 @@ vi.mock("../src/push", () => ({
 }));
 
 import {App} from "../src/app";
+import {issuePairingCode} from "../src/api";
 
 beforeEach(() => {
 	publishQuestions = undefined;
@@ -62,6 +63,31 @@ afterEach(() => {
 });
 
 describe("App live question synchronization", () => {
+	it("copies a generated pairing code and confirms the clipboard write", async () => {
+		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: 1_787_000_000_000});
+		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
+		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("button", {name: "Generate pairing code"}));
+
+		const code = await screen.findByText("ABC234");
+		expect(code.tagName).toBe("CODE");
+		fireEvent.click(screen.getByRole("button", {name: "Copy code"}));
+
+		await waitFor(() => {
+			expect(writeText.mock.calls).toStrictEqual([["ABC234"]]);
+			expect(screen.getByText("Copied to clipboard.")).toBeDefined();
+		});
+	});
+
 	it("discloses readable content, the lack of end-to-end encryption, and seven-day retention", async () => {
 		render(<App />);
 		await waitFor(() => {
