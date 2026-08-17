@@ -8,8 +8,15 @@ left is nope, down is skip. The agent blocks until every card is answered.
 
 ## Pairing
 
-Generate a six-character pairing code in the app (it expires after ten
-minutes), then claim it from the machine you are pairing:
+Until the package is published, build and run the checked-out shim directly:
+
+```sh
+vp run build:shim
+node "$PWD/shim/dist/yepnope-mcp.cjs" pair ABC234 --label craig-mbp
+```
+
+Generate the six-character code in the app first; it expires after ten
+minutes. Once the package is published, the equivalent command will be:
 
 ```sh
 npx yepnope-mcp pair ABC234 --label craig-mbp
@@ -71,7 +78,22 @@ blocks until every card is swiped. Pair a machine to get a token, then register
 the shim. For Claude Code:
 
 ```sh
-claude mcp add yepnope --env YEPNOPE_TOKEN=ynp_live_... -- npx yepnope-mcp
+claude mcp add yepnope --scope local --env YEPNOPE_TOKEN=ynp_live_... -- \
+  node "$PWD/shim/dist/yepnope-mcp.cjs"
+```
+
+Codex supports the same local stdio server. Use an absolute path so the shim
+continues to start when the harness changes directories:
+
+```toml
+# .codex/config.toml (trusted projects only; keep the token out of version control)
+[mcp_servers.yepnope]
+command = "node"
+args = ["/absolute/path/to/yepnope/shim/dist/yepnope-mcp.cjs"]
+tool_timeout_sec = 43200
+
+[mcp_servers.yepnope.env]
+YEPNOPE_TOKEN = "ynp_live_..."
 ```
 
 The call may block for hours by design. The shim emits an MCP progress

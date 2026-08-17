@@ -27,7 +27,7 @@
 		"prepare": "VITE_GIT_HOOKS=0 vp config",
 		"test:worker": "node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts",
 		"build:shim": "esbuild shim/cli.ts --bundle --platform=node --target=node20 --format=cjs --outfile=shim/dist/yepnope-mcp.cjs --banner:js='#!/usr/bin/env node' --external:bufferutil --external:utf-8-validate --log-level=warning",
-		"deploy": "wrangler deploy"
+		"deploy": "vp build && wrangler deploy"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.30.0",

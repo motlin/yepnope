@@ -1,0 +1,2 @@
+# Generate a separate P-256 JWK for local web-push testing. Never copy the production secret here.
+VAPID_PRIVATE_JWK='{"kty":"EC","crv":"P-256","x":"replace-me","y":"replace-me","d":"replace-me"}'

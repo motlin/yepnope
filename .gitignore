@@ -16,6 +16,7 @@
 .env.development.local
 .env.test.local
 .env.production.local
+.dev.vars
 JUSTFILE_BRANCH
 
 npm-debug.log*

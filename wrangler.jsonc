@@ -2,8 +2,13 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "yepnope",
 	"main": "worker/index.ts",
-	"compatibility_date": "2026-08-01",
-	"routes": [{"pattern": "yepnope.app/api/*", "zone_name": "yepnope.app"}],
+	"compatibility_date": "2026-08-17",
+	"routes": [{"pattern": "yepnope.app", "custom_domain": true}],
+	"assets": {
+		"directory": "./dist",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*"],
+	},
 	"durable_objects": {
 		"bindings": [{"name": "USER_DO", "class_name": "UserDurableObject"}],
 	},
@@ -17,10 +22,7 @@
 		},
 	],
 	"rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
-	// 🔑 Committed key is for local dev and tests only; production overrides both via `wrangler secret put`.
-	"vars": {
-		"VAPID_PRIVATE_JWK": "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"P2UcKzI-O7pCxMgZn7O1nuxR0PhhT6mT6tOykdMFguU\",\"y\":\"l-fC1-ic-sn3gMPXjJdSkP_PS55_eSOZ6WNobUL0gto\",\"d\":\"Ns5xclmJIPX3nl-JGchKKjUTJsrYm-TTrhG0UKSjjXc\"}",
-		"VAPID_SUBJECT": "mailto:push@yepnope.app",
-	},
+	// Production's VAPID_PRIVATE_JWK is a Wrangler secret; local development reads it from .dev.vars.
+	"vars": {"VAPID_SUBJECT": "mailto:push@yepnope.app"},
 	"observability": {"enabled": true},
 }
