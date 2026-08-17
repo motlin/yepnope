@@ -43,26 +43,23 @@ export async function issuePairingCode(token: string): Promise<IssuedPairingCode
 	return {code: body.code, expiresAt: body.expires_at};
 }
 
-const questionsResponseSchema = z.object({
-	questions: z.array(
-		z.object({
-			batch_id: z.string(),
-			project: z.string(),
-			repo: z.string().nullable(),
-			branch: z.string().nullable(),
-			directory: z.string().nullable(),
-			question_id: z.string(),
-			position: z.number(),
-			title: z.string(),
-			body: z.string(),
-			created_at: z.number(),
-		}),
-	),
+const questionSchema = z.object({
+	batch_id: z.string(),
+	project: z.string(),
+	repo: z.string().nullable(),
+	branch: z.string().nullable(),
+	directory: z.string().nullable(),
+	question_id: z.string(),
+	position: z.number(),
+	title: z.string(),
+	body: z.string(),
+	created_at: z.number(),
 });
 
-export async function fetchQuestions(token: string): Promise<DeckQuestion[]> {
-	const body = await requestJson("/api/v1/questions", {headers: authHeaders(token)}, questionsResponseSchema);
-	return body.questions.map((question) => ({
+const questionsStateSchema = z.object({type: z.literal("questions"), questions: z.array(questionSchema)});
+
+function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuestion[] {
+	return questions.map((question) => ({
 		questionId: question.question_id,
 		batchId: question.batch_id,
 		project: question.project,
@@ -72,6 +69,51 @@ export async function fetchQuestions(token: string): Promise<DeckQuestion[]> {
 		title: question.title,
 		body: question.body,
 	}));
+}
+
+export interface QuestionsStream {
+	close: () => void;
+	refresh: () => void;
+}
+
+export function openQuestionsStream(token: string, onQuestions: (questions: DeckQuestion[]) => void): QuestionsStream {
+	let socket: WebSocket | null = null;
+	let reconnectTimer: number | undefined;
+	let stopped = false;
+
+	function connect(): void {
+		const url = new URL("/api/v1/questions/stream", window.location.href);
+		url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+		socket = new WebSocket(url, ["yepnope", token]);
+		socket.addEventListener("message", (event) => {
+			if (typeof event.data !== "string") {
+				throw new Error("question stream sent a non-text frame");
+			}
+			const state = questionsStateSchema.parse(JSON.parse(event.data) as unknown);
+			onQuestions(toDeckQuestions(state.questions));
+		});
+		socket.addEventListener("close", () => {
+			if (!stopped) {
+				reconnectTimer = window.setTimeout(connect, 1000);
+			}
+		});
+	}
+
+	connect();
+	return {
+		close: () => {
+			stopped = true;
+			if (reconnectTimer !== undefined) {
+				window.clearTimeout(reconnectTimer);
+			}
+			socket?.close();
+		},
+		refresh: () => {
+			if (socket?.readyState === WebSocket.OPEN) {
+				socket.send("state");
+			}
+		},
+	};
 }
 
 const okResponseSchema = z.object({status: z.string()});

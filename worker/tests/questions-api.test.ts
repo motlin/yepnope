@@ -1,7 +1,7 @@
 import {runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
-import {API_ORIGIN, createBatchOverHttp, registerMachineToken, worker} from "./helpers";
+import {API_ORIGIN, createBatchOverHttp, nextMessage, registerMachineToken, required, worker} from "./helpers";
 
 describe("POST /api/v1/questions", () => {
 	it("rejects requests without a machine token", async () => {
@@ -224,5 +224,81 @@ describe("GET /api/v1/questions", () => {
 		});
 		const listed = await response.json<{questions: unknown[]}>();
 		expect(listed.questions).toEqual([]);
+	});
+});
+
+describe("GET /api/v1/questions/stream", () => {
+	it("starts with the complete outstanding card state and broadcasts each replacement", async () => {
+		const token = await registerMachineToken("user-live-questions");
+		const created = await createBatchOverHttp(token, "demo", [
+			{title: "First?", body: "one"},
+			{title: "Second?", body: "two"},
+		]);
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+			headers: {"Sec-WebSocket-Protocol": `yepnope, ${token}`, Upgrade: "websocket"},
+		});
+		expect(response.status).toBe(101);
+		expect(response.headers.get("Sec-WebSocket-Protocol")).toBe("yepnope");
+		const socket = required(response.webSocket ?? undefined, "websocket on the upgrade response");
+		const initialMessage = nextMessage(socket);
+		socket.accept();
+
+		expect(JSON.parse(await initialMessage)).toStrictEqual({
+			type: "questions",
+			questions: [
+				{
+					batch_id: created.batch_id,
+					project: "demo",
+					repo: null,
+					branch: null,
+					worktree: null,
+					directory: null,
+					question_id: created.question_ids[0],
+					position: 0,
+					title: "First?",
+					body: "one",
+					created_at: expect.any(Number) as number,
+				},
+				{
+					batch_id: created.batch_id,
+					project: "demo",
+					repo: null,
+					branch: null,
+					worktree: null,
+					directory: null,
+					question_id: created.question_ids[1],
+					position: 1,
+					title: "Second?",
+					body: "two",
+					created_at: expect.any(Number) as number,
+				},
+			],
+		});
+
+		const replacementMessage = nextMessage(socket);
+		await worker.fetch(`${API_ORIGIN}/api/v1/answers`, {
+			method: "POST",
+			headers: {Authorization: `Bearer ${token}`},
+			body: JSON.stringify({answers: [{question_id: created.question_ids[0], disposition: "yep"}]}),
+		});
+		expect(JSON.parse(await replacementMessage)).toStrictEqual({
+			type: "questions",
+			questions: [
+				{
+					batch_id: created.batch_id,
+					project: "demo",
+					repo: null,
+					branch: null,
+					worktree: null,
+					directory: null,
+					question_id: created.question_ids[1],
+					position: 1,
+					title: "Second?",
+					body: "two",
+					created_at: expect.any(Number) as number,
+				},
+			],
+		});
+		socket.close();
 	});
 });

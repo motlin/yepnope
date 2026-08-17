@@ -36,12 +36,32 @@ export interface OutstandingQuestion {
 	createdAt: number;
 }
 
+export interface OutstandingQuestionPayload {
+	batch_id: string;
+	project: string;
+	repo: string | null;
+	branch: string | null;
+	worktree: string | null;
+	directory: string | null;
+	question_id: string;
+	position: number;
+	title: string;
+	body: string;
+	created_at: number;
+}
+
+export interface OutstandingQuestionState {
+	type: "questions";
+	questions: OutstandingQuestionPayload[];
+}
+
 export interface SubmittedAnswer {
 	question_id: string;
 	disposition: Disposition;
 }
 
 const STATE_ROW_ID = 1;
+const QUESTIONS_SOCKET_TAG = "questions";
 
 export class UserDurableObject extends DurableObject<Env> {
 	private readonly database: DrizzleSqliteDODatabase;
@@ -91,6 +111,7 @@ export class UserDurableObject extends DurableObject<Env> {
 		});
 		// 💓 The heartbeat grace deadline always precedes retention; the alarm handler re-arms for both.
 		await this.armAlarm(now + HEARTBEAT_GRACE_MILLISECONDS);
+		await this.broadcastOutstandingQuestionState();
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
 	}
 
@@ -125,6 +146,26 @@ export class UserDurableObject extends DurableObject<Env> {
 			.where(and(isNull(answers.questionId), sql`${batches.createdAt} > ${oldestLiveCreation}`))
 			.orderBy(asc(batches.createdAt), asc(questions.position));
 		return rows;
+	}
+
+	async getOutstandingQuestionState(): Promise<OutstandingQuestionState> {
+		const outstanding = await this.getOutstandingQuestions();
+		return {
+			type: "questions",
+			questions: outstanding.map((question) => ({
+				batch_id: question.batchId,
+				project: question.project,
+				repo: question.repo,
+				branch: question.branch,
+				worktree: question.worktree,
+				directory: question.directory,
+				question_id: question.questionId,
+				position: question.position,
+				title: question.title,
+				body: question.body,
+				created_at: question.createdAt,
+			})),
+		};
 	}
 
 	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {
@@ -183,6 +224,7 @@ export class UserDurableObject extends DurableObject<Env> {
 		for (const batchId of affectedBatchIds) {
 			await this.broadcastBatchState(batchId);
 		}
+		await this.broadcastOutstandingQuestionState();
 	}
 
 	// 🧪 Delivery seam: tests replace this to observe pushes without a live push service.
@@ -266,6 +308,22 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	override async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
+		if (url.pathname === "/api/v1/questions/stream") {
+			if (request.headers.get("Upgrade") !== "websocket") {
+				return new Response(null, {status: 426});
+			}
+			const pair = new WebSocketPair();
+			this.ctx.acceptWebSocket(pair[1], [QUESTIONS_SOCKET_TAG]);
+			await this.sendOutstandingQuestionState(pair[1]);
+			const selectedProtocol = request.headers.get("Sec-WebSocket-Protocol")?.startsWith("yepnope,") === true;
+			return selectedProtocol
+				? new Response(null, {
+						status: 101,
+						webSocket: pair[0],
+						headers: {"Sec-WebSocket-Protocol": "yepnope"},
+					})
+				: new Response(null, {status: 101, webSocket: pair[0]});
+		}
 		const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
 		if (match === null) {
 			return new Response(null, {status: 404});
@@ -287,8 +345,12 @@ export class UserDurableObject extends DurableObject<Env> {
 	// 💓 Any inbound frame is a heartbeat (batch identifier option C in .llm/decisions.md).
 	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void> {
 		const batchId = this.ctx.getTags(socket)[0];
+		if (batchId === QUESTIONS_SOCKET_TAG) {
+			await this.sendOutstandingQuestionState(socket);
+			return;
+		}
 		if (batchId === undefined || !(await this.batchExists(batchId))) {
-			socket.send(errorFrame("unknown_batch", "this batch no longer exists"));
+			socket.send(errorFrame(batchId ?? "unknown", {}, "unknown_batch", "this batch no longer exists"));
 			socket.close(1008, "unknown batch");
 			return;
 		}
@@ -306,7 +368,8 @@ export class UserDurableObject extends DurableObject<Env> {
 			.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
 		await this.deleteBatches(
 			expired.map((row) => row.id),
-			errorFrame("batch_expired", "this batch passed the 7 day retention limit"),
+			"batch_expired",
+			"this batch passed the 7 day retention limit",
 			"batch expired",
 		);
 		// 💀 Unanswered questions whose agent stopped heartbeating: retract rather than let the
@@ -320,17 +383,20 @@ export class UserDurableObject extends DurableObject<Env> {
 			.where(and(isNull(answers.questionId), lte(batches.lastHeartbeatAt, now - HEARTBEAT_GRACE_MILLISECONDS)));
 		await this.deleteBatches(
 			stale.map((row) => row.id),
-			errorFrame("batch_retracted", "the agent asking these questions stopped heartbeating"),
+			"batch_retracted",
+			"the agent asking these questions stopped heartbeating",
 			"batch retracted",
 		);
 		await this.armNextDeadline();
 	}
 
-	private async deleteBatches(batchIds: string[], closeFrame: string, closeReason: string): Promise<void> {
+	private async deleteBatches(batchIds: string[], code: string, message: string, closeReason: string): Promise<void> {
 		if (batchIds.length === 0) {
 			return;
 		}
 		for (const batchId of batchIds) {
+			const dispositions = await this.batchDispositions(batchId);
+			const closeFrame = errorFrame(batchId, dispositions, code, message);
 			for (const socket of this.ctx.getWebSockets(batchId)) {
 				socket.send(closeFrame);
 				socket.close(1000, closeReason);
@@ -346,6 +412,7 @@ export class UserDurableObject extends DurableObject<Env> {
 		}
 		await this.database.delete(questions).where(inArray(questions.batchId, batchIds));
 		await this.database.delete(batches).where(inArray(batches.id, batchIds));
+		await this.broadcastOutstandingQuestionState();
 	}
 
 	// ⏰ Re-arm for whichever deadline comes sooner: retention on any batch, or heartbeat
@@ -406,6 +473,21 @@ export class UserDurableObject extends DurableObject<Env> {
 			return;
 		}
 		socket.send(stateFrame(batchId, dispositions));
+	}
+
+	private async sendOutstandingQuestionState(socket: WebSocket): Promise<void> {
+		socket.send(JSON.stringify(await this.getOutstandingQuestionState()));
+	}
+
+	private async broadcastOutstandingQuestionState(): Promise<void> {
+		const sockets = this.ctx.getWebSockets(QUESTIONS_SOCKET_TAG);
+		if (sockets.length === 0) {
+			return;
+		}
+		const frame = JSON.stringify(await this.getOutstandingQuestionState());
+		for (const socket of sockets) {
+			socket.send(frame);
+		}
 	}
 
 	private async broadcastBatchState(batchId: string): Promise<void> {

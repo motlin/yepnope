@@ -2,9 +2,53 @@ import {runDurableObjectAlarm, runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import {HEARTBEAT_GRACE_MILLISECONDS, RETENTION_MILLISECONDS} from "../validation";
-import {createBatchOverHttp, postAnswers, registerMachineToken, required} from "./helpers";
+import {
+	API_ORIGIN,
+	createBatchOverHttp,
+	nextMessage,
+	postAnswers,
+	registerMachineToken,
+	required,
+	worker,
+} from "./helpers";
 
 describe("7 day retention alarm", () => {
+	it("sends the batch identifier and final dispositions before expiry deletion", async () => {
+		const userId = "retention-expiry-frame";
+		const token = await registerMachineToken(userId);
+		const created = await createBatchOverHttp(token, "demo", [
+			{title: "First?", body: ""},
+			{title: "Second?", body: ""},
+		]);
+		const firstQuestionId = required(created.question_ids[0], "first question id");
+		const secondQuestionId = required(created.question_ids[1], "second question id");
+		await postAnswers(token, [{question_id: firstQuestionId, disposition: "yep"}]);
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions/${created.batch_id}/stream`, {
+			headers: {Authorization: `Bearer ${token}`, Upgrade: "websocket"},
+		});
+		const socket = required(response.webSocket ?? undefined, "websocket on the upgrade response");
+		const initialMessage = nextMessage(socket);
+		socket.accept();
+		await initialMessage;
+
+		const stub = env.USER_DO.getByName(userId);
+		await runInDurableObject(stub, (_instance, state) => {
+			state.storage.sql.exec("UPDATE batches SET created_at = created_at - ?", RETENTION_MILLISECONDS + 60_000);
+		});
+		const expiredMessage = nextMessage(socket);
+		expect(await runDurableObjectAlarm(stub)).toBe(true);
+		expect(JSON.parse(await expiredMessage)).toStrictEqual({
+			type: "error",
+			batch_id: created.batch_id,
+			dispositions: {
+				[firstQuestionId]: "yep",
+				[secondQuestionId]: null,
+			},
+			code: "batch_expired",
+			message: "this batch passed the 7 day retention limit",
+		});
+	});
+
 	it("keeps the earlier alarm when a second batch arrives", async () => {
 		const userId = "retention-earliest";
 		const token = await registerMachineToken(userId);

@@ -13,23 +13,27 @@ export function resolvedFrame(batchId: string, dispositions: DispositionMap): st
 	return JSON.stringify({type: "resolved", batch_id: batchId, dispositions});
 }
 
-export function errorFrame(code: string, message: string): string {
-	return JSON.stringify({type: "error", code, message});
+export function errorFrame(batchId: string, dispositions: DispositionMap, code: string, message: string): string {
+	return JSON.stringify({type: "error", batch_id: batchId, dispositions, code, message});
 }
 
 export function isComplete(dispositions: DispositionMap): boolean {
 	return Object.values(dispositions).every((disposition) => disposition !== null);
 }
 
-// 📥 The reading half of the same protocol, kept beside the writers so the wire shape is
-// declared once: the hook bridge parses these frames back off a socket into the DO.
-const frameSchema = z.looseObject({
-	type: z.string(),
-	batch_id: z.string().optional(),
-	code: z.string().optional(),
-	message: z.string().optional(),
-	dispositions: z.record(z.string(), dispositionSchema.nullable()).optional(),
-});
+const dispositionsSchema = z.record(z.string(), dispositionSchema.nullable());
+
+const frameSchema = z.discriminatedUnion("type", [
+	z.object({type: z.literal("state"), batch_id: z.string(), dispositions: dispositionsSchema}),
+	z.object({type: z.literal("resolved"), batch_id: z.string(), dispositions: dispositionsSchema}),
+	z.object({
+		type: z.literal("error"),
+		batch_id: z.string(),
+		dispositions: dispositionsSchema,
+		code: z.string(),
+		message: z.string(),
+	}),
+]);
 
 export type Frame = z.infer<typeof frameSchema>;
 

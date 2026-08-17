@@ -106,7 +106,9 @@ describe("askYepNope", () => {
 	it("returns the STOP wording as an error when quota is exhausted", async () => {
 		backend = await startMockBackend({
 			onConnection(socket) {
-				socket.send(errorFrame("quota_exhausted", "quota exhausted"));
+				socket.send(
+					errorFrame("bat_1", {"bat_1:0": null, "bat_1:1": null}, "quota_exhausted", "quota exhausted"),
+				);
 			},
 		});
 		const outcome = await askYepNope(TWO_QUESTIONS, CONTEXT, fastOptions(backend));
@@ -117,7 +119,14 @@ describe("askYepNope", () => {
 	it("surfaces other error frames as tool errors", async () => {
 		backend = await startMockBackend({
 			onConnection(socket) {
-				socket.send(errorFrame("batch_expired", "this batch passed the 7 day retention limit"));
+				socket.send(
+					errorFrame(
+						"bat_1",
+						{"bat_1:0": "yep", "bat_1:1": null},
+						"batch_expired",
+						"this batch passed the 7 day retention limit",
+					),
+				);
 			},
 		});
 		const outcome = await askYepNope(TWO_QUESTIONS, CONTEXT, fastOptions(backend));

@@ -15,6 +15,7 @@ import {parseVapidJwk, vapidPublicKeyFromJwk} from "./webpush";
 export {UserDurableObject} from "./user-do";
 
 const STREAM_PATH = /^\/api\/v1\/questions\/[^/]+\/stream$/;
+const QUESTIONS_STREAM_PATH = "/api/v1/questions/stream";
 
 export default {
 	async fetch(request, env, executionContext): Promise<Response> {
@@ -39,7 +40,8 @@ export default {
 			return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});
 		}
 
-		const userId = await authenticateMachineToken(request, env.DB);
+		const authenticatedRequest = withBrowserSocketAuthorization(request, url);
+		const userId = await authenticateMachineToken(authenticatedRequest, env.DB);
 		if (userId === null) {
 			return new Response(null, {status: 401});
 		}
@@ -52,8 +54,8 @@ export default {
 		if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST") {
 			return subscribePush(request, stub);
 		}
-		if (request.method === "GET" && STREAM_PATH.test(url.pathname)) {
-			return stub.fetch(request);
+		if (request.method === "GET" && (url.pathname === QUESTIONS_STREAM_PATH || STREAM_PATH.test(url.pathname))) {
+			return stub.fetch(authenticatedRequest);
 		}
 		if (url.pathname === "/api/v1/hook" && request.method === "POST") {
 			return handleHookEvent(request, stub, executionContext);
@@ -76,6 +78,26 @@ export default {
 		return new Response(null, {status: 404});
 	},
 } satisfies ExportedHandler<Env>;
+
+function withBrowserSocketAuthorization(request: Request, url: URL): Request {
+	if (
+		url.pathname !== QUESTIONS_STREAM_PATH ||
+		request.headers.has("Authorization") ||
+		request.headers.get("Upgrade") !== "websocket"
+	) {
+		return request;
+	}
+	const protocols = request.headers
+		.get("Sec-WebSocket-Protocol")
+		?.split(",")
+		.map((protocol) => protocol.trim());
+	if (protocols?.length !== 2 || protocols[0] !== "yepnope" || protocols[1] === undefined) {
+		return request;
+	}
+	const headers = new Headers(request.headers);
+	headers.set("Authorization", `Bearer ${protocols[1]}`);
+	return new Request(request, {headers});
+}
 
 // 🧍 AFK endpoints (spec §11.1): the DO boolean is the single source of truth, read per request.
 async function setAfk(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
@@ -136,22 +158,8 @@ async function createQuestions(
 }
 
 async function listQuestions(stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
-	const outstanding = await stub.getOutstandingQuestions();
-	return Response.json({
-		questions: outstanding.map((question) => ({
-			batch_id: question.batchId,
-			project: question.project,
-			repo: question.repo,
-			branch: question.branch,
-			worktree: question.worktree,
-			directory: question.directory,
-			question_id: question.questionId,
-			position: question.position,
-			title: question.title,
-			body: question.body,
-			created_at: question.createdAt,
-		})),
-	});
+	const state = await stub.getOutstandingQuestionState();
+	return Response.json({questions: state.questions});
 }
 
 async function submitAnswers(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {

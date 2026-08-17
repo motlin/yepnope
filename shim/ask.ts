@@ -197,17 +197,15 @@ async function openStreamOnce(
 			if (frame === null) {
 				return;
 			}
-			if (frame.type === "state" && frame.dispositions !== undefined) {
+			if (frame.type === "state") {
 				onState(frame.dispositions);
 				return;
 			}
-			if (frame.type === "resolved" && frame.dispositions !== undefined) {
+			if (frame.type === "resolved") {
 				settle({kind: "resolved", dispositions: frame.dispositions});
 				return;
 			}
-			if (frame.type === "error") {
-				settle({kind: "error", code: frame.code ?? "unknown", message: frame.message ?? "unknown error"});
-			}
+			settle({kind: "error", code: frame.code, message: frame.message});
 		});
 		socket.on("close", () => {
 			settle({kind: "closed"});

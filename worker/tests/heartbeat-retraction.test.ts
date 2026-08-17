@@ -20,6 +20,13 @@ async function openStream(token: string, batchId: string): Promise<WebSocket> {
 	return required(response.webSocket ?? undefined, "websocket on the upgrade response");
 }
 
+async function openQuestionStream(token: string): Promise<WebSocket> {
+	const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+		headers: {Authorization: `Bearer ${token}`, Upgrade: "websocket"},
+	});
+	return required(response.webSocket ?? undefined, "question websocket on the upgrade response");
+}
+
 async function goStale(stub: DurableObjectStub, batchId: string): Promise<void> {
 	return runInDurableObject(stub, (_instance, state) => {
 		state.storage.sql.exec(
@@ -62,14 +69,54 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 		expect(await runDurableObjectAlarm(stub)).toBe(true);
 
 		const frame = JSON.parse(await retractionFrame) as Frame;
-		expect(frame.type).toBe("error");
-		expect(frame.code).toBe("batch_retracted");
+		const questionId = required(created.question_ids[0], "question id");
+		expect(frame).toStrictEqual({
+			type: "error",
+			batch_id: created.batch_id,
+			dispositions: {[questionId]: null},
+			code: "batch_retracted",
+			message: "the agent asking these questions stopped heartbeating",
+		});
 
 		await runInDurableObject(stub, async (_instance, state) => {
 			expect(state.storage.sql.exec("SELECT COUNT(*) AS total FROM batches").one()["total"]).toBe(0);
 			expect(state.storage.sql.exec("SELECT COUNT(*) AS total FROM questions").one()["total"]).toBe(0);
 			expect(await state.storage.getAlarm()).toBeNull();
 		});
+	});
+
+	it("publishes an empty card state to the open PWA stream when a batch is retracted", async () => {
+		const userId = "heartbeat-live-pwa";
+		const token = await registerMachineToken(userId);
+		const created = await createBatchOverHttp(token, "demo", [{title: "Anyone there?", body: ""}]);
+		const socket = await openQuestionStream(token);
+		const initialMessage = nextMessage(socket);
+		socket.accept();
+		expect(JSON.parse(await initialMessage)).toStrictEqual({
+			type: "questions",
+			questions: [
+				{
+					batch_id: created.batch_id,
+					project: "demo",
+					repo: null,
+					branch: null,
+					worktree: null,
+					directory: null,
+					question_id: created.question_ids[0],
+					position: 0,
+					title: "Anyone there?",
+					body: "",
+					created_at: expect.any(Number) as number,
+				},
+			],
+		});
+
+		const stub = env.USER_DO.getByName(userId);
+		await goStale(stub, created.batch_id);
+		const retractedMessage = nextMessage(socket);
+		expect(await runDurableObjectAlarm(stub)).toBe(true);
+		expect(JSON.parse(await retractedMessage)).toStrictEqual({type: "questions", questions: []});
+		socket.close();
 	});
 
 	it("keeps a resolved batch until retention even after heartbeats stop", async () => {

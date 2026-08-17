@@ -1,11 +1,12 @@
-import {useCallback, useEffect, useState, type ReactElement} from "react";
+import {useCallback, useEffect, useRef, useState, type ReactElement} from "react";
 import {
 	fetchAfk,
-	fetchQuestions,
 	issuePairingCode,
+	openQuestionsStream,
 	pairNew,
 	submitAnswer,
 	updateAfk,
+	type QuestionsStream,
 	type IssuedPairingCode,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
@@ -136,6 +137,7 @@ export function App(): ReactElement {
 	const [questions, setQuestions] = useState<DeckQuestion[] | null>(null);
 	const [afk, setAfkState] = useState<boolean | null>(null);
 	const [view, setView] = useState<"deck" | "settings">("deck");
+	const questionsStream = useRef<QuestionsStream | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -155,42 +157,47 @@ export function App(): ReactElement {
 		};
 	}, []);
 
-	const refresh = useCallback(() => {
+	const refreshAfk = useCallback(() => {
 		if (token === null) {
 			return;
 		}
-		fetchQuestions(token).then(
-			(fetched) => {
-				setQuestions(fetched);
-				updateBadge(fetched.length);
-			},
-			() => {
-				// Keep showing what we have; the next refresh will retry.
-			},
-		);
 		fetchAfk(token).then(setAfkState, () => {
 			// Unknown state renders as a neutral toggle; the next refresh will retry.
 		});
 	}, [token]);
 
 	useEffect(() => {
-		refresh();
+		if (token === null) {
+			return undefined;
+		}
+		refreshAfk();
+		const stream = openQuestionsStream(token, (currentQuestions) => {
+			setQuestions(currentQuestions);
+			updateBadge(currentQuestions.length);
+		});
+		questionsStream.current = stream;
 		function onVisible(): void {
 			if (document.visibilityState === "visible") {
-				refresh();
+				stream.refresh();
+				refreshAfk();
 			}
 		}
 		function onServiceWorkerMessage(): void {
-			refresh();
+			stream.refresh();
+			refreshAfk();
 		}
 		document.addEventListener("visibilitychange", onVisible);
 		const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
 		workerContainer?.addEventListener("message", onServiceWorkerMessage);
 		return () => {
+			stream.close();
+			if (questionsStream.current === stream) {
+				questionsStream.current = null;
+			}
 			document.removeEventListener("visibilitychange", onVisible);
 			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
 		};
-	}, [refresh]);
+	}, [refreshAfk, token]);
 
 	function onAnswer(questionId: string, disposition: Disposition): void {
 		if (token === null) {
@@ -202,7 +209,7 @@ export function App(): ReactElement {
 			return remaining;
 		});
 		submitAnswer(token, questionId, disposition).catch(() => {
-			refresh();
+			questionsStream.current?.refresh();
 		});
 	}
 

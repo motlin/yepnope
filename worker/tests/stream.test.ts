@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import type {Frame} from "../protocol";
+import {errorFrame, parseFrame, type Frame} from "../protocol";
 import {
 	API_ORIGIN,
 	createBatchOverHttp,
@@ -22,6 +22,22 @@ function acceptedSocket(response: Response): WebSocket {
 }
 
 describe("GET /api/v1/questions/:batch_id/stream", () => {
+	it("requires complete batch state on error frames", () => {
+		const dispositions = {"batch-alice:0": "yep" as const, "batch-alice:1": null};
+		expect(parseFrame(errorFrame("batch-alice", dispositions, "batch_expired", "the batch expired"))).toStrictEqual(
+			{
+				type: "error",
+				batch_id: "batch-alice",
+				dispositions,
+				code: "batch_expired",
+				message: "the batch expired",
+			},
+		);
+		expect(
+			parseFrame(JSON.stringify({type: "error", code: "batch_expired", message: "the batch expired"})),
+		).toBeNull();
+	});
+
 	it("requires a websocket upgrade", async () => {
 		const token = await registerMachineToken("stream-no-upgrade");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship?", body: ""}]);
@@ -104,7 +120,11 @@ describe("GET /api/v1/questions/:batch_id/stream", () => {
 		const initialFrame = nextMessage(socket);
 		socket.accept();
 		const frame = JSON.parse(await initialFrame) as Frame;
-		expect(frame.type).toBe("resolved");
+		expect(frame).toStrictEqual({
+			type: "resolved",
+			batch_id: created.batch_id,
+			dispositions: {[questionId]: "yep"},
+		});
 	});
 
 	it("answers heartbeats with the current full state", async () => {

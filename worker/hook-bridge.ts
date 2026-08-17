@@ -106,7 +106,7 @@ async function awaitResolution(socket: WebSocket, questionId: string): Promise<D
 				return;
 			}
 			if (frame.type === "resolved") {
-				finish(frame.dispositions?.[questionId] ?? null);
+				finish(frame.dispositions[questionId] ?? null);
 			} else if (frame.type === "error") {
 				finish(null);
 			}
