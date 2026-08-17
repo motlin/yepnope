@@ -27,8 +27,12 @@ function HarnessIcon(): ReactElement {
 	);
 }
 
-function IosInstallHint(): ReactElement | null {
-	if (!isIos() || isStandalone()) {
+interface IosInstallHintProps {
+	required: boolean;
+}
+
+function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
+	if (!required) {
 		return null;
 	}
 	// 📲 iOS only delivers web push to an installed PWA (spec §6.3).
@@ -36,8 +40,8 @@ function IosInstallHint(): ReactElement | null {
 		<div className="hint">
 			<h3>Install first</h3>
 			<p>
-				iPhone notifications only work after the app is on your home screen: tap <b>Share</b>, then{" "}
-				<b>Add to Home Screen</b>, then reopen YepNope from the icon and enable notifications.
+				On iPhone, tap <b>Share</b>, choose <b>Add to Home Screen</b>, leave <b>Open as Web App</b> on, then
+				open YepNope from its Home Screen icon.
 			</p>
 		</div>
 	);
@@ -71,6 +75,7 @@ interface SettingsProps {
 }
 
 function Settings({token, onBack}: SettingsProps): ReactElement {
+	const requiresIosInstall = isIos() && !isStandalone();
 	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
 	const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 	const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
@@ -137,10 +142,12 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 
 	return (
 		<div className="settings">
-			<IosInstallHint />
+			<IosInstallHint required={requiresIosInstall} />
 			<div className="hint">
 				<h3>Notifications</h3>
-				{pushState === "subscribed" ? (
+				{requiresIosInstall ? (
+					<p>Available after you open the installed Home Screen app.</p>
+				) : pushState === "subscribed" ? (
 					<p>Enabled. One notification per batch of questions.</p>
 				) : (
 					<>
@@ -163,12 +170,17 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 			</div>
 			<div className="hint">
 				<h3>Pair a machine</h3>
-				{copyState === "copied" && (
+				{requiresIosInstall ? (
+					<p>
+						Install first, then generate the code from the Home Screen app so pairing and notifications use
+						the same app identity.
+					</p>
+				) : copyState === "copied" ? (
 					<div className="copy-toast" role="status">
 						📋 Copied to clipboard
 					</div>
-				)}
-				{pairing === null ? (
+				) : null}
+				{requiresIosInstall ? null : pairing === null ? (
 					<>
 						<p>Generate a code to copy it automatically, then paste it into the CLI on your machine.</p>
 						<button type="button" disabled={isGeneratingPairing} onClick={() => void generatePairingCode()}>

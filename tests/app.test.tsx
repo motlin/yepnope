@@ -51,11 +51,14 @@ vi.mock("../src/push", () => ({
 
 import {App} from "../src/app";
 import {issuePairingCode} from "../src/api";
+import {isIos, isStandalone} from "../src/push";
 
 beforeEach(() => {
 	publishQuestions = undefined;
 	closeStream.mockClear();
 	refreshStream.mockClear();
+	vi.mocked(isIos).mockReturnValue(false);
+	vi.mocked(isStandalone).mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -64,6 +67,25 @@ afterEach(() => {
 });
 
 describe("App live question synchronization", () => {
+	it("requires iPhone installation before notifications or pairing", async () => {
+		vi.mocked(isIos).mockReturnValue(true);
+		vi.mocked(isStandalone).mockReturnValue(false);
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+
+		expect(screen.getByRole("heading", {name: "Install first"})).toBeDefined();
+		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
+		expect(screen.queryByRole("button", {name: "Generate and copy pairing code"})).toBeNull();
+		expect(screen.getByText(/pairing and notifications use the same app identity/i)).toBeDefined();
+	});
+
 	it("automatically copies and selects a generated pairing code", async () => {
 		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: 1_787_000_000_000});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
