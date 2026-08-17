@@ -74,6 +74,16 @@ interface SettingsProps {
 	onBack: () => void;
 }
 
+type AppView = "deck" | "settings";
+
+function viewFromPath(pathname: string): AppView {
+	return pathname === "/settings" ? "settings" : "deck";
+}
+
+function pathForView(view: AppView): string {
+	return view === "settings" ? "/settings" : "/";
+}
+
 function Settings({token, onBack}: SettingsProps): ReactElement {
 	const requiresIosInstall = isIos() && !isStandalone();
 	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
@@ -223,8 +233,30 @@ export function App(): ReactElement {
 	const [token, setToken] = useState<string | null>(null);
 	const [questions, setQuestions] = useState<DeckQuestion[] | null>(null);
 	const [afk, setAfkState] = useState<boolean | null>(null);
-	const [view, setView] = useState<"deck" | "settings">("deck");
+	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const questionsStream = useRef<QuestionsStream | null>(null);
+
+	useEffect(() => {
+		function onPopState(): void {
+			setView(viewFromPath(window.location.pathname));
+		}
+		window.addEventListener("popstate", onPopState);
+		return () => {
+			window.removeEventListener("popstate", onPopState);
+		};
+	}, []);
+
+	useEffect(() => {
+		document.title = view === "settings" ? "Settings · YepNope" : "YepNope";
+	}, [view]);
+
+	function navigate(nextView: AppView): void {
+		const path = pathForView(nextView);
+		if (window.location.pathname !== path) {
+			window.history.pushState({}, "", path);
+		}
+		setView(nextView);
+	}
 
 	useEffect(() => {
 		let cancelled = false;
@@ -320,7 +352,7 @@ export function App(): ReactElement {
 				<Settings
 					token={token}
 					onBack={() => {
-						setView("deck");
+						navigate("deck");
 					}}
 				/>
 			);
@@ -338,9 +370,9 @@ export function App(): ReactElement {
 					<button
 						type="button"
 						className="settings-button"
-						aria-label="Settings"
+						aria-label={view === "settings" ? "Close settings" : "Settings"}
 						onClick={() => {
-							setView(view === "deck" ? "settings" : "deck");
+							navigate(view === "deck" ? "settings" : "deck");
 						}}
 					>
 						&#9881;

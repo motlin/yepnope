@@ -54,6 +54,7 @@ import {issuePairingCode} from "../src/api";
 import {isIos, isStandalone} from "../src/push";
 
 beforeEach(() => {
+	window.history.replaceState({}, "", "/");
 	publishQuestions = undefined;
 	closeStream.mockClear();
 	refreshStream.mockClear();
@@ -67,6 +68,39 @@ afterEach(() => {
 });
 
 describe("App live question synchronization", () => {
+	it("routes between the deck and settings with browser history", async () => {
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		expect(window.location.pathname).toBe("/settings");
+		expect(document.title).toBe("Settings · YepNope");
+
+		window.history.pushState({}, "", "/");
+		fireEvent.popState(window);
+		expect(screen.getByText(/all caught up/i)).toBeDefined();
+		expect(document.title).toBe("YepNope");
+	});
+
+	it("opens settings directly from its route", async () => {
+		window.history.replaceState({}, "", "/settings");
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+
+		expect(screen.getByRole("heading", {name: "Notifications"})).toBeDefined();
+		expect(screen.getByRole("button", {name: "Close settings"})).toBeDefined();
+	});
+
 	it("requires iPhone installation before notifications or pairing", async () => {
 		vi.mocked(isIos).mockReturnValue(true);
 		vi.mocked(isStandalone).mockReturnValue(false);
