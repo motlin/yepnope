@@ -244,8 +244,8 @@ export class UserDurableObject extends DurableObject<Env> {
 			.onConflictDoUpdate({target: devices.id, set: {pushSubscription: serialized}});
 	}
 
-	// 📣 One push per batch (spec §6.2). The payload carries ids and counts, never question text,
-	// except a single-question batch, whose title makes notification action buttons usable.
+	// 📣 One push per batch (spec §6.2). The service worker fetches question content after receipt,
+	// so the encrypted push payload contains metadata only.
 	async sendBatchPush(batchId: string): Promise<number> {
 		const batchRows = await this.database
 			.select({project: batches.project})
@@ -256,18 +256,16 @@ export class UserDurableObject extends DurableObject<Env> {
 			return 0;
 		}
 		const batchQuestions = await this.database
-			.select({id: questions.id, title: questions.title})
+			.select({id: questions.id})
 			.from(questions)
 			.where(eq(questions.batchId, batchId))
 			.orderBy(asc(questions.position));
 		const outstanding = (await this.getOutstandingQuestions()).length;
-		const single = batchQuestions.length === 1 ? batchQuestions[0] : undefined;
 		const payload = JSON.stringify({
 			batch_id: batchId,
 			project: batch.project,
 			count: batchQuestions.length,
 			outstanding,
-			...(single === undefined ? {} : {title: single.title, question_id: single.id}),
 		});
 
 		const deviceRows = await this.database.select().from(devices);

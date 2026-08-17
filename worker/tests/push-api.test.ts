@@ -99,7 +99,7 @@ describe("sendBatchPush", () => {
 		const push = required(sent[0], "sent push");
 		expect(push.endpoint).toBe(receiver.subscription.endpoint);
 		const payload = JSON.parse(await receiver.decrypt(push.body));
-		expect(payload).toEqual({
+		expect(payload).toStrictEqual({
 			batch_id: created.batch_id,
 			project: "monorepo-migration",
 			count: 2,
@@ -107,7 +107,7 @@ describe("sendBatchPush", () => {
 		});
 	});
 
-	it("includes the title and question id for a single-question batch", async () => {
+	it("keeps a single-question payload private", async () => {
 		const userId = "push-single";
 		const token = await registerMachineToken(userId);
 		const receiver = await createPushReceiver("https://push.example.com/send/single");
@@ -116,13 +116,11 @@ describe("sendBatchPush", () => {
 
 		const {sent} = await deliverBatchPush(userId, created.batch_id, 201);
 		const payload = JSON.parse(await receiver.decrypt(required(sent[0], "sent push").body));
-		expect(payload).toEqual({
+		expect(payload).toStrictEqual({
 			batch_id: created.batch_id,
 			project: "demo",
 			count: 1,
 			outstanding: 1,
-			title: "Ship it?",
-			question_id: created.question_ids[0],
 		});
 	});
 

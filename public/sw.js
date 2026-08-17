@@ -1,6 +1,5 @@
-// 📣 Push pipeline (spec §6): one notification per batch, built from the payload —
-// batch_id and counts, never question text, except single-question batches, whose
-// title makes the Yep/Nope notification action buttons usable on Android and desktop.
+// 📣 Push pipeline (spec §6): one private notification per batch. Question content
+// is fetched after receipt and shown only where notification actions can answer it.
 "use strict";
 
 self.addEventListener("install", () => {
@@ -23,28 +22,64 @@ async function setBadge(outstanding) {
 
 self.addEventListener("push", (event) => {
 	const payload = event.data ? event.data.json() : {};
+	event.waitUntil(showBatchNotification(payload));
+});
+
+function genericTitle(count, project) {
+	return `${count} ${count === 1 ? "question" : "questions"} from ${project}`;
+}
+
+function supportsNotificationActions() {
+	const userAgent = navigator.userAgent;
+	const ios = /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && navigator.maxTouchPoints > 1);
+	const android = /Android/.test(userAgent);
+	const desktop = !/Android|Mobile|iPhone|iPad|iPod/.test(userAgent);
+	return !ios && (android || desktop) && (self.Notification?.maxActions || 0) >= 2;
+}
+
+async function fetchBatchQuestion(batchId) {
+	const token = await readToken();
+	if (!token) {
+		return null;
+	}
+	const response = await fetch("/api/v1/questions", {
+		headers: {Authorization: `Bearer ${token}`},
+	});
+	if (!response.ok) {
+		throw new Error(`question fetch failed with ${response.status}`);
+	}
+	const body = await response.json();
+	if (!body || !Array.isArray(body.questions)) {
+		throw new Error("question fetch returned an invalid response");
+	}
+	const matches = body.questions.filter((question) => question.batch_id === batchId);
+	if (matches.length !== 1 || typeof matches[0].question_id !== "string" || typeof matches[0].title !== "string") {
+		return null;
+	}
+	return matches[0];
+}
+
+async function showBatchNotification(payload) {
 	const count = payload.count || 0;
 	const project = payload.project || "your agent";
-	const single = count === 1 && payload.title;
-	const title = single ? payload.title : `${count} questions from ${project}`;
+	const question = await fetchBatchQuestion(payload.batch_id).catch(() => null);
+	const detailed = count === 1 && question !== null && supportsNotificationActions();
+	const title = detailed ? question.title : genericTitle(count, project);
 	const options = {
-		body: single ? project : "Open to swipe.",
+		body: detailed ? project : "Open to swipe.",
 		tag: payload.batch_id,
-		data: payload,
+		data: detailed ? {...payload, question_id: question.question_id} : payload,
 		icon: "/icons/icon-192.png",
 		badge: "/icons/badge-96.png",
 	};
-	if (single && payload.question_id) {
-		// iOS ignores actions (spec §6.3); Android and desktop show them.
+	if (detailed) {
 		options.actions = [
 			{action: "yep", title: "Yep"},
 			{action: "nope", title: "Nope"},
 		];
 	}
-	event.waitUntil(
-		Promise.all([self.registration.showNotification(title, options), setBadge(payload.outstanding || count)]),
-	);
-});
+	await Promise.all([self.registration.showNotification(title, options), setBadge(payload.outstanding || count)]);
+}
 
 function readToken() {
 	return new Promise((resolve) => {
