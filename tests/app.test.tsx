@@ -60,10 +60,11 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.clearAllMocks();
+	vi.unstubAllGlobals();
 });
 
 describe("App live question synchronization", () => {
-	it("copies a generated pairing code and confirms the clipboard write", async () => {
+	it("automatically copies and selects a generated pairing code", async () => {
 		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: 1_787_000_000_000});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
@@ -76,16 +77,48 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		fireEvent.click(screen.getByRole("button", {name: "Generate pairing code"}));
+		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
 
 		const code = await screen.findByText("ABC234");
 		expect(code.tagName).toBe("CODE");
-		fireEvent.click(screen.getByRole("button", {name: "Copy code"}));
-
 		await waitFor(() => {
 			expect(writeText.mock.calls).toStrictEqual([["ABC234"]]);
-			expect(screen.getByText("Copied to clipboard.")).toBeDefined();
+			expect(screen.getByRole("status").textContent).toBe("📋 Copied to clipboard");
+			expect(window.getSelection()?.toString()).toBe("ABC234");
 		});
+	});
+
+	it("starts an async clipboard write during the generate-button activation", async () => {
+		let resolvePairing: ((pairing: {code: string; expiresAt: number}) => void) | undefined;
+		vi.mocked(issuePairingCode).mockImplementation(
+			async () =>
+				new Promise((resolve) => {
+					resolvePairing = resolve;
+				}),
+		);
+		class TestClipboardItem {
+			constructor(readonly content: Record<string, Promise<Blob>>) {}
+		}
+		vi.stubGlobal("ClipboardItem", TestClipboardItem);
+		const write = vi.fn<(_items: ClipboardItem[]) => Promise<void>>(async () => Promise.resolve());
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: {write, writeText: vi.fn<(text: string) => Promise<void>>()},
+		});
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
+
+		expect(write.mock.calls).toHaveLength(1);
+		resolvePairing?.({code: "XYZ789", expiresAt: 1_787_000_000_000});
+		expect(await screen.findByText("XYZ789")).toBeDefined();
 	});
 
 	it("discloses readable content, the lack of end-to-end encryption, and seven-day retention", async () => {

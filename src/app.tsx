@@ -73,9 +73,55 @@ interface SettingsProps {
 function Settings({token, onBack}: SettingsProps): ReactElement {
 	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
 	const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+	const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
 	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">(
 		"Notification" in window && Notification.permission === "granted" ? "subscribed" : "idle",
 	);
+	const pairingCode = useRef<HTMLElement | null>(null);
+
+	useEffect(() => {
+		const element = pairingCode.current;
+		if (pairing === null || element === null) {
+			return;
+		}
+		const selection = window.getSelection();
+		if (selection === null) {
+			return;
+		}
+		const range = document.createRange();
+		range.selectNodeContents(element);
+		selection.removeAllRanges();
+		selection.addRange(range);
+	}, [pairing]);
+
+	async function copyIssuedPairingCode(issued: Promise<IssuedPairingCode>): Promise<void> {
+		if (typeof ClipboardItem !== "undefined" && typeof navigator.clipboard.write === "function") {
+			const content = issued.then(({code}) => new Blob([code], {type: "text/plain"}));
+			return navigator.clipboard.write([new ClipboardItem({"text/plain": content})]);
+		}
+		return issued.then(async ({code}) => navigator.clipboard.writeText(code));
+	}
+
+	async function generatePairingCode(): Promise<void> {
+		setIsGeneratingPairing(true);
+		const issued = issuePairingCode(token);
+		const copied = copyIssuedPairingCode(issued).then(
+			() => true,
+			() => false,
+		);
+		try {
+			const nextPairing = await issued;
+			const copiedSuccessfully = await copied;
+			setPairing(nextPairing);
+			setCopyState(copiedSuccessfully ? "copied" : "error");
+		} catch {
+			await copied;
+			setPairing(null);
+			setCopyState("idle");
+		} finally {
+			setIsGeneratingPairing(false);
+		}
+	}
 
 	async function copyPairingCode(): Promise<void> {
 		if (pairing === null) {
@@ -117,39 +163,33 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 			</div>
 			<div className="hint">
 				<h3>Pair a machine</h3>
+				{copyState === "copied" && (
+					<div className="copy-toast" role="status">
+						📋 Copied to clipboard
+					</div>
+				)}
 				{pairing === null ? (
 					<>
-						<p>Generate a code, then enter it in the CLI on the machine running your agent.</p>
-						<button
-							type="button"
-							onClick={() => {
-								issuePairingCode(token).then(
-									(issued) => {
-										setPairing(issued);
-										setCopyState("idle");
-									},
-									() => {
-										setPairing(null);
-									},
-								);
-							}}
-						>
-							Generate pairing code
+						<p>Generate a code to copy it automatically, then paste it into the CLI on your machine.</p>
+						<button type="button" disabled={isGeneratingPairing} onClick={() => void generatePairingCode()}>
+							{isGeneratingPairing ? "Generating…" : "Generate and copy pairing code"}
 						</button>
 					</>
 				) : (
 					<>
 						<div className="pairing-code-row">
-							<code className="pairing-code">{pairing.code}</code>
+							<code ref={pairingCode} className="pairing-code">
+								{pairing.code}
+							</code>
 							<button type="button" onClick={() => void copyPairingCode()}>
-								Copy code
+								📋 Copy again
 							</button>
 						</div>
 						<p className="copy-status" aria-live="polite">
-							{copyState === "copied" && "Copied to clipboard."}
-							{copyState === "error" && "Could not copy automatically. Select the code and copy it."}
+							{copyState === "copied" && "Already copied. Paste it into your terminal."}
+							{copyState === "error" && "Automatic copy was blocked. The code is selected for you."}
 						</p>
-						<p>The code is selectable, expires in ten minutes, and works once.</p>
+						<p>The highlighted code expires in ten minutes and works once.</p>
 					</>
 				)}
 			</div>

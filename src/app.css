@@ -390,6 +390,31 @@ body {
 	min-height: 1.4em;
 }
 
+.copy-toast {
+	position: fixed;
+	top: calc(14px + env(safe-area-inset-top));
+	left: 50%;
+	z-index: 10;
+	transform: translateX(-50%);
+	border: 1px solid rgb(46 184 114 / 55%);
+	border-radius: 999px;
+	background: #202d27;
+	box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
+	color: #dff8e9;
+	font-size: 14px;
+	font-weight: 600;
+	padding: 9px 14px;
+	white-space: nowrap;
+	animation: copy-toast-in 0.2s ease-out;
+}
+
+@keyframes copy-toast-in {
+	from {
+		opacity: 0;
+		transform: translate(-50%, -8px);
+	}
+}
+
 .settings .back {
 	margin-top: auto;
 	background: #2a2d33;
