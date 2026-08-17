@@ -2,11 +2,25 @@ import {createServer, type Server} from "node:http";
 import {text} from "node:stream/consumers";
 import {WebSocketServer, type WebSocket} from "ws";
 
-// 🧪 A tiny stand-in for the Worker: one POST route and one WebSocket stream per batch.
+function requireAfk(body: unknown): boolean {
+	if (typeof body !== "object" || body === null || !("afk" in body) || typeof body.afk !== "boolean") {
+		throw new Error("mock backend received an invalid AFK request body");
+	}
+	return body.afk;
+}
+
+// 🧪 A tiny stand-in for the Worker API and its per-batch WebSocket stream.
 export interface MockBackend {
 	baseUrl: string;
 	batchBodies: unknown[];
 	claimBodies: unknown[];
+	afkRequests: Array<{
+		method: string | undefined;
+		url: string | undefined;
+		authorization: string | undefined;
+		contentType: string | undefined;
+		body: unknown;
+	}>;
 	authorizationHeaders: Array<string | undefined>;
 	heartbeats: string[];
 	connections: WebSocket[];
@@ -18,6 +32,9 @@ export interface MockBackendOptions {
 	createBody?: unknown;
 	claimStatus?: number;
 	claimBody?: unknown;
+	afk?: boolean;
+	afkGetStatus?: number;
+	afkPutStatus?: number;
 	onConnection?: (socket: WebSocket, backend: MockBackend) => void;
 }
 
@@ -28,6 +45,7 @@ export async function startMockBackend(options: MockBackendOptions = {}): Promis
 		baseUrl: "",
 		batchBodies: [],
 		claimBodies: [],
+		afkRequests: [],
 		authorizationHeaders: [],
 		heartbeats: [],
 		connections: [],
@@ -51,6 +69,21 @@ export async function startMockBackend(options: MockBackendOptions = {}): Promis
 	server.on("request", (request, response) => {
 		void (async () => {
 			const body = await text(request);
+			if ((request.method === "GET" || request.method === "PUT") && request.url === "/api/v1/afk") {
+				const parsedBody: unknown = body === "" ? null : JSON.parse(body);
+				backend.afkRequests.push({
+					method: request.method,
+					url: request.url,
+					authorization: request.headers.authorization,
+					contentType: request.headers["content-type"],
+					body: parsedBody,
+				});
+				const status = request.method === "GET" ? (options.afkGetStatus ?? 200) : (options.afkPutStatus ?? 200);
+				response.writeHead(status, {"Content-Type": "application/json"});
+				const afk = request.method === "PUT" ? requireAfk(parsedBody) : (options.afk ?? true);
+				response.end(JSON.stringify({afk}));
+				return;
+			}
 			if (request.method === "POST" && request.url === "/api/v1/questions") {
 				backend.batchBodies.push(JSON.parse(body));
 				backend.authorizationHeaders.push(request.headers.authorization);

@@ -91,6 +91,43 @@ count on disk (`~/.yepnope/telemetry.json`): when the user answers yep to more
 than 95% of recent questions, the tool response starts coaching the model to
 ask less.
 
+## AFK mode and Claude Code statusline
+
+The app toggle is the primary AFK control because it remains available after
+you leave your computer. The CLI provides the same global per-user control for
+when you are leaving deliberately:
+
+```sh
+npx yepnope-mcp afk          # show the current state
+npx yepnope-mcp afk on       # route new questions to YepNope
+npx yepnope-mcp afk off      # use native prompts for new questions
+```
+
+Changes apply to the next question only. Turning AFK mode off does not retract
+cards already on the phone or strand agents waiting for those answers.
+
+Claude Code can display the server state in its status line. Export
+`YEPNOPE_TOKEN` in the environment that launches Claude Code, then add this to
+`~/.claude/settings.json` (or project settings):
+
+```json
+{
+	"statusLine": {
+		"type": "command",
+		"command": "npx yepnope-mcp afk statusline",
+		"refreshInterval": 10
+	}
+}
+```
+
+The command reads the live server state and prints `📱 YepNope: ARMED` or
+`💻 YepNope: OFF`; configuration and server failures produce a warning without
+printing the token. It ignores Claude Code's session JSON on stdin and exits
+without starting the MCP server. `YEPNOPE_URL` overrides the service URL for
+development. See Claude Code's official
+[statusline documentation](https://code.claude.com/docs/en/statusline) for
+composition with an existing status line and other settings.
+
 ## Development
 
 ```sh

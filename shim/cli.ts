@@ -1,17 +1,21 @@
 import {StdioServerTransport} from "@modelcontextprotocol/sdk/server/stdio.js";
+import {runAfkCommand} from "./afk";
 import {runPairCommand} from "./pair";
 import {createShimServer} from "./server";
 import {defaultTelemetryPath} from "./telemetry";
 
 const DEFAULT_BASE_URL = "https://yepnope.app";
 
-// 🚪 stdio entry point: `npx yepnope-mcp` with YEPNOPE_TOKEN set (README has the install
-// block), plus `npx yepnope-mcp pair <code>` to obtain that token in the first place.
 async function main(): Promise<void> {
 	const [command, ...rest] = process.argv.slice(2);
 	const baseUrl = process.env["YEPNOPE_URL"] ?? DEFAULT_BASE_URL;
 	if (command === "pair") {
 		process.stdout.write(await runPairCommand(rest, {baseUrl}));
+		return;
+	}
+	if (command === "afk") {
+		const token = process.env["YEPNOPE_TOKEN"];
+		process.stdout.write(await runAfkCommand(rest, {baseUrl, ...(token === undefined ? {} : {token})}));
 		return;
 	}
 	const token = process.env["YEPNOPE_TOKEN"];
