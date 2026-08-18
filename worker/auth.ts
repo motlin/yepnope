@@ -66,7 +66,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 			},
 		},
 		emailVerification: {
-			sendOnSignUp: true,
+			sendOnSignUp: false,
 			sendOnSignIn: true,
 			autoSignInAfterVerification: false,
 			sendVerificationEmail: async ({user, url}) =>

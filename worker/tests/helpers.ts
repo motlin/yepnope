@@ -59,6 +59,12 @@ export async function createVerifiedBrowserSession(
 	if (signUp.status !== 200) {
 		throw new Error(`expected sign-up 200, got ${signUp.status}`);
 	}
+	const verificationRequest = await authentication.handler(
+		authenticationRequest("send-verification-email", {callbackURL: "/", email}),
+	);
+	if (verificationRequest.status !== 200) {
+		throw new Error(`expected verification email request 200, got ${verificationRequest.status}`);
+	}
 	const verificationEmail = required(mailbox[0], "verification email");
 	const verification = await authentication.handler(new Request(emailLink(verificationEmail)));
 	if (verification.status !== 302) {

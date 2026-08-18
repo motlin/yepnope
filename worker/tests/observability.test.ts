@@ -318,7 +318,7 @@ describe("Durable Object and transport observation", () => {
 		const rpcResult = await object.setAfk(false, false);
 		const emailResult = await observedEnvironment.EMAIL.send({
 			to: "alice@example.com",
-			from: {email: "auth@yepnope.app", name: "Example Sender"},
+			from: {email: "accounts@yepnope.app", name: "Example Sender"},
 			subject: "Observability test",
 			text: "Test message body",
 		});

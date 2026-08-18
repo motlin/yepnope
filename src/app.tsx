@@ -276,8 +276,10 @@ function SignIn({onAuthenticated, onNavigate}: SignInProps): ReactElement {
 }
 
 interface RegisterProps extends AccountRouteProps {
-	onRegistered: (email: string) => void;
+	onRegistered: (email: string, delivery: VerificationDelivery) => void;
 }
+
+type VerificationDelivery = "accepted" | "failed" | "idle";
 
 function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 	const [name, setName] = useState("");
@@ -292,7 +294,12 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 		setError(null);
 		try {
 			await registerAccount(name, email, password);
-			onRegistered(email);
+			try {
+				await sendVerificationEmail(email);
+				onRegistered(email, "accepted");
+			} catch {
+				onRegistered(email, "failed");
+			}
 		} catch (caught) {
 			setError(errorMessage(caught));
 		} finally {
@@ -376,15 +383,16 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 }
 
 interface VerifyEmailProps extends AccountRouteProps {
+	initialDelivery: VerificationDelivery;
 	initialEmail: string;
 }
 
-function VerifyEmail({initialEmail, onNavigate}: VerifyEmailProps): ReactElement {
+function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailProps): ReactElement {
 	const parameters = new URLSearchParams(window.location.search);
 	const verified = parameters.get("verified") === "1";
 	const verificationError = parameters.get("error");
 	const [email, setEmail] = useState(initialEmail);
-	const [sent, setSent] = useState(false);
+	const [delivery, setDelivery] = useState(initialDelivery);
 	const [error, setError] = useState<string | null>(null);
 
 	async function resend(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
@@ -392,8 +400,9 @@ function VerifyEmail({initialEmail, onNavigate}: VerifyEmailProps): ReactElement
 		setError(null);
 		try {
 			await sendVerificationEmail(email);
-			setSent(true);
+			setDelivery("accepted");
 		} catch (caught) {
+			setDelivery("failed");
 			setError(errorMessage(caught));
 		}
 	}
@@ -414,7 +423,17 @@ function VerifyEmail({initialEmail, onNavigate}: VerifyEmailProps): ReactElement
 				</>
 			) : (
 				<>
-					<p>Open the verification link we sent you. You can resend it below.</p>
+					{delivery === "accepted" ? (
+						<p className="form-success" role="status">
+							Cloudflare accepted your verification email for delivery. Open its link to continue.
+						</p>
+					) : delivery === "failed" ? (
+						<p className="form-error" role="alert">
+							Your account was created, but the verification email was not accepted. Try sending it again.
+						</p>
+					) : (
+						<p>Enter your account email to send a verification link.</p>
+					)}
 					{verificationError !== null && (
 						<p className="form-error" role="alert">
 							That verification link is invalid or expired.
@@ -434,11 +453,6 @@ function VerifyEmail({initialEmail, onNavigate}: VerifyEmailProps): ReactElement
 								}}
 							/>
 						</label>
-						{sent && (
-							<p className="form-success" role="status">
-								Verification email sent.
-							</p>
-						)}
 						{error !== null && (
 							<p className="form-error" role="alert">
 								{error}
@@ -497,7 +511,7 @@ function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 				</label>
 				{sent && (
 					<p className="form-success" role="status">
-						Check your email for a recovery link.
+						If that account exists, a recovery email was requested.
 					</p>
 				)}
 				{error !== null && (
@@ -1069,6 +1083,7 @@ export function App(): ReactElement {
 	const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const [registrationEmail, setRegistrationEmail] = useState("");
+	const [verificationDelivery, setVerificationDelivery] = useState<VerificationDelivery>("idle");
 	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
 
 	useEffect(() => {
@@ -1268,14 +1283,21 @@ export function App(): ReactElement {
 				return (
 					<Register
 						onNavigate={navigate}
-						onRegistered={(email) => {
+						onRegistered={(email, delivery) => {
 							setRegistrationEmail(email);
+							setVerificationDelivery(delivery);
 							navigate("verify-email");
 						}}
 					/>
 				);
 			case "verify-email":
-				return <VerifyEmail initialEmail={registrationEmail} onNavigate={navigate} />;
+				return (
+					<VerifyEmail
+						initialDelivery={verificationDelivery}
+						initialEmail={registrationEmail}
+						onNavigate={navigate}
+					/>
+				);
 			case "forgot-password":
 				return <ForgotPassword onNavigate={navigate} />;
 			case "reset-password":

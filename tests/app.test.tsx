@@ -437,11 +437,41 @@ describe("Better Auth account routes", () => {
 		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
 			["Alice", "alice@example.com", "example-password"],
 		]);
+		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
+		expect(screen.getByRole("status").textContent).toBe(
+			"Cloudflare accepted your verification email for delivery. Open its link to continue.",
+		);
 		fireEvent.click(screen.getByRole("button", {name: "Resend verification email"}));
 		await waitFor(() => {
-			expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
-			expect(screen.getByRole("status").textContent).toBe("Verification email sent.");
+			expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([
+				["alice@example.com"],
+				["alice@example.com"],
+			]);
+			expect(screen.getByRole("status").textContent).toBe(
+				"Cloudflare accepted your verification email for delivery. Open its link to continue.",
+			);
 		});
+	});
+
+	it("keeps a created account recoverable when verification delivery is rejected", async () => {
+		fetchSession.mockResolvedValue(null);
+		vi.mocked(sendVerificationEmail).mockRejectedValueOnce(new Error("Email delivery unavailable"));
+		window.history.replaceState({}, "", "/register");
+		render(<App />);
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Name"}), {target: {value: "Alice"}});
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
+
+		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
+		expect(screen.getByRole("alert").textContent).toBe(
+			"Your account was created, but the verification email was not accepted. Try sending it again.",
+		);
+		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
+			["Alice", "alice@example.com", "example-password"],
+		]);
+		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
 	});
 
 	it("requests recovery and accepts the token delivered by Better Auth", async () => {
@@ -453,7 +483,9 @@ describe("Better Auth account routes", () => {
 		fireEvent.click(screen.getByRole("button", {name: "Send recovery email"}));
 		await waitFor(() => {
 			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com"]]);
-			expect(screen.getByRole("status").textContent).toBe("Check your email for a recovery link.");
+			expect(screen.getByRole("status").textContent).toBe(
+				"If that account exists, a recovery email was requested.",
+			);
 		});
 
 		rendered.unmount();

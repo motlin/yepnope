@@ -98,9 +98,18 @@ describe("Better Auth account recovery", () => {
 			},
 			status: 200,
 		});
+		expect(mailbox).toStrictEqual([]);
+
+		const verificationRequest = await authentication.handler(
+			postAuthentication("send-verification-email", {callbackURL: "/", email}),
+		);
+		expect({body: await verificationRequest.json(), status: verificationRequest.status}).toStrictEqual({
+			body: {status: true},
+			status: 200,
+		});
 		expect(mailbox).toStrictEqual([
 			{
-				from: {email: "auth@yepnope.app", name: "YepNope"},
+				from: {email: "accounts@yepnope.app", name: "YepNope"},
 				subject: "Verify your YepNope email",
 				text: expect.stringMatching(/^Verify your email address/),
 				to: email,
@@ -116,13 +125,13 @@ describe("Better Auth account recovery", () => {
 		});
 		expect(mailbox).toStrictEqual([
 			{
-				from: {email: "auth@yepnope.app", name: "YepNope"},
+				from: {email: "accounts@yepnope.app", name: "YepNope"},
 				subject: "Verify your YepNope email",
 				text: expect.stringMatching(/^Verify your email address/),
 				to: email,
 			},
 			{
-				from: {email: "auth@yepnope.app", name: "YepNope"},
+				from: {email: "accounts@yepnope.app", name: "YepNope"},
 				subject: "Verify your YepNope email",
 				text: expect.stringMatching(/^Verify your email address/),
 				to: email,
@@ -192,7 +201,7 @@ describe("Better Auth account recovery", () => {
 		});
 		const resetEmail = required(mailbox[2], "password reset email");
 		expect(resetEmail).toStrictEqual({
-			from: {email: "auth@yepnope.app", name: "YepNope"},
+			from: {email: "accounts@yepnope.app", name: "YepNope"},
 			subject: "Reset your YepNope password",
 			text: expect.stringMatching(/^Use this link to choose a new YepNope password/),
 			to: email,
