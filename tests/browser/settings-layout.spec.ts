@@ -14,7 +14,9 @@ async function routeSettingsData(page: Page): Promise<void> {
 		}),
 	);
 	await page.route("**/api/v1/afk", async (route) => fulfillJson(route, {afk: false}));
-	await page.route("**/api/v1/pair/status", async (route) => fulfillJson(route, {machine_count: 1, paired: true}));
+	await page.route("**/api/v1/pair/status", async (route) =>
+		fulfillJson(route, {machine_count: 1, paired: true, pending_pairing_expires_at: null}),
+	);
 	await page.route("**/api/v1/account/devices", async (route) =>
 		fulfillJson(route, {
 			machines: [{id: "machine-alice", label: "Alice laptop", created_at: 946_684_800_000, last_used_at: null}],
@@ -28,6 +30,7 @@ async function routeSettingsData(page: Page): Promise<void> {
 				afk: false,
 				paired: true,
 				machine_count: 1,
+				pending_pairing_expires_at: null,
 				current_deck: [],
 			}),
 		);
@@ -36,7 +39,11 @@ async function routeSettingsData(page: Page): Promise<void> {
 
 async function routePairingCode(page: Page): Promise<void> {
 	await page.route("**/api/v1/pair/code", async (route) =>
-		fulfillJson(route, {code: "ABC234", expires_at: 2_000_000_000_000}),
+		fulfillJson(route, {
+			code: "ABC234",
+			expires_at: 2_000_000_000_000,
+			pairing: {machine_count: 1, paired: true, pending_pairing_expires_at: 2_000_000_000_000},
+		}),
 	);
 }
 
@@ -170,10 +177,11 @@ test("generated pairing code leads the desktop result after copy feedback clears
 	try {
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await generatePairingCode(page);
-		await expect(page.getByRole("status")).toHaveText("Copied to clipboard.");
-		await expect(page.getByRole("status")).toBeEmpty();
+		await expect(page.locator(".copy-status")).toHaveText("Copied to clipboard.");
+		await expect(page.locator(".copy-status")).toBeEmpty();
+		await expect(page.getByRole("status")).toHaveText("Waiting for your CLI to claim this code.");
 		await expect(page.getByText("Pairing code", {exact: true})).toBeVisible();
-		await expect(page.getByText("Paste this code into the CLI on the machine you want to pair.")).toBeVisible();
+		await expect(page.getByText("Paste this code into the CLI you want to connect.")).toBeVisible();
 		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "pairing-code-generated.png")});
 	} finally {
 		await context.close();
@@ -186,7 +194,7 @@ test("copied pairing code keeps the repeat-copy control visually neutral", async
 	try {
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await generatePairingCode(page);
-		await expect(page.getByRole("status")).toHaveText("Copied to clipboard.");
+		await expect(page.locator(".copy-status")).toHaveText("Copied to clipboard.");
 		const copyAgain = page.getByRole("button", {name: "Copy pairing code again"});
 		expect(
 			await copyAgain.evaluate((element) => {
@@ -222,7 +230,7 @@ test("blocked clipboard access leaves a selected manual-copy fallback", async ({
 	const page = await context.newPage();
 	try {
 		await generatePairingCode(page);
-		await expect(page.getByRole("status")).toHaveText(
+		await expect(page.locator(".copy-status")).toHaveText(
 			"Clipboard access is blocked. Copy the selected code manually.",
 		);
 		expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("ABC234");

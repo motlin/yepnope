@@ -147,7 +147,10 @@ describe("account device management", () => {
 
 		const revokedMachine = await accountRequest(session.cookie, `/api/v1/account/machines/${machine.id}`, "DELETE");
 		expect({body: await revokedMachine.json(), status: revokedMachine.status}).toStrictEqual({
-			body: {pairing: {machine_count: 0, paired: false}, status: "ok"},
+			body: {
+				pairing: {machine_count: 0, paired: false, pending_pairing_expires_at: null},
+				status: "ok",
+			},
 			status: 200,
 		});
 		expect(

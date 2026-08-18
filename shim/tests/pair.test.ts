@@ -77,7 +77,7 @@ describe("yepnope-mcp pair", () => {
 	it("requires a pairing code", async () => {
 		await expect(runPairCommand([], UNREACHED_BACKEND)).rejects.toThrow(
 			new Error(
-				"missing pairing code; generate one in the app under Pair a machine\n" +
+				"missing pairing code; generate one in the app under Connect a CLI\n" +
 					"usage: yepnope-mcp pair <code> [--label <machine-label>]",
 			),
 		);

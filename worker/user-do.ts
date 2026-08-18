@@ -73,7 +73,13 @@ export interface CurrentDeckState {
 	afk: boolean;
 	paired: boolean;
 	machine_count: number;
+	pending_pairing_expires_at: number | null;
 	current_deck: CurrentQuestionPayload[];
+}
+
+export interface PairingStatus {
+	machineCount: number;
+	pendingPairingExpiresAt: number | null;
 }
 
 export interface ActivitySummary {
@@ -130,10 +136,14 @@ enum TerminalActivityOutcome {
 }
 
 interface CurrentDeckSocketAttachment {
-	machineCount: number;
+	pairingStatus: PairingStatus;
 }
 
-const currentDeckSocketAttachmentSchema = z.object({machineCount: z.number().int().nonnegative()});
+const pairingStatusSchema = z.object({
+	machineCount: z.number().int().nonnegative(),
+	pendingPairingExpiresAt: z.number().int().nullable(),
+});
+const currentDeckSocketAttachmentSchema = z.object({pairingStatus: pairingStatusSchema});
 
 function findRowConflict<Row extends object>(
 	existingRows: Row[],
@@ -256,21 +266,21 @@ export class UserDurableObject extends DurableObject<Env> {
 		await this.initialize();
 		this.assertWritable();
 		if (afk && !paired) {
-			return {status: "pairing_required", message: "Pair a machine before turning AFK on."};
+			return {status: "pairing_required", message: "Connect a CLI before turning AFK on."};
 		}
 		await this.database.update(state).set({afk}).where(eq(state.id, STATE_ROW_ID));
 		await this.broadcastCurrentDeckState();
 		return {status: "updated", afk};
 	}
 
-	async synchronizePairingState(machineCount: number): Promise<void> {
+	async synchronizePairingState(pairingStatus: PairingStatus): Promise<void> {
 		await this.initialize();
 		this.assertWritable();
-		if (machineCount === 0) {
+		if (pairingStatus.machineCount === 0) {
 			await this.database.update(state).set({afk: false}).where(eq(state.id, STATE_ROW_ID));
 		}
 		for (const socket of this.ctx.getWebSockets(CURRENT_DECK_SOCKET_TAG)) {
-			socket.serializeAttachment({machineCount} satisfies CurrentDeckSocketAttachment);
+			socket.serializeAttachment({pairingStatus} satisfies CurrentDeckSocketAttachment);
 		}
 		await this.broadcastCurrentDeckState();
 	}
@@ -300,14 +310,15 @@ export class UserDurableObject extends DurableObject<Env> {
 		return rows;
 	}
 
-	async getCurrentDeckState(machineCount: number): Promise<CurrentDeckState> {
+	async getCurrentDeckState(pairingStatus: PairingStatus): Promise<CurrentDeckState> {
 		await this.initialize();
 		const outstanding = await this.getCurrentQuestions();
 		return {
 			type: "current_deck",
-			afk: await this.getAfk(machineCount > 0),
-			paired: machineCount > 0,
-			machine_count: machineCount,
+			afk: await this.getAfk(pairingStatus.machineCount > 0),
+			paired: pairingStatus.machineCount > 0,
+			machine_count: pairingStatus.machineCount,
+			pending_pairing_expires_at: pairingStatus.pendingPairingExpiresAt,
 			current_deck: outstanding.map((question) => ({
 				batch_id: question.batchId,
 				project: question.project,
@@ -562,14 +573,16 @@ export class UserDurableObject extends DurableObject<Env> {
 				if (request.headers.get("Upgrade") !== "websocket") {
 					return new Response(null, {status: 426});
 				}
-				const machineCount = Number(request.headers.get("X-YepNope-Machine-Count"));
-				if (!Number.isSafeInteger(machineCount) || machineCount < 0) {
+				const pairingStatus = pairingStatusSchema.safeParse(
+					JSON.parse(request.headers.get("X-YepNope-Pairing-Status") ?? "null") as unknown,
+				);
+				if (!pairingStatus.success) {
 					return new Response(null, {status: 400});
 				}
 				const pair = new WebSocketPair();
 				this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
-				pair[1].serializeAttachment({machineCount} satisfies CurrentDeckSocketAttachment);
-				await this.sendCurrentDeckState(pair[1], machineCount);
+				pair[1].serializeAttachment({pairingStatus: pairingStatus.data} satisfies CurrentDeckSocketAttachment);
+				await this.sendCurrentDeckState(pair[1], pairingStatus.data);
 				return new Response(null, {status: 101, webSocket: pair[0]});
 			}
 			const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
@@ -598,7 +611,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			await this.initialize();
 			const batchId = this.ctx.getTags(socket)[0];
 			if (batchId === CURRENT_DECK_SOCKET_TAG) {
-				await this.sendCurrentDeckState(socket, this.getSocketMachineCount(socket));
+				await this.sendCurrentDeckState(socket, this.getSocketPairingStatus(socket));
 				return;
 			}
 			if (batchId === undefined || !(await this.batchExists(batchId))) {
@@ -924,8 +937,8 @@ export class UserDurableObject extends DurableObject<Env> {
 		this.sendWebSocketFrame(socket, stateFrame(batchId, dispositions));
 	}
 
-	private async sendCurrentDeckState(socket: WebSocket, machineCount: number): Promise<void> {
-		this.sendWebSocketFrame(socket, JSON.stringify(await this.getCurrentDeckState(machineCount)));
+	private async sendCurrentDeckState(socket: WebSocket, pairingStatus: PairingStatus): Promise<void> {
+		this.sendWebSocketFrame(socket, JSON.stringify(await this.getCurrentDeckState(pairingStatus)));
 	}
 
 	private async broadcastCurrentDeckState(): Promise<void> {
@@ -934,12 +947,12 @@ export class UserDurableObject extends DurableObject<Env> {
 			return;
 		}
 		for (const socket of sockets) {
-			await this.sendCurrentDeckState(socket, this.getSocketMachineCount(socket));
+			await this.sendCurrentDeckState(socket, this.getSocketPairingStatus(socket));
 		}
 	}
 
-	private getSocketMachineCount(socket: WebSocket): number {
-		return currentDeckSocketAttachmentSchema.parse(socket.deserializeAttachment()).machineCount;
+	private getSocketPairingStatus(socket: WebSocket): PairingStatus {
+		return currentDeckSocketAttachmentSchema.parse(socket.deserializeAttachment()).pairingStatus;
 	}
 
 	private async broadcastBatchState(batchId: string): Promise<void> {

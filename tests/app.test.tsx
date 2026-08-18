@@ -38,12 +38,16 @@ const claimLegacyIdentity = vi.hoisted(() => vi.fn<(_token: string) => Promise<v
 const renameMachine = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
 const renamePushDevice = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
 const revokeMachine = vi.hoisted(() =>
-	vi.fn<(_id: string) => Promise<PairingStatus>>(async () => Promise.resolve({paired: false, machineCount: 0})),
+	vi.fn<(_id: string) => Promise<PairingStatus>>(async () =>
+		Promise.resolve({paired: false, machineCount: 0, pendingPairingExpiresAt: null}),
+	),
 );
 const revokePushDevice = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>());
 
 const fetchPairingStatus = vi.hoisted(() =>
-	vi.fn<() => Promise<PairingStatus>>(async () => Promise.resolve({paired: true, machineCount: 1})),
+	vi.fn<() => Promise<PairingStatus>>(async () =>
+		Promise.resolve({paired: true, machineCount: 1, pendingPairingExpiresAt: null}),
+	),
 );
 
 let publishQuestions: ((questions: DeckQuestion[]) => void) | undefined;
@@ -57,11 +61,15 @@ vi.mock("../src/api", () => ({
 	fetchAfk: vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)),
 	fetchPairingStatus,
 	fetchSession,
-	issuePairingCode: vi.fn<() => Promise<{code: string; expiresAt: number}>>(),
+	issuePairingCode: vi.fn<() => Promise<import("../src/api").IssuedPairingCode>>(),
 	openCurrentDeckStream: vi.fn<(onState: (state: LiveApplicationState) => void) => CurrentDeckStream>((onState) => {
 		publishApplicationState = onState;
 		publishQuestions = (questions) => {
-			onState({afk: true, pairingStatus: {paired: true, machineCount: 1}, currentDeck: questions});
+			onState({
+				afk: true,
+				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+				currentDeck: questions,
+			});
 		};
 		return {
 			close: closeStream,
@@ -129,16 +137,17 @@ beforeEach(() => {
 	refreshStream.mockClear();
 	vi.mocked(isIos).mockReturnValue(false);
 	vi.mocked(isStandalone).mockReturnValue(false);
-	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1});
+	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
 	fetchSession.mockResolvedValue(alice);
 	fetchAccountDevices.mockResolvedValue({machines: [], pushDevices: []});
 	renameMachine.mockResolvedValue(undefined);
 	renamePushDevice.mockResolvedValue(undefined);
-	revokeMachine.mockResolvedValue({paired: false, machineCount: 0});
+	revokeMachine.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
 	revokePushDevice.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.clearAllMocks();
 	vi.unstubAllGlobals();
 });
@@ -167,9 +176,9 @@ describe("App live question synchronization", () => {
 		window.history.pushState({}, "", "/");
 		fireEvent.popState(window);
 		expect(
-			screen.getByText("No questions waiting. Questions sent through your paired agent will appear here.")
+			screen.getByText("Your question queue is empty. New questions will appear here when they arrive.")
 				.textContent,
-		).toBe("No questions waiting. Questions sent through your paired agent will appear here.");
+		).toBe("Your question queue is empty. New questions will appear here when they arrive.");
 		expect({appClass: document.querySelector(".app")?.className, title: document.title}).toStrictEqual({
 			appClass: "app",
 			title: "YepNope",
@@ -177,8 +186,13 @@ describe("App live question synchronization", () => {
 	});
 
 	it("keeps the real deck empty after pairing and refreshes the controls automatically", async () => {
-		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0});
-		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: Date.now() + 60_000});
+		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
+		const expiresAt = Date.now() + 60_000;
+		vi.mocked(issuePairingCode).mockResolvedValue({
+			code: "ABC234",
+			expiresAt,
+			pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: expiresAt},
+		});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
@@ -189,43 +203,61 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: false, machineCount: 0},
+				pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: null},
 				currentDeck: [],
 			});
 		});
 
-		expect((await screen.findByRole("button", {name: "Pair a machine"})).getAttribute("aria-pressed")).toBeNull();
+		expect((await screen.findByRole("button", {name: "Connect a CLI"})).getAttribute("aria-pressed")).toBeNull();
 		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
 
-		fireEvent.click(screen.getByRole("button", {name: "Pair a machine"}));
+		fireEvent.click(screen.getByRole("button", {name: "Connect a CLI"}));
 		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
 		expect(await screen.findByText("ABC234")).toBeDefined();
+		expect({
+			heading: screen.getByRole("heading", {name: "Waiting for your CLI"}).textContent,
+			queueConfirmation: screen.queryByText(/all caught up/i),
+			status: screen.getByRole("status").textContent,
+		}).toStrictEqual({
+			heading: "Waiting for your CLI",
+			queueConfirmation: null,
+			status: "Waiting for your CLI to claim this code.",
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
+		expect(screen.getByRole("button", {name: "Waiting for CLI"}).textContent).toBe("Waiting for CLI");
+		expect(
+			screen.getByText("Your question queue is empty. New questions will appear here when they arrive.")
+				.textContent,
+		).toBe("Your question queue is empty. New questions will appear here when they arrive.");
+		fireEvent.click(screen.getByRole("button", {name: "Waiting for CLI"}));
 
-		fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1});
-		await waitFor(
-			() => {
-				expect(screen.getByRole("status").textContent).toBe("✓ Machine paired");
-			},
-			{timeout: 2_000},
-		);
+		fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
+		act(() => {
+			publishApplicationState?.({
+				afk: false,
+				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+				currentDeck: [],
+			});
+		});
+		await waitFor(() => {
+			expect(screen.getByRole("heading", {name: "Connect another CLI"}).textContent).toBe("Connect another CLI");
+		});
 		expect({
 			code: screen.queryByText("ABC234"),
 			generateButton: screen.getByRole("button", {name: "Generate and copy pairing code"}).textContent,
-			heading: screen.getByRole("heading", {name: "Pair another machine"}).textContent,
+			heading: screen.getByRole("heading", {name: "Connect another CLI"}).textContent,
 			repeatCopyButton: screen.queryByRole("button", {name: "Copy pairing code again"}),
-			status: screen.getByRole("status").textContent,
 		}).toStrictEqual({
 			code: null,
 			generateButton: "Generate and copy pairing code",
-			heading: "Pair another machine",
+			heading: "Connect another CLI",
 			repeatCopyButton: null,
-			status: "✓ Machine paired",
 		});
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: true, machineCount: 1},
+				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
 				currentDeck: [],
 			});
 		});
@@ -236,6 +268,49 @@ describe("App live question synchronization", () => {
 		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
 	});
 
+	it("uses a bounded fallback while a pushed pairing result may be missed", async () => {
+		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
+		const expiresAt = Date.now() + 60_000;
+		vi.mocked(issuePairingCode).mockResolvedValue({
+			code: "JKM789",
+			expiresAt,
+			pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: expiresAt},
+		});
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: {writeText: vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve())},
+		});
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishApplicationState).toBeTypeOf("function");
+		});
+		act(() => {
+			publishApplicationState?.({
+				afk: false,
+				pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: null},
+				currentDeck: [],
+			});
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Connect a CLI"}));
+		vi.useFakeTimers();
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
+			await Promise.resolve();
+		});
+		expect(screen.getByRole("status").textContent).toBe("Waiting for your CLI to claim this code.");
+		const callsBeforeFallback = fetchPairingStatus.mock.calls.length;
+		fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
+
+		await act(async () => vi.advanceTimersByTimeAsync(4_999));
+		expect(fetchPairingStatus.mock.calls).toHaveLength(callsBeforeFallback);
+		await act(async () => vi.advanceTimersByTimeAsync(1));
+		expect(fetchPairingStatus.mock.calls).toHaveLength(callsBeforeFallback + 1);
+		expect(screen.getByRole("status").textContent).toBe("✓ CLI connected");
+		await act(async () => vi.advanceTimersByTimeAsync(20_000));
+		expect(fetchPairingStatus.mock.calls).toHaveLength(callsBeforeFallback + 1);
+	});
+
 	it("shows pairing immediately when the live state reports that the last machine was revoked", async () => {
 		render(<App />);
 		await waitFor(() => {
@@ -244,7 +319,7 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: true,
-				pairingStatus: {paired: true, machineCount: 1},
+				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
 				currentDeck: [],
 			});
 		});
@@ -253,7 +328,7 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: false, machineCount: 0},
+				pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: null},
 				currentDeck: [],
 			});
 		});
@@ -262,16 +337,16 @@ describe("App live question synchronization", () => {
 				(control) => control.textContent,
 			),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: ["Pair a machine"], pathname: "/"});
+		}).toStrictEqual({headerPairingControls: [], pathname: "/"});
 
-		fireEvent.click(screen.getByRole("button", {name: "Pair a machine"}));
+		fireEvent.click(screen.getByRole("button", {name: "Connect a CLI"}));
 		expect({
 			headerPairingControls: [...document.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
 			),
-			pairingHeading: screen.getByRole("heading", {name: "Pair a machine"}).textContent,
+			pairingHeading: screen.getByRole("heading", {name: "Connect a CLI"}).textContent,
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pairingHeading: "Pair a machine", pathname: "/settings"});
+		}).toStrictEqual({headerPairingControls: [], pairingHeading: "Connect a CLI", pathname: "/settings"});
 	});
 
 	it("removes the redundant product name from the app header", async () => {
@@ -283,7 +358,7 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(document.querySelector(".app-header")?.textContent).toBe("AFK on⚙");
+		expect(document.querySelector(".app-header")?.textContent).toBe("CLI connectedAFK on⚙");
 	});
 
 	it("opens settings directly from its route", async () => {
@@ -320,7 +395,11 @@ describe("App live question synchronization", () => {
 	});
 
 	it("automatically copies and selects a generated pairing code", async () => {
-		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: 2_000_000_000_000});
+		vi.mocked(issuePairingCode).mockResolvedValue({
+			code: "ABC234",
+			expiresAt: 2_000_000_000_000,
+			pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: 2_000_000_000_000},
+		});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
@@ -352,12 +431,12 @@ describe("App live question synchronization", () => {
 					type: copyAgain.getAttribute("type"),
 				},
 				copyCalls: writeText.mock.calls,
-				instruction: screen.getByText("Paste this code into the CLI on the machine you want to pair.")
-					.textContent,
+				instruction: screen.getByText("Paste this code into the CLI you want to connect.").textContent,
 				label: screen.getByText("Pairing code").textContent,
 				note: screen.getByText("Expires in ten minutes and works once.").textContent,
 				selection: window.getSelection()?.toString(),
 				status: screen.getByRole("status").textContent,
+				copyStatus: document.querySelector(".copy-status")?.textContent,
 			}).toStrictEqual({
 				code: {
 					ariaLabelledBy: "pairing-code-label",
@@ -373,11 +452,12 @@ describe("App live question synchronization", () => {
 					type: "button",
 				},
 				copyCalls: [["ABC234"]],
-				instruction: "Paste this code into the CLI on the machine you want to pair.",
+				instruction: "Paste this code into the CLI you want to connect.",
 				label: "Pairing code",
 				note: "Expires in ten minutes and works once.",
 				selection: "ABC234",
-				status: "Copied to clipboard.",
+				status: "Waiting for your CLI to claim this code.",
+				copyStatus: "Copied to clipboard.",
 			});
 		});
 
@@ -396,7 +476,11 @@ describe("App live question synchronization", () => {
 	});
 
 	it("keeps the selected code available when clipboard access is blocked", async () => {
-		vi.mocked(issuePairingCode).mockResolvedValue({code: "DEF456", expiresAt: 2_000_000_000_000});
+		vi.mocked(issuePairingCode).mockResolvedValue({
+			code: "DEF456",
+			expiresAt: 2_000_000_000_000,
+			pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: 2_000_000_000_000},
+		});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () =>
 			Promise.reject(new Error("Clipboard permission denied")),
 		);
@@ -417,7 +501,7 @@ describe("App live question synchronization", () => {
 			expect({
 				copyCalls: writeText.mock.calls,
 				selection: window.getSelection()?.toString(),
-				status: screen.getByRole("status").textContent,
+				status: document.querySelector(".copy-status")?.textContent,
 			}).toStrictEqual({
 				copyCalls: [["DEF456"]],
 				selection: "DEF456",
@@ -441,8 +525,12 @@ describe("App live question synchronization", () => {
 	});
 
 	it("replaces an expired pairing code with a clear retry state", async () => {
-		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0});
-		vi.mocked(issuePairingCode).mockResolvedValue({code: "GHI678", expiresAt: 0});
+		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
+		vi.mocked(issuePairingCode).mockResolvedValue({
+			code: "GHI678",
+			expiresAt: 0,
+			pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: 0},
+		});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
@@ -476,7 +564,7 @@ describe("App live question synchronization", () => {
 	});
 
 	it("starts an async clipboard write during the generate-button activation", async () => {
-		let resolvePairing: ((pairing: {code: string; expiresAt: number}) => void) | undefined;
+		let resolvePairing: ((pairing: import("../src/api").IssuedPairingCode) => void) | undefined;
 		vi.mocked(issuePairingCode).mockImplementation(
 			async () =>
 				new Promise((resolve) => {
@@ -504,7 +592,11 @@ describe("App live question synchronization", () => {
 		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
 
 		expect(write.mock.calls).toHaveLength(1);
-		resolvePairing?.({code: "XYZ789", expiresAt: 2_000_000_000_000});
+		resolvePairing?.({
+			code: "XYZ789",
+			expiresAt: 2_000_000_000_000,
+			pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: 2_000_000_000_000},
+		});
 		expect(await screen.findByText("XYZ789")).toBeDefined();
 	});
 
@@ -573,7 +665,7 @@ describe("Better Auth account routes", () => {
 		const {container} = render(<App />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", {name: "Sign in to pair"}).textContent).toBe("Sign in to pair");
+			expect(screen.getByRole("button", {name: "Sign in"}).textContent).toBe("Sign in");
 		});
 		expect({
 			answerButtons: [...container.querySelectorAll(".actions button")].map((button) => button.textContent),
@@ -587,8 +679,8 @@ describe("Better Auth account routes", () => {
 		}).toStrictEqual({
 			answerButtons: [],
 			cards: [],
-			deckText: "All caught upNo questions waiting. Questions sent through your paired agent will appear here.",
-			headerPairingControls: ["Sign in to pair"],
+			deckText: "All caught upYour question queue is empty. New questions will appear here when they arrive.",
+			headerPairingControls: [],
 			openedStream: false,
 			storedCredentials: [],
 		});
@@ -598,7 +690,7 @@ describe("Better Auth account routes", () => {
 		fetchSession.mockResolvedValue(null);
 		const {container} = render(<App />);
 
-		fireEvent.click(await screen.findByRole("button", {name: "Sign in to pair"}));
+		fireEvent.click(await screen.findByRole("button", {name: "Sign in"}));
 		expect({
 			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
@@ -639,13 +731,13 @@ describe("Better Auth account routes", () => {
 
 		render(<App />);
 
-		expect(await screen.findByText(/pairing belongs to your account/i)).toBeDefined();
+		expect(await screen.findByText(/CLI connections belong to your account/i)).toBeDefined();
 		expect(screen.queryByRole("button", {name: "Generate and copy pairing code"})).toBeNull();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
 		expect(screen.getAllByRole("button", {name: /sign in/i}).map((button) => button.textContent)).toStrictEqual([
 			"Sign in",
 			"Sign in",
-			"Sign in to pair",
+			"Sign in",
 		]);
 		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 	});
@@ -779,7 +871,7 @@ describe("Better Auth account routes", () => {
 		});
 		revokeMachine.mockImplementation(async () => {
 			accountDevices = {...accountDevices, machines: []};
-			return Promise.resolve({paired: false, machineCount: 0});
+			return Promise.resolve({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
 		});
 		window.history.replaceState({}, "", "/settings");
 		render(<App />);
@@ -817,8 +909,8 @@ describe("Better Auth account routes", () => {
 		fireEvent.click(within(renamedMachineRow).getByRole("button", {name: "Revoke"}));
 		await waitFor(() => {
 			expect(revokeMachine.mock.calls).toStrictEqual([["machine-alice"]]);
-			expect(screen.getByText("No paired machines.").textContent).toBe("No paired machines.");
-			expect(screen.getByRole("heading", {name: "Pair a machine"}).textContent).toBe("Pair a machine");
+			expect(screen.getByText("No connected CLIs.").textContent).toBe("No connected CLIs.");
+			expect(screen.getByRole("heading", {name: "Connect a CLI"}).textContent).toBe("Connect a CLI");
 			expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		});
 	});
@@ -839,7 +931,7 @@ describe("Better Auth account routes", () => {
 		fetchSession.mockResolvedValue(null);
 		window.history.replaceState({}, "", "/");
 		render(<App />);
-		fireEvent.click(screen.getByRole("button", {name: "Sign in to pair"}));
+		fireEvent.click(screen.getByRole("button", {name: "Sign in"}));
 		expect(window.location.pathname).toBe("/sign-in");
 		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
@@ -852,7 +944,7 @@ describe("Better Auth account routes", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: true, machineCount: 1},
+				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
 				currentDeck: streamedQuestions,
 			});
 		});

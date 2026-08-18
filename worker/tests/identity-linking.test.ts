@@ -237,6 +237,11 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		const legacyUserId = "legacy-recovered-alice";
 		const legacyToken = "legacy-app-token-for-recovered-alice";
 		await seedLegacyIdentity(legacyUserId, legacyToken, "JKM789");
+		const pendingPairing = await env.DB.prepare(
+			"SELECT expires_at FROM pairing_codes WHERE code = 'JKM789'",
+		).first<{
+			expires_at: number;
+		}>();
 		await env.USER_DO.getByName(legacyUserId).setAfk(true, true);
 		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 			headers: {Cookie: session.cookie, Upgrade: "websocket"},
@@ -249,6 +254,7 @@ describe("POST /api/v1/account/claim-legacy", () => {
 			afk: false,
 			paired: false,
 			machine_count: 0,
+			pending_pairing_expires_at: null,
 			current_deck: [],
 		});
 
@@ -259,6 +265,7 @@ describe("POST /api/v1/account/claim-legacy", () => {
 			afk: false,
 			paired: true,
 			machine_count: 1,
+			pending_pairing_expires_at: pendingPairing?.expires_at,
 			current_deck: [],
 		});
 		socket.close();

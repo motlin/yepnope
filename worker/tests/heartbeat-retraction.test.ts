@@ -97,6 +97,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 			afk: true,
 			paired: true,
 			machine_count: 1,
+			pending_pairing_expires_at: null,
 			current_deck: [
 				{
 					batch_id: created.batch_id,
@@ -123,6 +124,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 			afk: true,
 			paired: true,
 			machine_count: 1,
+			pending_pairing_expires_at: null,
 			current_deck: [],
 		});
 		socket.close();

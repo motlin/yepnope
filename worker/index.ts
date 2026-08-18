@@ -7,11 +7,12 @@ import {
 	claimPairingCode,
 	createPairingCode,
 	getPairedMachineCount,
+	getPairingStatus,
 	listPairedMachines,
 	renameMachine,
 	revokeMachineToken,
 } from "./pairing";
-import type {UserDurableObject} from "./user-do";
+import type {PairingStatus, UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
 	createBatchRequestSchema,
@@ -62,7 +63,12 @@ export default {
 					return new Response(null, {status: 401});
 				}
 				const issued = await createPairingCode(env.DB, accountUserId);
-				return Response.json({code: issued.code, expires_at: issued.expiresAt}, {status: 201});
+				const pairingStatus = await getPairingStatus(env.DB, accountUserId);
+				await env.USER_DO.getByName(accountUserId).synchronizePairingState(pairingStatus);
+				return Response.json(
+					{code: issued.code, expires_at: issued.expiresAt, pairing: pairingStatusResponse(pairingStatus)},
+					{status: 201},
+				);
 			}
 			if (url.pathname === "/api/v1/pair/new" && request.method === "POST") {
 				const accountUserId = await authenticateBrowserSession(request, env, executionContext);
@@ -73,8 +79,8 @@ export default {
 				if (accountUserId === null) {
 					return new Response(null, {status: 401});
 				}
-				const machineCount = await getPairedMachineCount(env.DB, accountUserId);
-				return Response.json({paired: machineCount > 0, machine_count: machineCount});
+				const pairingStatus = await getPairingStatus(env.DB, accountUserId);
+				return Response.json(pairingStatusResponse(pairingStatus));
 			}
 			if (url.pathname === "/api/v1/account/claim-legacy" && request.method === "POST") {
 				const accountUserId = await authenticateBrowserSession(request, env, executionContext);
@@ -118,8 +124,8 @@ export default {
 				(url.pathname === CURRENT_DECK_STREAM_PATH || STREAM_PATH.test(url.pathname))
 			) {
 				if (url.pathname === CURRENT_DECK_STREAM_PATH) {
-					const machineCount = await getPairedMachineCount(env.DB, userId);
-					return stub.fetch(withMachineCount(request, machineCount));
+					const pairingStatus = await getPairingStatus(env.DB, userId);
+					return stub.fetch(withPairingStatus(request, pairingStatus));
 				}
 				return stub.fetch(request);
 			}
@@ -172,9 +178,21 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
-function withMachineCount(request: Request, machineCount: number): Request {
+function pairingStatusResponse(pairingStatus: PairingStatus): {
+	paired: boolean;
+	machine_count: number;
+	pending_pairing_expires_at: number | null;
+} {
+	return {
+		paired: pairingStatus.machineCount > 0,
+		machine_count: pairingStatus.machineCount,
+		pending_pairing_expires_at: pairingStatus.pendingPairingExpiresAt,
+	};
+}
+
+function withPairingStatus(request: Request, pairingStatus: PairingStatus): Request {
 	const headers = new Headers(request.headers);
-	headers.set("X-YepNope-Machine-Count", String(machineCount));
+	headers.set("X-YepNope-Pairing-Status", JSON.stringify(pairingStatus));
 	return new Request(request, {headers});
 }
 
@@ -204,8 +222,9 @@ async function claimPairing(request: Request, environment: Env): Promise<Respons
 	if (claimed === null) {
 		return new Response(null, {status: 404});
 	}
-	const machineCount = await getPairedMachineCount(environment.DB, claimed.userId);
-	await environment.USER_DO.getByName(claimed.userId).synchronizePairingState(machineCount);
+	await environment.USER_DO.getByName(claimed.userId).synchronizePairingState(
+		await getPairingStatus(environment.DB, claimed.userId),
+	);
 	return Response.json({token: claimed.token, credential_type: "machine"}, {status: 201});
 }
 
@@ -276,8 +295,8 @@ async function manageMachine(
 	if (!revoked) {
 		return new Response(null, {status: 404});
 	}
-	const machineCount = await getPairedMachineCount(environment.DB, userId);
-	return Response.json({status: "ok", pairing: {paired: machineCount > 0, machine_count: machineCount}});
+	const pairingStatus = await getPairingStatus(environment.DB, userId);
+	return Response.json({status: "ok", pairing: pairingStatusResponse(pairingStatus)});
 }
 
 async function managePushDevice(
@@ -329,7 +348,7 @@ async function createQuestions(
 }
 
 async function currentDeck(stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
-	const state = await stub.getCurrentDeckState(0);
+	const state = await stub.getCurrentDeckState({machineCount: 0, pendingPairingExpiresAt: null});
 	return Response.json({current_deck: state.current_deck});
 }
 

@@ -6,6 +6,7 @@ import {
 	type Page,
 	type WebSocketRoute,
 } from "playwright/test";
+import {runPairCommand} from "../../shim/pair";
 
 const email = "alice-browser-test@example.com";
 const originalPassword = "browser-test-original-password";
@@ -19,10 +20,6 @@ interface MailboxResponse {
 
 interface SessionResponse {
 	user: {id: string};
-}
-
-interface PairingResponse {
-	token: string;
 }
 
 async function signIn(page: Page, password: string): Promise<void> {
@@ -59,6 +56,33 @@ async function closeContexts(contexts: BrowserContext[]): Promise<void> {
 	await Promise.all(contexts.map(async (context) => context.close()));
 }
 
+async function claimWithShim(request: APIRequestContext, code: string): Promise<string> {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = async (input, init) => {
+		if (typeof init?.body !== "string") {
+			throw new Error("shim pairing request body must be JSON text");
+		}
+		const response = await request.fetch(String(input), {
+			method: init.method ?? "GET",
+			headers: Object.fromEntries(new Headers(init.headers).entries()),
+			data: init.body,
+		});
+		return new Response(await response.text(), {headers: response.headers(), status: response.status()});
+	};
+	try {
+		const output = await runPairCommand([code, "--label", "Browser test CLI"], {
+			baseUrl: "https://127.0.0.1:4173",
+		});
+		const token = /export YEPNOPE_TOKEN=(\S+)/.exec(output)?.[1];
+		if (token === undefined) {
+			throw new Error("shim pairing output did not include a machine token");
+		}
+		return token;
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+}
+
 test("identity registration, recovery, pairing, answers, revocation, and deletion", async ({browser, request}) => {
 	const contexts: BrowserContext[] = [];
 	try {
@@ -86,8 +110,11 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 			users: 0,
 		});
 		await firstPage.goto("/");
-		await expect(firstPage.getByRole("button", {name: "Sign in to pair"})).toBeVisible();
+		await expect(firstPage.getByRole("button", {name: "Sign in"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		await expect(
+			firstPage.getByText("Your question queue is empty. New questions will appear here when they arrive."),
+		).toBeVisible();
 		await expect(firstPage.locator(".card, .actions")).toHaveCount(0);
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
 			authentication_url: "https://127.0.0.1:4173",
@@ -96,7 +123,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 			users: 0,
 		});
 
-		await firstPage.getByRole("button", {name: "Sign in to pair"}).click();
+		await firstPage.getByRole("button", {name: "Sign in"}).click();
 		await expect(firstPage).toHaveURL(/\/sign-in$/);
 		await expect(firstPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		await firstPage.getByRole("button", {name: "Create an account"}).click();
@@ -112,7 +139,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		const verificationPage = await verificationContext.newPage();
 		await verificationPage.goto(await mailboxLink(request, verificationSubject));
 		await expect(verificationPage).toHaveURL(/\/$/);
-		await expect(verificationPage.getByRole("button", {name: "Pair a machine"})).toBeVisible();
+		await expect(verificationPage.getByRole("button", {name: "Connect a CLI"})).toBeVisible();
 		await verificationPage.getByRole("button", {name: "Settings"}).click();
 		await expect(verificationPage.getByText(email)).toBeVisible();
 		const verifiedUserId = await sessionUserId(verificationPage);
@@ -131,21 +158,51 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 
 		await firstContext.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await firstPage.getByRole("button", {name: "Generate and copy pairing code"}).click();
-		await expect(firstPage.getByRole("status")).toHaveText("Copied to clipboard.");
+		await expect(firstPage.locator(".copy-status")).toHaveText("Copied to clipboard.");
+		await expect(firstPage.getByRole("status")).toHaveText("Waiting for your CLI to claim this code.");
 		const pairingCode = await firstPage.locator("code.pairing-code").textContent();
 		if (pairingCode === null) {
 			throw new Error("pairing code was not rendered");
 		}
-		const pairing = await request.post("/api/v1/pair/claim", {
-			data: {code: pairingCode, label: "Browser test machine"},
-		});
-		expect(pairing.status()).toBe(201);
-		const machineToken = ((await pairing.json()) as PairingResponse).token;
-		await expect(firstPage.getByRole("status")).toHaveText("✓ Machine paired");
-		await expect(firstPage.getByText("Browser test machine")).toBeVisible();
 		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
+		await expect(firstPage.getByRole("button", {name: "Waiting for CLI"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		await expect(
+			firstPage.getByText("Your question queue is empty. New questions will appear here when they arrive."),
+		).toBeVisible();
 		await expect(firstPage.locator(".card, .actions")).toHaveCount(0);
+
+		const secondContext = await browser.newContext({ignoreHTTPSErrors: true});
+		contexts.push(secondContext);
+		const secondPage = await secondContext.newPage();
+		await signIn(secondPage, originalPassword);
+		await expect(secondPage.getByRole("heading", {name: "Waiting for your CLI"})).toBeVisible();
+		await expect(secondPage.getByText(/A pairing code is waiting for a CLI to claim it/)).toBeVisible();
+
+		const expired = await request.post("/api/__e2e__/expire-pairing", {data: {code: pairingCode}});
+		expect({body: await expired.json(), status: expired.status()}).toStrictEqual({
+			body: {status: "expired"},
+			status: 200,
+		});
+		await expect(firstPage.getByRole("button", {name: "Connect a CLI"})).toBeVisible();
+		await expect(secondPage.getByRole("heading", {name: "Connect a CLI"})).toBeVisible();
+
+		await firstPage.getByRole("button", {name: "Connect a CLI"}).click();
+		await firstPage.getByRole("button", {name: "Generate and copy pairing code"}).click();
+		await expect(firstPage.getByRole("status")).toHaveText("Waiting for your CLI to claim this code.");
+		const claimablePairingCode = await firstPage.locator("code.pairing-code").textContent();
+		if (claimablePairingCode === null) {
+			throw new Error("replacement pairing code was not rendered");
+		}
+		await expect(secondPage.getByRole("heading", {name: "Waiting for your CLI"})).toBeVisible();
+		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
+		const machineToken = await claimWithShim(request, claimablePairingCode);
+		await expect(firstPage.getByRole("button", {name: "CLI connected"})).toBeVisible();
+		await expect(secondPage.getByRole("heading", {name: "Connect another CLI"})).toBeVisible();
+		await expect(secondPage.getByText("Browser test CLI")).toBeVisible();
+		await firstPage.reload();
+		await expect(firstPage.getByRole("button", {name: "CLI connected"})).toBeVisible();
+		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
 		await expect(firstPage.getByRole("button", {name: "AFK off"})).toHaveAttribute("aria-pressed", "false");
 
 		await firstPage.getByRole("button", {name: "AFK off"}).click();
@@ -200,16 +257,12 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await failureContext.close();
 		contexts.splice(contexts.indexOf(failureContext), 1);
 
-		const secondContext = await browser.newContext({ignoreHTTPSErrors: true});
-		contexts.push(secondContext);
-		const secondPage = await secondContext.newPage();
-		await signIn(secondPage, originalPassword);
 		await expect(secondPage.getByText(email)).toBeVisible();
-		await expect(secondPage.getByText("Browser test machine")).toBeVisible();
+		await expect(secondPage.getByText("Browser test CLI")).toBeVisible();
 		await secondPage.getByRole("button", {name: "Sign out"}).click();
 		await expect(secondPage).toHaveURL(/\/$/);
 
-		await secondPage.getByRole("button", {name: "Sign in to pair"}).click();
+		await secondPage.getByRole("button", {name: "Sign in"}).click();
 		await expect(secondPage).toHaveURL(/\/sign-in$/);
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		await secondPage.getByRole("button", {name: "Forgot password?"}).click();
@@ -230,15 +283,15 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await secondPage.getByLabel("Password").fill(replacementPassword);
 		await secondPage.getByRole("button", {name: "Sign in", exact: true}).click();
-		await expect(secondPage.getByText("Browser test machine")).toBeVisible();
+		await expect(secondPage.getByText("Browser test CLI")).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 
-		const machineRow = secondPage.getByRole("listitem").filter({hasText: "Browser test machine"});
+		const machineRow = secondPage.getByRole("listitem").filter({hasText: "Browser test CLI"});
 		await machineRow.getByRole("button", {name: "Revoke"}).click();
-		await expect(secondPage.getByText("No paired machines.")).toBeVisible();
-		await expect(secondPage.getByRole("heading", {name: "Pair a machine"})).toBeVisible();
+		await expect(secondPage.getByText("No connected CLIs.")).toBeVisible();
+		await expect(secondPage.getByRole("heading", {name: "Connect a CLI"})).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
-		await expect(firstPage.getByRole("button", {name: "Pair a machine"})).toBeVisible();
+		await expect(firstPage.getByRole("button", {name: "Connect a CLI"})).toBeVisible();
 		expect((await request.get("/api/v1/afk", {headers: {Authorization: `Bearer ${machineToken}`}})).status()).toBe(
 			401,
 		);
@@ -253,7 +306,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		}, replacementPassword);
 		expect(deletion).toStrictEqual({body: {message: "User deleted", success: true}, status: 200});
 		await secondPage.reload();
-		await expect(secondPage.getByRole("button", {name: "Sign in to pair"})).toBeVisible();
+		await expect(secondPage.getByRole("button", {name: "Sign in"})).toHaveCount(3);
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 
 		const deletedState = await request.post("/api/__e2e__/deleted-account", {data: {user_id: userId}});

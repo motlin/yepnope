@@ -3,7 +3,19 @@ import {describe, expect, it} from "vitest";
 import {PAIRING_CODE_TTL_MILLISECONDS} from "../validation";
 import {API_ORIGIN, createBatchOverHttp, createVerifiedBrowserSession, registerMachineToken, worker} from "./helpers";
 
-async function requestPairingCode(cookie: string): Promise<{code: string; expires_at: number}> {
+interface PairingStatusBody {
+	machine_count: number;
+	paired: boolean;
+	pending_pairing_expires_at: number | null;
+}
+
+interface PairingCodeBody {
+	code: string;
+	expires_at: number;
+	pairing: PairingStatusBody;
+}
+
+async function requestPairingCode(cookie: string): Promise<PairingCodeBody> {
 	const response = await worker.fetch(`${API_ORIGIN}/api/v1/pair/code`, {
 		method: "POST",
 		headers: {Cookie: cookie},
@@ -63,6 +75,11 @@ describe("POST /api/v1/pair/code", () => {
 		expect(issued.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
 		expect(issued.expires_at).toBeGreaterThanOrEqual(before + PAIRING_CODE_TTL_MILLISECONDS);
 		expect(issued.expires_at).toBeLessThanOrEqual(Date.now() + PAIRING_CODE_TTL_MILLISECONDS);
+		expect(issued.pairing).toStrictEqual({
+			machine_count: 0,
+			paired: false,
+			pending_pairing_expires_at: issued.expires_at,
+		});
 		expect(
 			await env.DB.prepare("SELECT user_id FROM pairing_codes WHERE code = ?").bind(issued.code).first(),
 		).toStrictEqual({user_id: session.userId});
@@ -81,18 +98,29 @@ describe("GET /api/v1/pair/status", () => {
 			headers: {Cookie: session.cookie},
 		});
 		expect({body: await before.json(), status: before.status}).toStrictEqual({
-			body: {machine_count: 0, paired: false},
+			body: {machine_count: 0, paired: false, pending_pairing_expires_at: null},
 			status: 200,
 		});
 
 		const issued = await requestPairingCode(session.cookie);
+		const pending = await worker.fetch(`${API_ORIGIN}/api/v1/pair/status`, {
+			headers: {Cookie: session.cookie},
+		});
+		expect({body: await pending.json(), status: pending.status}).toStrictEqual({
+			body: {
+				machine_count: 0,
+				paired: false,
+				pending_pairing_expires_at: issued.expires_at,
+			},
+			status: 200,
+		});
 		expect((await claimPairingCode(issued.code, "Alice's laptop")).status).toBe(201);
 
 		const after = await worker.fetch(`${API_ORIGIN}/api/v1/pair/status`, {
 			headers: {Cookie: session.cookie},
 		});
 		expect({body: await after.json(), status: after.status}).toStrictEqual({
-			body: {machine_count: 1, paired: true},
+			body: {machine_count: 1, paired: true, pending_pairing_expires_at: null},
 			status: 200,
 		});
 	});

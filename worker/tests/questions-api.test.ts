@@ -291,6 +291,7 @@ describe("GET /api/v1/current-deck/stream", () => {
 			afk: true,
 			paired: true,
 			machine_count: 1,
+			pending_pairing_expires_at: null,
 			current_deck: [
 				{
 					batch_id: created.batch_id,
@@ -332,6 +333,7 @@ describe("GET /api/v1/current-deck/stream", () => {
 			afk: true,
 			paired: true,
 			machine_count: 1,
+			pending_pairing_expires_at: null,
 			current_deck: [
 				{
 					batch_id: created.batch_id,

@@ -94,28 +94,46 @@ export async function signOut(): Promise<void> {
 	await requestJson("/api/auth/sign-out", jsonRequest({}), z.object({success: z.literal(true)}));
 }
 
-const pairCodeResponseSchema = z.object({code: z.string(), expires_at: z.number()});
-
-export interface IssuedPairingCode {
-	code: string;
-	expiresAt: number;
-}
-
-export async function issuePairingCode(): Promise<IssuedPairingCode> {
-	const body = await requestJson("/api/v1/pair/code", {method: "POST"}, pairCodeResponseSchema);
-	return {code: body.code, expiresAt: body.expires_at};
-}
-
-const pairingStatusResponseSchema = z.object({paired: z.boolean(), machine_count: z.number().int().nonnegative()});
+const pairingStatusResponseSchema = z.object({
+	paired: z.boolean(),
+	machine_count: z.number().int().nonnegative(),
+	pending_pairing_expires_at: z.number().int().nullable(),
+});
 
 export interface PairingStatus {
 	paired: boolean;
 	machineCount: number;
+	pendingPairingExpiresAt: number | null;
+}
+
+function toPairingStatus(body: z.infer<typeof pairingStatusResponseSchema>): PairingStatus {
+	return {
+		paired: body.paired,
+		machineCount: body.machine_count,
+		pendingPairingExpiresAt: body.pending_pairing_expires_at,
+	};
+}
+
+const pairCodeResponseSchema = z.object({
+	code: z.string(),
+	expires_at: z.number(),
+	pairing: pairingStatusResponseSchema,
+});
+
+export interface IssuedPairingCode {
+	code: string;
+	expiresAt: number;
+	pairingStatus: PairingStatus;
+}
+
+export async function issuePairingCode(): Promise<IssuedPairingCode> {
+	const body = await requestJson("/api/v1/pair/code", {method: "POST"}, pairCodeResponseSchema);
+	return {code: body.code, expiresAt: body.expires_at, pairingStatus: toPairingStatus(body.pairing)};
 }
 
 export async function fetchPairingStatus(): Promise<PairingStatus> {
 	const body = await requestJson("/api/v1/pair/status", {}, pairingStatusResponseSchema);
-	return {paired: body.paired, machineCount: body.machine_count};
+	return toPairingStatus(body);
 }
 
 const legacyIdentityClaimResponseSchema = z.object({
@@ -203,7 +221,7 @@ export async function revokeMachine(machineId: string): Promise<PairingStatus> {
 		{method: "DELETE"},
 		revokeMachineResponseSchema,
 	);
-	return {paired: body.pairing.paired, machineCount: body.pairing.machine_count};
+	return toPairingStatus(body.pairing);
 }
 
 export async function renamePushDevice(deviceId: string, label: string): Promise<void> {
@@ -236,6 +254,7 @@ const currentDeckStateSchema = z.object({
 	afk: z.boolean(),
 	paired: z.boolean(),
 	machine_count: z.number().int().nonnegative(),
+	pending_pairing_expires_at: z.number().int().nullable(),
 	current_deck: z.array(questionSchema),
 });
 
@@ -451,7 +470,11 @@ export function openCurrentDeckStream(
 			connectionState = CurrentDeckConnectionState.Open;
 			onState({
 				afk: state.afk,
-				pairingStatus: {paired: state.paired, machineCount: state.machine_count},
+				pairingStatus: {
+					paired: state.paired,
+					machineCount: state.machine_count,
+					pendingPairingExpiresAt: state.pending_pairing_expires_at,
+				},
 				currentDeck: toDeckQuestions(state.current_deck),
 			});
 		});

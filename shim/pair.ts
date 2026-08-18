@@ -47,7 +47,7 @@ function parsePairArguments(argv: string[]): ParsedPairArguments {
 		}
 	}
 	if (code === undefined) {
-		throw new Error(`missing pairing code; generate one in the app under Pair a machine\n${USAGE}`);
+		throw new Error(`missing pairing code; generate one in the app under Connect a CLI\n${USAGE}`);
 	}
 	// The code alphabet is uppercase-only, but it gets typed by hand off a phone screen.
 	return {code: code.toUpperCase(), label};

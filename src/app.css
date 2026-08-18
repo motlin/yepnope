@@ -68,7 +68,8 @@ body {
 	display: block;
 }
 
-.afk-toggle {
+.afk-toggle,
+.machine-status {
 	border: 1px solid var(--muted);
 	border-radius: 999px;
 	background: none;
@@ -78,6 +79,12 @@ body {
 	letter-spacing: 0.04em;
 	padding: 3px 10px;
 	cursor: pointer;
+}
+
+.machine-status.waiting {
+	border-color: #d9a557;
+	background: rgb(217 165 87 / 14%);
+	color: #e6bc79;
 }
 
 .afk-toggle.afk-on {
@@ -644,6 +651,12 @@ body {
 	margin-top: 14px;
 	color: #d7dae0;
 	font-weight: 550;
+}
+
+.hint .pairing-waiting {
+	margin: 10px 0 0;
+	color: #e6bc79;
+	font-weight: 650;
 }
 
 .hint .copy-status {

@@ -294,7 +294,14 @@ describe("openCurrentDeckStream", () => {
 		await vi.advanceTimersByTimeAsync(200);
 		latestSocket().open();
 		latestSocket().publish(
-			JSON.stringify({type: "current_deck", afk: false, paired: true, machine_count: 1, current_deck: []}),
+			JSON.stringify({
+				type: "current_deck",
+				afk: false,
+				paired: true,
+				machine_count: 1,
+				pending_pairing_expires_at: null,
+				current_deck: [],
+			}),
 		);
 		latestSocket().close();
 		await vi.advanceTimersByTimeAsync(99);
@@ -303,7 +310,13 @@ describe("openCurrentDeckStream", () => {
 
 		expect({connections: FakeWebSocket.instances.length, states}).toStrictEqual({
 			connections: 4,
-			states: [{afk: false, pairingStatus: {paired: true, machineCount: 1}, currentDeck: []}],
+			states: [
+				{
+					afk: false,
+					pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+					currentDeck: [],
+				},
+			],
 		});
 		stream.close();
 	});

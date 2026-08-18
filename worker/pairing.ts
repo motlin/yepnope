@@ -2,7 +2,7 @@ import {and, asc, count, eq, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {machineTokens, pairingCodes} from "./db/d1-schema";
-import type {UserDurableObject} from "./user-do";
+import type {PairingStatus, UserDurableObject} from "./user-do";
 import {PAIRING_CODE_TTL_MILLISECONDS} from "./validation";
 import {base64UrlEncode} from "./webcrypto";
 
@@ -100,6 +100,23 @@ export async function getPairedMachineCount(database: D1Database, userId: string
 	return rows[0]?.value ?? 0;
 }
 
+export async function getPairingStatus(database: D1Database, userId: string): Promise<PairingStatus> {
+	const status = await database
+		.prepare(
+			"SELECT " +
+				"(SELECT count(*) FROM machine_tokens " +
+				"WHERE user_id = ? AND credential_type = 'machine' AND revoked_at IS NULL) AS machine_count, " +
+				"(SELECT max(expires_at) FROM pairing_codes WHERE user_id = ? AND expires_at > ?) " +
+				"AS pending_pairing_expires_at",
+		)
+		.bind(userId, userId, Date.now())
+		.first<{machine_count: number; pending_pairing_expires_at: number | null}>();
+	if (status === null) {
+		throw new Error("pairing status query returned no row");
+	}
+	return {machineCount: status.machine_count, pendingPairingExpiresAt: status.pending_pairing_expires_at};
+}
+
 export async function createPairingCode(database: D1Database, userId: string): Promise<IssuedPairingCode> {
 	const db = drizzle(database);
 	const now = Date.now();
@@ -165,7 +182,6 @@ export async function revokeMachineToken(
 	if (revoked.length === 0) {
 		return false;
 	}
-	const machineCount = await getPairedMachineCount(database, userId);
-	await namespace.getByName(userId).synchronizePairingState(machineCount);
+	await namespace.getByName(userId).synchronizePairingState(await getPairingStatus(database, userId));
 	return true;
 }

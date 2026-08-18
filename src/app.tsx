@@ -63,42 +63,56 @@ function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
 	);
 }
 
-// 🧍 AFK toggle (spec §11.5): the primary flip path, prominent, effective for new questions only.
-// A null state means the server has not answered yet, so the toggle reads neutral and inert.
+// 🧍 AFK is available only after a CLI credential exists; connection state has its own control.
 interface AfkToggleProps {
 	afk: boolean | null;
-	paired: boolean | null;
+	pairingStatus: PairingStatus | null;
 	signedIn: boolean;
 	onPair: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({afk, paired, signedIn, onPair, onToggle}: AfkToggleProps): ReactElement {
+function AfkToggle({afk, pairingStatus, signedIn, onPair, onToggle}: AfkToggleProps): ReactElement {
 	if (!signedIn) {
 		return (
-			<button type="button" className="afk-toggle" onClick={onPair}>
-				Sign in to pair
+			<button type="button" className="machine-status" onClick={onPair}>
+				Sign in
 			</button>
 		);
 	}
-	if (paired !== true) {
+	if (pairingStatus === null) {
 		return (
-			<button type="button" className="afk-toggle" disabled={paired === null} onClick={onPair}>
-				{paired === null ? "Checking…" : "Pair a machine"}
+			<button type="button" className="machine-status" disabled>
+				Checking CLI…
+			</button>
+		);
+	}
+	const waiting = pairingStatus.pendingPairingExpiresAt !== null;
+	const machineLabel =
+		pairingStatus.machineCount === 1 ? "CLI connected" : `${pairingStatus.machineCount} CLIs connected`;
+	if (!pairingStatus.paired) {
+		return (
+			<button type="button" className={waiting ? "machine-status waiting" : "machine-status"} onClick={onPair}>
+				{waiting ? "Waiting for CLI" : "Connect a CLI"}
 			</button>
 		);
 	}
 	const enabled = afk === true;
 	return (
-		<button
-			type="button"
-			className={enabled ? "afk-toggle afk-on" : "afk-toggle"}
-			aria-pressed={enabled}
-			disabled={afk === null}
-			onClick={onToggle}
-		>
-			{enabled ? "AFK on" : "AFK off"}
-		</button>
+		<>
+			<button type="button" className={waiting ? "machine-status waiting" : "machine-status"} onClick={onPair}>
+				{waiting ? `${machineLabel} · waiting for another` : machineLabel}
+			</button>
+			<button
+				type="button"
+				className={enabled ? "afk-toggle afk-on" : "afk-toggle"}
+				aria-pressed={enabled}
+				disabled={afk === null}
+				onClick={onToggle}
+			>
+				{enabled ? "AFK on" : "AFK off"}
+			</button>
+		</>
 	);
 }
 
@@ -157,7 +171,7 @@ function unreachableView(view: never): never {
 	throw new Error(`Unknown application route: ${String(view)}`);
 }
 
-const PAIRING_STATUS_POLL_MILLISECONDS = 1_000;
+const PAIRING_STATUS_FALLBACK_MILLISECONDS = 5_000;
 const COPY_FEEDBACK_MILLISECONDS = 2_000;
 
 interface AccountRouteProps {
@@ -691,7 +705,7 @@ function Settings({
 	const requiresIosInstall = isIos() && !isStandalone();
 	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
 	const [pairingBaseline, setPairingBaseline] = useState<number | null>(null);
-	const [pairingOutcome, setPairingOutcome] = useState<"paired" | "expired" | null>(null);
+	const [pairingOutcome, setPairingOutcome] = useState<"connected" | "expired" | null>(null);
 	const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 	const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
 	const [accountError, setAccountError] = useState<string | null>(null);
@@ -728,7 +742,7 @@ function Settings({
 
 	useEffect(() => {
 		void reloadDevices();
-	}, [reloadDevices]);
+	}, [pairingStatus?.machineCount, reloadDevices]);
 
 	useEffect(() => {
 		if (pairing === null) {
@@ -750,48 +764,21 @@ function Settings({
 	}, [copyState]);
 
 	useEffect(() => {
-		if (session === null || pairing === null || pairingBaseline === null) {
-			return undefined;
+		if (pairing === null || pairingBaseline === null || pairingStatus === null) {
+			return;
 		}
-		const pendingPairing = pairing;
-		const baseline = pairingBaseline;
-		let cancelled = false;
-		let checking = false;
-		async function checkPairing(): Promise<void> {
-			if (checking) {
-				return;
-			}
-			checking = true;
-			try {
-				const status = await fetchPairingStatus();
-				if (cancelled) {
-					return;
-				}
-				onPairingStatusChange(status);
-				if (status.machineCount > baseline) {
-					setPairing(null);
-					setPairingBaseline(null);
-					setPairingOutcome("paired");
-					setCopyState("idle");
-					void reloadDevices();
-				} else if (Date.now() >= pendingPairing.expiresAt) {
-					setPairing(null);
-					setPairingBaseline(null);
-					setPairingOutcome("expired");
-					setCopyState("idle");
-				}
-			} catch {
-				// A later poll retries transient status failures while the code remains valid.
-			} finally {
-				checking = false;
-			}
+		if (pairingStatus.machineCount > pairingBaseline) {
+			setPairing(null);
+			setPairingBaseline(null);
+			setPairingOutcome("connected");
+			setCopyState("idle");
+		} else if (pairingStatus.pendingPairingExpiresAt === null) {
+			setPairing(null);
+			setPairingBaseline(null);
+			setPairingOutcome("expired");
+			setCopyState("idle");
 		}
-		const timer = window.setInterval(() => void checkPairing(), PAIRING_STATUS_POLL_MILLISECONDS);
-		return () => {
-			cancelled = true;
-			window.clearInterval(timer);
-		};
-	}, [onPairingStatusChange, pairing, pairingBaseline, reloadDevices, session]);
+	}, [pairing, pairingBaseline, pairingStatus]);
 
 	async function runDeviceAction(action: () => Promise<void>): Promise<void> {
 		setDevicesError(null);
@@ -814,16 +801,15 @@ function Settings({
 	async function generatePairingCode(): Promise<void> {
 		setIsGeneratingPairing(true);
 		setPairingOutcome(null);
-		const currentStatus = fetchPairingStatus();
 		const issued = issuePairingCode();
 		const copied = copyIssuedPairingCode(issued).then(
 			() => true,
 			() => false,
 		);
 		try {
-			const [nextPairing, copiedSuccessfully, status] = await Promise.all([issued, copied, currentStatus]);
-			onPairingStatusChange(status);
-			setPairingBaseline(status.machineCount);
+			const [nextPairing, copiedSuccessfully] = await Promise.all([issued, copied]);
+			onPairingStatusChange(nextPairing.pairingStatus);
+			setPairingBaseline(nextPairing.pairingStatus.machineCount);
 			setPairing(nextPairing);
 			setCopyState(copiedSuccessfully ? "copied" : "error");
 		} catch {
@@ -855,7 +841,7 @@ function Settings({
 				{session === null ? (
 					<>
 						<p>
-							Sign in to pair machines, receive live questions, and recover your account on another
+							Sign in to connect CLIs, receive live questions, and recover your account on another
 							browser.
 						</p>
 						<div className="settings-actions">
@@ -936,11 +922,11 @@ function Settings({
 				<div className="hint">
 					<h3>Devices</h3>
 					<p>Rename devices you recognize and revoke credentials you no longer use.</p>
-					<h4>Paired machines</h4>
+					<h4>Connected CLIs</h4>
 					{accountDevices === null ? (
 						<p>Loading devices…</p>
 					) : accountDevices.machines.length === 0 ? (
-						<p>No paired machines.</p>
+						<p>No connected CLIs.</p>
 					) : (
 						<ul className="device-list">
 							{accountDevices.machines.map((machine) => (
@@ -992,12 +978,18 @@ function Settings({
 				</div>
 			)}
 			<div className="hint">
-				<h3>{pairingStatus?.paired === true ? "Pair another machine" : "Pair a machine"}</h3>
+				<h3>
+					{pairing !== null || (pairingStatus !== null && pairingStatus.pendingPairingExpiresAt !== null)
+						? "Waiting for your CLI"
+						: pairingStatus?.paired === true
+							? "Connect another CLI"
+							: "Connect a CLI"}
+				</h3>
 				{session === null ? (
 					<>
-						<p>Pairing belongs to your account, so you need to sign in first.</p>
+						<p>CLI connections belong to your account, so you need to sign in first.</p>
 						<button type="button" onClick={onSignIn}>
-							Sign in to pair
+							Sign in
 						</button>
 					</>
 				) : requiresIosInstall ? (
@@ -1005,9 +997,9 @@ function Settings({
 						Install first, then generate the code from the Home Screen app so pairing and notifications use
 						the same app identity.
 					</p>
-				) : pairingOutcome === "paired" ? (
+				) : pairingOutcome === "connected" ? (
 					<div className="copy-toast" role="status">
-						✓ Machine paired
+						✓ CLI connected
 					</div>
 				) : null}
 				{session === null || requiresIosInstall ? null : pairing === null ? (
@@ -1015,12 +1007,18 @@ function Settings({
 						<p>
 							{pairingOutcome === "expired"
 								? "That code expired. Generate a new one to try again."
-								: pairingStatus?.paired === true
-									? "This app is paired. Generate another code to connect another machine."
-									: "Generate a code to copy it automatically, then paste it into the CLI on your machine."}
+								: pairingStatus !== null && pairingStatus.pendingPairingExpiresAt !== null
+									? "A pairing code is waiting for a CLI to claim it. Generate a new code if you no longer have it."
+									: pairingStatus?.paired === true
+										? `${pairingStatus.machineCount === 1 ? "One CLI is" : `${pairingStatus.machineCount} CLIs are`} connected. Generate another code to connect another CLI.`
+										: "You are signed in, but no CLI is connected. Generate a code, then paste it into the CLI."}
 						</p>
 						<button type="button" disabled={isGeneratingPairing} onClick={() => void generatePairingCode()}>
-							{isGeneratingPairing ? "Generating…" : "Generate and copy pairing code"}
+							{isGeneratingPairing
+								? "Generating…"
+								: pairingStatus !== null && pairingStatus.pendingPairingExpiresAt !== null
+									? "Generate a new pairing code"
+									: "Generate and copy pairing code"}
 						</button>
 					</>
 				) : (
@@ -1047,10 +1045,11 @@ function Settings({
 								Copy again
 							</button>
 						</div>
-						<p className="pairing-instruction">
-							Paste this code into the CLI on the machine you want to pair.
+						<p className="pairing-instruction">Paste this code into the CLI you want to connect.</p>
+						<p className="pairing-waiting" role="status">
+							Waiting for your CLI to claim this code.
 						</p>
-						<p className="copy-status" role="status">
+						<p className="copy-status" aria-live="polite">
 							{copyState === "copied" && "Copied to clipboard."}
 							{copyState === "error" && "Clipboard access is blocked. Copy the selected code manually."}
 						</p>
@@ -1083,6 +1082,11 @@ export function App(): ReactElement {
 	const [registrationEmail, setRegistrationEmail] = useState("");
 	const [verificationDelivery, setVerificationDelivery] = useState<VerificationDelivery>("idle");
 	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
+	const pairingStatusGeneration = useRef(0);
+	const applyPairingStatus = useCallback((status: PairingStatus): void => {
+		pairingStatusGeneration.current += 1;
+		setPairingStatus(status);
+	}, []);
 
 	useEffect(() => {
 		function onPopState(): void {
@@ -1153,10 +1157,18 @@ export function App(): ReactElement {
 		if (session === null) {
 			return;
 		}
-		fetchPairingStatus().then(setPairingStatus, () => {
-			// Keep the last known pairing state and retry on the next refresh.
-		});
-	}, [session]);
+		const generation = pairingStatusGeneration.current;
+		fetchPairingStatus().then(
+			(status) => {
+				if (pairingStatusGeneration.current === generation) {
+					applyPairingStatus(status);
+				}
+			},
+			() => {
+				// Keep the last known pairing state and retry on the next refresh.
+			},
+		);
+	}, [applyPairingStatus, session]);
 
 	useEffect(() => {
 		if (session === null) {
@@ -1181,6 +1193,7 @@ export function App(): ReactElement {
 		if (session === null) {
 			setCurrentQuestions([]);
 			setAfkState(null);
+			pairingStatusGeneration.current += 1;
 			setPairingStatus(null);
 			updateBadge(0);
 			return undefined;
@@ -1190,7 +1203,7 @@ export function App(): ReactElement {
 		const stream = openCurrentDeckStream(
 			(state) => {
 				setAfkState(state.afk);
-				setPairingStatus(state.pairingStatus);
+				applyPairingStatus(state.pairingStatus);
 				setCurrentQuestions(state.currentDeck);
 				updateBadge(state.currentDeck.length);
 			},
@@ -1230,7 +1243,51 @@ export function App(): ReactElement {
 			document.removeEventListener("visibilitychange", onVisible);
 			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
 		};
-	}, [refreshAfk, refreshPairingStatus, session, view]);
+	}, [applyPairingStatus, refreshAfk, refreshPairingStatus, session, view]);
+
+	useEffect(() => {
+		if (session === null || pairingStatus?.pendingPairingExpiresAt === null || pairingStatus === null) {
+			return undefined;
+		}
+		const pendingPairingExpiresAt = pairingStatus.pendingPairingExpiresAt;
+		let cancelled = false;
+		let timer: number | undefined;
+		function scheduleRefresh(): void {
+			const remaining = Math.max(0, pendingPairingExpiresAt - Date.now());
+			timer = window.setTimeout(
+				() => void refreshPendingPairing(),
+				Math.min(PAIRING_STATUS_FALLBACK_MILLISECONDS, remaining),
+			);
+		}
+		async function refreshPendingPairing(): Promise<void> {
+			const expired = Date.now() >= pendingPairingExpiresAt;
+			const generation = pairingStatusGeneration.current;
+			try {
+				const status = await fetchPairingStatus();
+				if (!cancelled && pairingStatusGeneration.current === generation) {
+					applyPairingStatus(status);
+				}
+			} catch {
+				if (!cancelled && expired && pairingStatusGeneration.current === generation) {
+					pairingStatusGeneration.current += 1;
+					setPairingStatus((current) =>
+						current?.pendingPairingExpiresAt === pendingPairingExpiresAt
+							? {...current, pendingPairingExpiresAt: null}
+							: current,
+					);
+				} else if (!cancelled && pairingStatusGeneration.current === generation) {
+					scheduleRefresh();
+				}
+			}
+		}
+		scheduleRefresh();
+		return () => {
+			cancelled = true;
+			if (timer !== undefined) {
+				window.clearTimeout(timer);
+			}
+		};
+	}, [applyPairingStatus, pairingStatus, session]);
 
 	function onAnswer(questionId: string, disposition: Disposition): void {
 		if (session === null) {
@@ -1281,7 +1338,7 @@ export function App(): ReactElement {
 							setSession(null);
 							navigate("deck");
 						}}
-						onPairingStatusChange={setPairingStatus}
+						onPairingStatusChange={applyPairingStatus}
 					/>
 				);
 			case "sign-in":
@@ -1331,7 +1388,7 @@ export function App(): ReactElement {
 					{view === "deck" && (
 						<AfkToggle
 							afk={afk}
-							paired={pairingStatus?.paired ?? null}
+							pairingStatus={pairingStatus}
 							signedIn={session !== null}
 							onPair={() => {
 								navigate(session === null ? "sign-in" : "settings");

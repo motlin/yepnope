@@ -54,13 +54,23 @@ describe("AFK mode", () => {
 			afk: false,
 			paired: false,
 			machine_count: 0,
+			pending_pairing_expires_at: null,
 			current_deck: [],
 		});
+		const pendingState = nextMessage(socket);
 		const issued = await worker.fetch(`${API_ORIGIN}/api/v1/pair/code`, {
 			method: "POST",
 			headers: {Cookie: session.cookie},
 		});
-		const {code} = await issued.json<{code: string}>();
+		const {code, expires_at: expiresAt} = await issued.json<{code: string; expires_at: number}>();
+		expect(JSON.parse(await pendingState)).toStrictEqual({
+			type: "current_deck",
+			afk: false,
+			paired: false,
+			machine_count: 0,
+			pending_pairing_expires_at: expiresAt,
+			current_deck: [],
+		});
 		const pairedState = nextMessage(socket);
 		const claimed = await worker.fetch(`${API_ORIGIN}/api/v1/pair/claim`, {
 			method: "POST",
@@ -73,6 +83,7 @@ describe("AFK mode", () => {
 			afk: false,
 			paired: true,
 			machine_count: 1,
+			pending_pairing_expires_at: null,
 			current_deck: [],
 		});
 		expect(await getAfk(token)).toStrictEqual({status: 200, afk: false});
@@ -92,7 +103,7 @@ describe("AFK mode", () => {
 			body: JSON.stringify({afk: true}),
 		});
 		expect({body: await response.json(), status: response.status}).toStrictEqual({
-			body: {error: "pairing_required", message: "Pair a machine before turning AFK on."},
+			body: {error: "pairing_required", message: "Connect a CLI before turning AFK on."},
 			status: 409,
 		});
 	});
@@ -163,6 +174,7 @@ describe("AFK mode", () => {
 			afk: true,
 			paired: true,
 			machine_count: 1,
+			pending_pairing_expires_at: null,
 			current_deck: [],
 		});
 
@@ -184,6 +196,7 @@ describe("AFK mode", () => {
 			afk: false,
 			paired: false,
 			machine_count: 0,
+			pending_pairing_expires_at: null,
 			current_deck: [],
 		});
 		expect(await env.USER_DO.getByName(userId).getAfk(false)).toBe(false);
