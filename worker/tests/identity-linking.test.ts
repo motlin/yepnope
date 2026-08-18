@@ -121,22 +121,39 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		await runInDurableObject(source, async (_instance: UserDurableObject, state) => {
 			expect({
 				alarm: await state.storage.getAlarm(),
-				answers: state.storage.sql.exec("SELECT count(*) AS value FROM answers").one()["value"],
-				batches: state.storage.sql.exec("SELECT count(*) AS value FROM batches").one()["value"],
-				devices: state.storage.sql.exec("SELECT count(*) AS value FROM devices").one()["value"],
-				questions: state.storage.sql.exec("SELECT count(*) AS value FROM questions").one()["value"],
-				state: state.storage.sql
-					.exec("SELECT afk, questions_asked, yep_count, nope_count, skip_count FROM state")
-					.one(),
+				tables: state.storage.sql
+					.exec<{name: string}>(
+						"SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN " +
+							"('state', 'devices', 'batches', 'questions', 'answers') ORDER BY name",
+					)
+					.toArray(),
 			}).toStrictEqual({
 				alarm: null,
-				answers: 0,
-				batches: 0,
-				devices: 0,
-				questions: 0,
-				state: {afk: 0, questions_asked: 0, yep_count: 0, nope_count: 0, skip_count: 0},
+				tables: [],
 			});
 		});
+		expect(
+			await env.DB.prepare(
+				"SELECT identity_id, identity_type, owner_user_id, claimed_at IS NOT NULL AS claimed, " +
+					"deleted_at IS NOT NULL AS deleted FROM identity_lifecycles WHERE identity_id = ?",
+			)
+				.bind(legacyUserId)
+				.first(),
+		).toStrictEqual({
+			claimed: 1,
+			deleted: 1,
+			identity_id: legacyUserId,
+			identity_type: "legacy",
+			owner_user_id: session.userId,
+		});
+		expect(
+			await env.DB.prepare(
+				"SELECT object_name, reason, completed_at IS NOT NULL AS completed " +
+					"FROM durable_object_cleanup_jobs WHERE object_name = ?",
+			)
+				.bind(legacyUserId)
+				.first(),
+		).toStrictEqual({completed: 1, object_name: legacyUserId, reason: "legacy_claimed"});
 
 		const retried = await claimLegacy(session.cookie, legacyToken);
 		expect({body: await retried.json(), status: retried.status}).toStrictEqual({
@@ -174,6 +191,44 @@ describe("POST /api/v1/account/claim-legacy", () => {
 			},
 			status: 200,
 		});
+	});
+
+	it("deduplicates concurrent legacy claims from multiple browser tabs", async () => {
+		const session = await createVerifiedBrowserSession("multi-tab-alice@example.com");
+		const legacyUserId = "legacy-multi-tab-alice";
+		const legacyToken = "legacy-app-token-for-multi-tab-alice";
+		await seedLegacyIdentity(legacyUserId, legacyToken, "GHJ678");
+
+		const responses = await Promise.all([
+			claimLegacy(session.cookie, legacyToken),
+			claimLegacy(session.cookie, legacyToken),
+		]);
+		const results = await Promise.all(
+			responses.map(async (response) => ({
+				body: await response.json(),
+				status: response.status,
+			})),
+		);
+		expect(
+			[...results].sort((left, right) => JSON.stringify(left.body).localeCompare(JSON.stringify(right.body))),
+		).toStrictEqual([
+			{body: {already_claimed: false, status: "claimed"}, status: 200},
+			{body: {already_claimed: false, status: "claimed"}, status: 200},
+		]);
+		expect(
+			await env.DB.prepare(
+				"SELECT count(*) AS value FROM legacy_identity_claims WHERE legacy_user_id = ? AND user_id = ?",
+			)
+				.bind(legacyUserId, session.userId)
+				.first(),
+		).toStrictEqual({value: 1});
+		expect(
+			await env.DB.prepare(
+				"SELECT count(*) AS value FROM machine_tokens WHERE user_id = ? AND credential_type = 'machine'",
+			)
+				.bind(session.userId)
+				.first(),
+		).toStrictEqual({value: 1});
 	});
 
 	it("rejects conflicting Durable Object rows without dropping source data", async () => {

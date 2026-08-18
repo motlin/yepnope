@@ -2,6 +2,7 @@ import {eq} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {legacyIdentityClaims} from "./db/d1-schema";
+import {completeDurableObjectCleanup, recordLegacyIdentity} from "./identity-lifecycle";
 import type {UserDurableObject} from "./user-do";
 
 interface LegacyClaimRow {
@@ -35,6 +36,20 @@ async function reserveClaim(
 	destinationUserId: string,
 ): Promise<LegacyClaimRow | null> {
 	const now = Date.now();
+	const legacyIdentity = await database
+		.prepare(
+			"SELECT machine.user_id, machine.created_at FROM machine_tokens AS machine " +
+				"LEFT JOIN user AS owner ON owner.id = machine.user_id " +
+				"WHERE machine.token_hash = ? AND machine.credential_type = 'legacy_app' " +
+				"AND machine.revoked_at IS NULL AND (owner.id IS NULL OR NOT EXISTS " +
+				"(SELECT 1 FROM account WHERE account.user_id = owner.id))",
+		)
+		.bind(tokenHash)
+		.first<{created_at: number; user_id: string}>();
+	if (legacyIdentity === null) {
+		return null;
+	}
+	await recordLegacyIdentity(database, legacyIdentity.user_id, legacyIdentity.created_at);
 	await database
 		.prepare(
 			"INSERT INTO legacy_identity_claims " +
@@ -46,9 +61,13 @@ async function reserveClaim(
 				"AND machine.revoked_at IS NULL " +
 				"AND (owner.id IS NULL OR NOT EXISTS " +
 				"(SELECT 1 FROM account WHERE account.user_id = owner.id)) " +
+				"AND EXISTS (SELECT 1 FROM identity_lifecycles AS lifecycle " +
+				"WHERE lifecycle.identity_id = machine.user_id AND lifecycle.identity_type = 'legacy' " +
+				"AND lifecycle.owner_user_id IS NULL AND lifecycle.deleted_at IS NULL " +
+				"AND lifecycle.expires_at > ?) " +
 				"ON CONFLICT DO NOTHING",
 		)
-		.bind(destinationUserId, now, tokenHash)
+		.bind(destinationUserId, now, tokenHash, now)
 		.run();
 	return findClaim(database, tokenHash);
 }
@@ -73,6 +92,22 @@ async function completeD1Claim(database: D1Database, claim: LegacyClaimRow, dest
 					"WHERE token_hash = ? AND user_id = ? AND status = 'pending'",
 			)
 			.bind(claimedAt, claim.tokenHash, destinationUserId),
+		database
+			.prepare(
+				"UPDATE identity_lifecycles SET owner_user_id = ?, claimed_at = ?, " +
+					"deletion_requested_at = ?, deleted_at = ? " +
+					"WHERE identity_id = ? AND identity_type = 'legacy'",
+			)
+			.bind(destinationUserId, claimedAt, claimedAt, claimedAt, claim.legacyUserId),
+		database
+			.prepare(
+				"INSERT INTO durable_object_cleanup_jobs " +
+					"(object_name, owner_user_id, reason, requested_at, completed_at) " +
+					"VALUES (?, ?, 'legacy_claimed', ?, NULL) " +
+					"ON CONFLICT(object_name) DO UPDATE SET owner_user_id = excluded.owner_user_id, " +
+					"reason = excluded.reason, requested_at = excluded.requested_at, completed_at = NULL",
+			)
+			.bind(claim.legacyUserId, destinationUserId, claimedAt),
 		database
 			.prepare(
 				"DELETE FROM user WHERE id = ? AND NOT EXISTS (SELECT 1 FROM account WHERE account.user_id = user.id)",
@@ -110,6 +145,7 @@ export async function claimLegacyIdentity(
 	const source = namespace.getByName(claim.legacyUserId);
 	if (claim.status === "complete") {
 		await source.clearClaimedLegacyIdentity(destinationUserId);
+		await completeDurableObjectCleanup(database, claim.legacyUserId, Date.now());
 		return {status: "claimed", alreadyClaimed: true};
 	}
 
@@ -127,5 +163,6 @@ export async function claimLegacyIdentity(
 	}
 	await completeD1Claim(database, claim, destinationUserId);
 	await source.clearClaimedLegacyIdentity(destinationUserId);
+	await completeDurableObjectCleanup(database, claim.legacyUserId, Date.now());
 	return {status: "claimed", alreadyClaimed: false};
 }

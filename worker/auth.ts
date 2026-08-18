@@ -3,10 +3,14 @@ import {betterAuth} from "better-auth";
 import {and, eq, isNull} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {accounts, machineTokens, sessions, users, verifications} from "./db/d1-schema";
+import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountIdentity} from "./identity-lifecycle";
 
 const AUTHENTICATION_PATH = "/api/auth";
 
-type AuthenticationEnvironment = Pick<Env, "AUTH_EMAIL_FROM" | "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "DB">;
+type AuthenticationEnvironment = Pick<
+	Env,
+	"AUTH_EMAIL_FROM" | "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "DB" | "USER_DO"
+>;
 type AuthenticationEmail = Parameters<SendEmail["send"]>[0];
 
 export interface AuthenticationDependencies {
@@ -90,6 +94,26 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 						url,
 					),
 				),
+		},
+		user: {
+			deleteUser: {
+				enabled: true,
+				beforeDelete: async (user) => {
+					await markAccountDeletionRequested(environment.DB, user.id, Date.now());
+				},
+				afterDelete: async (user) => {
+					await deleteAccountDurableObject(environment.DB, environment.USER_DO, user.id, Date.now());
+				},
+			},
+		},
+		databaseHooks: {
+			user: {
+				create: {
+					after: async (user) => {
+						await recordAccountIdentity(environment.DB, user.id, user.createdAt.getTime());
+					},
+				},
+			},
 		},
 		advanced: {
 			useSecureCookies: true,

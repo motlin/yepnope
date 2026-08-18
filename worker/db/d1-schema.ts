@@ -104,6 +104,36 @@ export const machineTokens = sqliteTable(
 	(table) => [index("machine_tokens_user_id_idx").on(table.userId)],
 );
 
+export const identityLifecycles = sqliteTable(
+	"identity_lifecycles",
+	{
+		identityId: text("identity_id").primaryKey(),
+		identityType: text("identity_type", {enum: ["account", "legacy"]}).notNull(),
+		ownerUserId: text("owner_user_id"),
+		createdAt: integer("created_at").notNull(),
+		expiresAt: integer("expires_at"),
+		claimedAt: integer("claimed_at"),
+		deletionRequestedAt: integer("deletion_requested_at"),
+		deletedAt: integer("deleted_at"),
+	},
+	(table) => [
+		index("identity_lifecycles_owner_user_id_idx").on(table.ownerUserId),
+		index("identity_lifecycles_expires_at_idx").on(table.expiresAt),
+	],
+);
+
+export const durableObjectCleanupJobs = sqliteTable(
+	"durable_object_cleanup_jobs",
+	{
+		objectName: text("object_name").primaryKey(),
+		ownerUserId: text("owner_user_id"),
+		reason: text("reason", {enum: ["account_deleted", "legacy_claimed", "legacy_expired"]}).notNull(),
+		requestedAt: integer("requested_at").notNull(),
+		completedAt: integer("completed_at"),
+	},
+	(table) => [index("durable_object_cleanup_jobs_completed_at_idx").on(table.completedAt)],
+);
+
 export const legacyIdentityClaims = sqliteTable(
 	"legacy_identity_claims",
 	{

@@ -21,7 +21,7 @@ import {
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {DEMO_QUESTIONS, isDemoQuestion} from "./demo-questions";
-import {clearLegacyToken, loadLegacyToken} from "./legacy-token";
+import {migrateLegacyIdentity} from "./legacy-token";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
 
 // 🌟 Harness icon placeholder: an 8-ray starburst standing in for the asking harness's logo.
@@ -948,13 +948,11 @@ export function App(): ReactElement {
 		if (session === null) {
 			return;
 		}
-		const legacyToken = loadLegacyToken();
-		if (legacyToken === null) {
-			return;
-		}
-		claimLegacyIdentity(legacyToken).then(
-			() => {
-				clearLegacyToken();
+		migrateLegacyIdentity(claimLegacyIdentity).then(
+			(claimed) => {
+				if (!claimed) {
+					return;
+				}
 				refreshAfk();
 				refreshPairingStatus();
 				questionsStream.current?.refresh();

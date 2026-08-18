@@ -1,6 +1,7 @@
 import {authenticateBrowserSession, authenticateRequest, createWorkerAuthentication} from "./auth";
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
 import {claimLegacyIdentity} from "./identity-linking";
+import {cleanupExpiredIdentityRecords} from "./identity-lifecycle";
 import {claimPairingCode, createPairingCode, getPairedMachineCount} from "./pairing";
 import type {UserDurableObject} from "./user-do";
 import {
@@ -101,6 +102,9 @@ export default {
 			return submitAnswers(request, stub);
 		}
 		return new Response(null, {status: 404});
+	},
+	scheduled(_controller, env, executionContext): void {
+		executionContext.waitUntil(cleanupExpiredIdentityRecords(env.DB, env.USER_DO, Date.now()));
 	},
 } satisfies ExportedHandler<Env>;
 

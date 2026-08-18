@@ -35,6 +35,30 @@ function postAuthentication(path: string, body: Record<string, string>, cookie?:
 }
 
 describe("Better Auth account recovery", () => {
+	it("deduplicates concurrent account onboarding without minting browser credentials", async () => {
+		const authentication = createMailboxAuthentication([]);
+		const requests = Array.from({length: 10}, async () =>
+			authentication.handler(
+				postAuthentication("sign-up/email", {
+					callbackURL: "/",
+					email: "concurrent-alice@example.com",
+					name: "Alice",
+					password: "correct-horse-battery-staple",
+				}),
+			),
+		);
+
+		await Promise.all(requests);
+		expect(
+			await env.DB.prepare(
+				"SELECT (SELECT count(*) FROM user) AS users, " +
+					"(SELECT count(*) FROM account) AS accounts, " +
+					"(SELECT count(*) FROM identity_lifecycles) AS identities, " +
+					"(SELECT count(*) FROM machine_tokens) AS machine_tokens",
+			).first(),
+		).toStrictEqual({accounts: 1, identities: 1, machine_tokens: 0, users: 1});
+	});
+
 	it("links only provider identities that resolve to the same verified email account", () => {
 		const authentication = createMailboxAuthentication([]);
 		expect(authentication.options.account.accountLinking).toStrictEqual({

@@ -529,25 +529,28 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async clearClaimedLegacyIdentity(destinationUserId: string): Promise<void> {
-		this.database.transaction((transaction) => {
-			const lock = transaction.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
-			if (lock?.destinationUserId !== destinationUserId) {
-				throw new Error("legacy identity claim lock does not match the destination account");
-			}
-			transaction.delete(answers).run();
-			transaction.delete(questions).run();
-			transaction.delete(batches).run();
-			transaction.delete(devices).run();
-			transaction
-				.update(state)
-				.set({afk: false, questionsAsked: 0, yepCount: 0, nopeCount: 0, skipCount: 0})
-				.where(eq(state.id, STATE_ROW_ID))
-				.run();
-		});
-		await this.ctx.storage.deleteAlarm();
-		for (const socket of this.ctx.getWebSockets()) {
-			socket.close(1000, "identity moved");
+		const mergeLockTable = this.ctx.storage.sql
+			.exec<{name: string}>(
+				"SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'identity_merge_lock'",
+			)
+			.toArray()[0];
+		if (mergeLockTable === undefined) {
+			await this.deleteStorageForCleanup();
+			return;
 		}
+		const lock = this.database.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
+		if (lock !== undefined && lock.destinationUserId !== destinationUserId) {
+			throw new Error("legacy identity claim lock does not match the destination account");
+		}
+		await this.deleteStorageForCleanup();
+	}
+
+	async deleteStorageForCleanup(): Promise<{deleted: true}> {
+		for (const socket of this.ctx.getWebSockets()) {
+			socket.close(1000, "identity deleted");
+		}
+		await this.ctx.storage.deleteAll();
+		return {deleted: true};
 	}
 
 	releaseLegacyIdentityClaim(destinationUserId: string): void {
