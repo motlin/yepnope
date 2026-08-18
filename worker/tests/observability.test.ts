@@ -30,6 +30,22 @@ interface CapturedEvent {
 	data: unknown;
 }
 
+interface StoredObservation {
+	operation: string;
+	phase: string;
+	metadata: {
+		original_encoded_byte_length: number;
+		retained_encoded_byte_length: number;
+		data_truncated: boolean;
+		event_dropped: boolean;
+	};
+	data: unknown;
+}
+
+function encodedByteLength(value: string): number {
+	return new TextEncoder().encode(value).length;
+}
+
 function capture(): {lines: CapturedLine[]; sink: ObservationSink} {
 	const lines: CapturedLine[] = [];
 	return {
@@ -82,7 +98,7 @@ describe("yepnope.io.v1 event encoding", () => {
 		expect(decoded.references[0] === decoded.references[1]).toBe(true);
 	});
 
-	it("redacts payloads before chunking and encoding", () => {
+	it("redacts payloads before encoding one structured line", () => {
 		const captured = capture();
 		const context = createObservationContext("test.chunking", "chunk-correlation", captured.sink);
 		const input = {binary: Uint8Array.of(0, 128, 255), text: "🧪".repeat(20_000)};
@@ -90,18 +106,25 @@ describe("yepnope.io.v1 event encoding", () => {
 		const event = reconstructObservation(lines);
 
 		expect({
-			chunks: lines.length,
+			lines: lines.length,
 			component: event.component,
 			correlationId: event.correlation_id,
 			data: decodedObservationData(event),
+			metadata: event.metadata,
 			operation: event.operation,
 			phase: event.phase,
 			schema: event.schema,
 		}).toStrictEqual({
-			chunks: 1,
+			lines: 1,
 			component: "test.chunking",
 			correlationId: "chunk-correlation",
 			data: {kind: "object"},
+			metadata: {
+				original_encoded_byte_length: encodedByteLength(JSON.stringify(encodeObservedValue({kind: "object"}))),
+				retained_encoded_byte_length: encodedByteLength(JSON.stringify(encodeObservedValue({kind: "object"}))),
+				data_truncated: false,
+				event_dropped: false,
+			},
 			operation: "test.large",
 			phase: "output",
 			schema: "yepnope.io.v1",
@@ -206,6 +229,184 @@ describe("D1 binding observation", () => {
 });
 
 describe("Durable Object and transport observation", () => {
+	it("bounds 256 KiB request bodies, records drops, and preserves later responses", async () => {
+		const captured = capture();
+		const context = createObservationContext("test.ordinary-body", "ordinary-body-correlation", captured.sink);
+		const body = new Uint8Array(256 * 1024).fill(65);
+
+		for (let index = 0; index < 9; index += 1) {
+			const response = await observeHttpExchange(
+				context,
+				new Request(`https://example.com/api/v1/ordinary/${index}`, {method: "POST", body}),
+				async (request) => {
+					await request.arrayBuffer();
+					return new Response(`response-${index}`);
+				},
+			);
+			await response.arrayBuffer();
+		}
+
+		const lineByteLengths = captured.lines.map(({line}) => encodedByteLength(line));
+		const observations = captured.lines.map(({line}) => JSON.parse(line) as StoredObservation);
+		const requestObservations = observations.filter(({operation}) => operation === "http.request");
+		const responseEvents = capturedEvents(captured.lines).filter(({operation}) => operation === "http.response");
+		const firstRequest = requestObservations[0];
+		const droppedRequest = requestObservations.find(({metadata}) => metadata.event_dropped);
+		if (
+			firstRequest === undefined ||
+			droppedRequest === undefined ||
+			typeof firstRequest.data !== "object" ||
+			firstRequest.data === null ||
+			typeof Reflect.get(firstRequest.data, "value") !== "string"
+		) {
+			throw new Error("expected truncated and dropped request observations");
+		}
+		const firstRetainedBytes = atob(Reflect.get(firstRequest.data, "value") as string).length;
+		const expectedOriginalBytes = encodedByteLength(
+			JSON.stringify(
+				encodeObservedValue({
+					body: body.buffer,
+					bodyTruncated: false,
+					headers: [],
+					method: "POST",
+					url: "https://example.com/api/v1/ordinary/0",
+				}),
+			),
+		);
+
+		expect(Math.max(...lineByteLengths)).toBeLessThanOrEqual(24 * 1024);
+		expect(lineByteLengths.reduce((total, byteLength) => total + byteLength, 0)).toBeLessThanOrEqual(256 * 1024);
+		expect({
+			firstRequest: {
+				dataKind: Reflect.get(firstRequest.data, "kind"),
+				metadata: firstRequest.metadata,
+				retainedPrefixBytes: firstRetainedBytes,
+			},
+			droppedRequest: {
+				data: droppedRequest.data,
+				metadata: droppedRequest.metadata,
+			},
+			lineCount: observations.length,
+			responses: responseEvents.map(({operation, phase, data}) => ({operation, phase, data})),
+		}).toStrictEqual({
+			firstRequest: {
+				dataKind: "truncated",
+				metadata: {
+					original_encoded_byte_length: expectedOriginalBytes,
+					retained_encoded_byte_length: firstRetainedBytes,
+					data_truncated: true,
+					event_dropped: false,
+				},
+				retainedPrefixBytes: firstRetainedBytes,
+			},
+			droppedRequest: {
+				data: {kind: "dropped", original_kind: "object"},
+				metadata: {
+					original_encoded_byte_length: expectedOriginalBytes,
+					retained_encoded_byte_length: 0,
+					data_truncated: false,
+					event_dropped: true,
+				},
+			},
+			lineCount: 18,
+			responses: Array.from({length: 9}, (_, index) => ({
+				operation: "http.response",
+				phase: "output",
+				data: {
+					body: new TextEncoder().encode(`response-${index}`).buffer,
+					bodyTruncated: false,
+					headers: [["content-type", "text/plain;charset=UTF-8"]],
+					status: 200,
+					statusText: "OK",
+					webSocket: false,
+				},
+			})),
+		});
+	});
+
+	it("bounds a 1 MiB hook body and preserves a later failure event", async () => {
+		const captured = capture();
+		const context = createObservationContext("test.hook-body", "hook-body-correlation", captured.sink);
+		const body = new Uint8Array(1024 * 1024).fill(66);
+		const failure = new Error("test hook handler failure");
+
+		await expect(
+			observeHttpExchange(
+				context,
+				new Request("https://example.com/api/v1/hook", {method: "POST", body}),
+				async (request) => {
+					await request.arrayBuffer();
+					throw failure;
+				},
+			),
+		).rejects.toThrow("test hook handler failure");
+
+		const lineByteLengths = captured.lines.map(({line}) => encodedByteLength(line));
+		const observations = captured.lines.map(({line}) => JSON.parse(line) as StoredObservation);
+		const request = observations.find(({operation}) => operation === "http.request");
+		const failureEvent = capturedEvents(captured.lines).find(
+			({operation, phase}) => operation === "http.exchange" && phase === "failure",
+		);
+		if (
+			request === undefined ||
+			typeof request.data !== "object" ||
+			request.data === null ||
+			typeof Reflect.get(request.data, "value") !== "string"
+		) {
+			throw new Error("expected a hook request observation");
+		}
+		const retainedRequestBytes = atob(Reflect.get(request.data, "value") as string).length;
+
+		expect(Math.max(...lineByteLengths)).toBeLessThanOrEqual(24 * 1024);
+		expect(lineByteLengths.reduce((total, byteLength) => total + byteLength, 0)).toBeLessThanOrEqual(256 * 1024);
+		expect({
+			lineCount: observations.length,
+			request: {
+				dataKind: Reflect.get(request.data, "kind"),
+				metadata: request.metadata,
+			},
+			failure:
+				failureEvent === undefined
+					? undefined
+					: {
+							severity: failureEvent.severity,
+							operation: failureEvent.operation,
+							phase: failureEvent.phase,
+							data:
+								failureEvent.data instanceof Error
+									? {name: failureEvent.data.name, message: failureEvent.data.message}
+									: failureEvent.data,
+						},
+		}).toStrictEqual({
+			lineCount: 2,
+			request: {
+				dataKind: "truncated",
+				metadata: {
+					original_encoded_byte_length: encodedByteLength(
+						JSON.stringify(
+							encodeObservedValue({
+								body: body.buffer,
+								bodyTruncated: false,
+								headers: [],
+								method: "POST",
+								url: "https://example.com/api/v1/hook",
+							}),
+						),
+					),
+					retained_encoded_byte_length: retainedRequestBytes,
+					data_truncated: true,
+					event_dropped: false,
+				},
+			},
+			failure: {
+				severity: "error",
+				operation: "http.exchange",
+				phase: "failure",
+				data: {kind: "error", name: "Error"},
+			},
+		});
+	});
+
 	it("preserves SQL cursors, storage operations, and transaction behavior", async () => {
 		const captured = capture();
 		const stub = env.USER_DO.getByName("observability-storage-alice");

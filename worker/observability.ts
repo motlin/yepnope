@@ -1,7 +1,11 @@
 /* oxlint-disable typescript/no-deprecated, typescript/no-redundant-type-constituents, typescript/no-unnecessary-condition, typescript/no-unnecessary-type-assertion, typescript/no-unnecessary-type-conversion, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/no-unsafe-return, typescript/no-unsafe-type-assertion, typescript/unified-signatures -- Cloudflare runtime bindings require reflective typed proxies. */
 
 const OBSERVATION_SCHEMA = "yepnope.io.v1";
-const OBSERVATION_CHUNK_BYTES = 24 * 1024;
+const OBSERVATION_LINE_BYTES = 24 * 1024;
+const OBSERVATION_INVOCATION_BYTES = 256 * 1024;
+const OBSERVATION_PRIORITY_RESERVE_BYTES = 64 * 1024;
+const OBSERVATION_DROP_RESERVE_BYTES = 8 * 1024;
+const OBSERVATION_LINE_SEPARATOR_BYTES = 1;
 const OBSERVED_BODY_BYTES = 1024 * 1024;
 
 type ObservationSeverity = "error" | "log";
@@ -13,6 +17,7 @@ export interface ObservationContext {
 	correlationId: string;
 	objectId?: string;
 	sink?: ObservationSink;
+	outputBudget: ObservationOutputBudget;
 }
 
 interface ObservationEvent {
@@ -24,20 +29,33 @@ interface ObservationEvent {
 	operation: string;
 	phase: string;
 	timestamp: number;
-	data: EncodedObservedValue;
+	metadata: ObservationMetadata;
+	data: StoredObservedValue;
 }
 
-interface ObservationChunk {
-	schema: typeof OBSERVATION_SCHEMA;
-	event_id: string;
-	correlation_id: string;
-	component: string;
-	operation: string;
-	phase: string;
-	chunk_index: number;
-	chunk_count: number;
+interface ObservationOutputBudget {
+	emittedBytes: number;
+}
+
+interface ObservationMetadata {
+	original_encoded_byte_length: number;
+	retained_encoded_byte_length: number;
+	data_truncated: boolean;
+	event_dropped: boolean;
+}
+
+type StoredObservedValue = EncodedObservedValue | TruncatedObservedValue | DroppedObservedValue;
+
+interface TruncatedObservedValue {
+	kind: "truncated";
+	original_kind: EncodedObservedValue["kind"];
 	encoding: "base64";
-	chunk: string;
+	value: string;
+}
+
+interface DroppedObservedValue {
+	kind: "dropped";
+	original_kind: EncodedObservedValue["kind"];
 }
 
 type EncodedObservedValue =
@@ -164,7 +182,10 @@ export function createObservationContext(
 	correlationId = crypto.randomUUID(),
 	sink?: ObservationSink,
 ): ObservationContext {
-	return sink === undefined ? {component, correlationId} : {component, correlationId, sink};
+	const outputBudget = {emittedBytes: 0};
+	return sink === undefined
+		? {component, correlationId, outputBudget}
+		: {component, correlationId, sink, outputBudget};
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -416,7 +437,17 @@ function decodeValue(value: EncodedObservedValue, references: Map<number, object
 	throw new TypeError("Unsupported encoded observed value");
 }
 
-export function decodeObservedValue(value: EncodedObservedValue): unknown {
+export function decodeObservedValue(value: StoredObservedValue): unknown {
+	if (value.kind === "truncated") {
+		return {
+			kind: value.kind,
+			originalKind: value.original_kind,
+			encodedPrefix: base64ToBytes(value.value).buffer,
+		};
+	}
+	if (value.kind === "dropped") {
+		return {kind: value.kind, originalKind: value.original_kind};
+	}
 	return decodeValue(value, new Map());
 }
 
@@ -447,7 +478,8 @@ function emitEncodedObservation(
 	data: EncodedObservedValue,
 	severity: ObservationSeverity,
 ): string[] {
-	const event: ObservationEvent = {
+	const originalDataBytes = new TextEncoder().encode(JSON.stringify(data));
+	const baseEvent = {
 		schema: OBSERVATION_SCHEMA,
 		event_id: crypto.randomUUID(),
 		correlation_id: context.correlationId,
@@ -456,64 +488,96 @@ function emitEncodedObservation(
 		operation,
 		phase,
 		timestamp: Date.now(),
+	} as const;
+	const availableInvocationBytes = OBSERVATION_INVOCATION_BYTES - context.outputBudget.emittedBytes;
+	const priorityEvent = severity === "error" || phase === "failure" || operation === "http.response";
+	const availableDataBytes = priorityEvent
+		? availableInvocationBytes
+		: availableInvocationBytes - OBSERVATION_PRIORITY_RESERVE_BYTES - OBSERVATION_DROP_RESERVE_BYTES;
+	const availableBytes = Math.min(OBSERVATION_LINE_BYTES, availableDataBytes);
+	const availableDropBytes = Math.min(
+		OBSERVATION_LINE_BYTES,
+		priorityEvent ? availableInvocationBytes : availableInvocationBytes - OBSERVATION_PRIORITY_RESERVE_BYTES,
+	);
+
+	const completeEvent: ObservationEvent = {
+		...baseEvent,
+		metadata: {
+			original_encoded_byte_length: originalDataBytes.length,
+			retained_encoded_byte_length: originalDataBytes.length,
+			data_truncated: false,
+			event_dropped: false,
+		},
 		data,
 	};
-	const bytes = new TextEncoder().encode(JSON.stringify(event));
-	const chunkCount = Math.max(1, Math.ceil(bytes.length / OBSERVATION_CHUNK_BYTES));
-	const lines: string[] = [];
-	const sink = context.sink ?? defaultObservationSink;
-	for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-		const line = JSON.stringify({
-			schema: OBSERVATION_SCHEMA,
-			event_id: event.event_id,
-			correlation_id: event.correlation_id,
-			component: event.component,
-			operation,
-			phase,
-			chunk_index: chunkIndex,
-			chunk_count: chunkCount,
-			encoding: "base64",
-			chunk: bytesToBase64(
-				bytes.subarray(
-					chunkIndex * OBSERVATION_CHUNK_BYTES,
-					Math.min((chunkIndex + 1) * OBSERVATION_CHUNK_BYTES, bytes.length),
-				),
-			),
-		} satisfies ObservationChunk);
-		lines.push(line);
-		sink(severity, line);
+	const completeLine = JSON.stringify(completeEvent);
+	if (availableBytes > 0 && encodedByteLength(completeLine) <= availableBytes) {
+		return emitObservationLine(context, severity, completeLine);
 	}
-	return lines;
+
+	let lowerBound = 1;
+	let upperBound = originalDataBytes.length;
+	let truncatedLine: string | undefined;
+	while (availableBytes > 0 && lowerBound <= upperBound) {
+		const retainedEncodedByteLength = Math.floor((lowerBound + upperBound) / 2);
+		const candidate = JSON.stringify({
+			...baseEvent,
+			metadata: {
+				original_encoded_byte_length: originalDataBytes.length,
+				retained_encoded_byte_length: retainedEncodedByteLength,
+				data_truncated: true,
+				event_dropped: false,
+			},
+			data: {
+				kind: "truncated",
+				original_kind: data.kind,
+				encoding: "base64",
+				value: bytesToBase64(originalDataBytes.subarray(0, retainedEncodedByteLength)),
+			} satisfies TruncatedObservedValue,
+		} satisfies ObservationEvent);
+		if (encodedByteLength(candidate) <= availableBytes) {
+			truncatedLine = candidate;
+			lowerBound = retainedEncodedByteLength + 1;
+		} else {
+			upperBound = retainedEncodedByteLength - 1;
+		}
+	}
+	if (truncatedLine !== undefined) {
+		return emitObservationLine(context, severity, truncatedLine);
+	}
+
+	const droppedLine = JSON.stringify({
+		...baseEvent,
+		metadata: {
+			original_encoded_byte_length: originalDataBytes.length,
+			retained_encoded_byte_length: 0,
+			data_truncated: false,
+			event_dropped: true,
+		},
+		data: {kind: "dropped", original_kind: data.kind},
+	} satisfies ObservationEvent);
+	return encodedByteLength(droppedLine) <= availableDropBytes
+		? emitObservationLine(context, severity, droppedLine)
+		: [];
+}
+
+function encodedByteLength(value: string): number {
+	return new TextEncoder().encode(value).length;
+}
+
+function emitObservationLine(context: ObservationContext, severity: ObservationSeverity, line: string): string[] {
+	const sink = context.sink ?? defaultObservationSink;
+	context.outputBudget.emittedBytes += encodedByteLength(line) + OBSERVATION_LINE_SEPARATOR_BYTES;
+	sink(severity, line);
+	return [line];
 }
 
 export function reconstructObservation(lines: string[]): ObservationEvent {
-	const chunks = lines
-		.map((line) => JSON.parse(line) as ObservationChunk)
-		.sort((left, right) => left.chunk_index - right.chunk_index);
-	const first = chunks[0];
-	if (first === undefined || chunks.length !== first.chunk_count) {
-		throw new TypeError("Observed event chunks are incomplete");
+	const [line] = lines;
+	if (line === undefined || lines.length !== 1) {
+		throw new TypeError("An observed event must contain exactly one structured log line");
 	}
-	for (const [index, chunk] of chunks.entries()) {
-		if (
-			chunk.schema !== OBSERVATION_SCHEMA ||
-			chunk.event_id !== first.event_id ||
-			chunk.chunk_index !== index ||
-			chunk.chunk_count !== first.chunk_count ||
-			chunk.encoding !== "base64"
-		) {
-			throw new TypeError("Observed event chunks do not form one ordered event");
-		}
-	}
-	const byteParts = chunks.map((chunk) => base64ToBytes(chunk.chunk));
-	const byteLength = byteParts.reduce((total, part) => total + part.length, 0);
-	const bytes = new Uint8Array(byteLength);
-	let offset = 0;
-	for (const part of byteParts) {
-		bytes.set(part, offset);
-		offset += part.length;
-	}
-	return JSON.parse(new TextDecoder().decode(bytes)) as ObservationEvent;
+	return JSON.parse(line) as ObservationEvent;
 }
 
 export function decodedObservationData(event: ObservationEvent): unknown {
