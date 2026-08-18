@@ -148,7 +148,11 @@ describe("Better Auth account recovery", () => {
 
 	it("links only provider identities that resolve to the same verified email account", () => {
 		const authentication = createMailboxAuthentication([]);
-		expect(authentication.options.account.accountLinking).toStrictEqual({
+		const accountOptions = authentication.options.account;
+		if (accountOptions === undefined) {
+			throw new Error("authentication account options are missing");
+		}
+		expect(accountOptions.accountLinking).toStrictEqual({
 			allowDifferentEmails: false,
 			disableImplicitLinking: false,
 			enabled: true,

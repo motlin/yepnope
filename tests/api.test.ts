@@ -2,9 +2,13 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {
 	CurrentDeckConnectionState,
+	fetchOAuthClient,
 	openCurrentDeckStream,
 	registerAccount,
+	resumeOAuthAuthorization,
 	sendVerificationEmail,
+	signInForOAuth,
+	submitOAuthConsent,
 	type LiveApplicationState,
 } from "../src/api";
 import {APPLICATION_UPDATE_EVENT} from "../src/application-updates";
@@ -136,6 +140,88 @@ describe("account registration", () => {
 					method: "POST",
 				},
 			],
+		]);
+	});
+});
+
+describe("OAuth authorization", () => {
+	it("preserves the signed authorization request across sign-in, resume, and consent", async () => {
+		const oauthQuery = "client_id=oauth-client&scope=openid&sig=signed-request";
+		const fetchMock = vi.fn<typeof fetch>(async (input) => {
+			await Promise.resolve();
+			const path = String(input);
+			if (path === "/api/auth/sign-in/email") {
+				return Response.json({redirect: true, url: "https://yepnope.app/oauth/consent?continued=true"});
+			}
+			if (path === `/api/auth/oauth2/authorize?${oauthQuery}`) {
+				return Response.json({redirect: true, url: "https://yepnope.app/oauth/consent?resumed=true"});
+			}
+			if (path === "/api/auth/oauth2/consent") {
+				return Response.json({redirect: true, url: "http://127.0.0.1:45678/callback?result=approved"});
+			}
+			throw new Error(`unexpected fetch: ${path}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect({
+			consent: await submitOAuthConsent(oauthQuery, true),
+			resume: await resumeOAuthAuthorization(oauthQuery),
+			signIn: await signInForOAuth("alice@example.com", "example-password", oauthQuery),
+		}).toStrictEqual({
+			consent: "http://127.0.0.1:45678/callback?result=approved",
+			resume: "https://yepnope.app/oauth/consent?resumed=true",
+			signIn: "https://yepnope.app/oauth/consent?continued=true",
+		});
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/auth/oauth2/consent",
+				{
+					body: JSON.stringify({accept: true, oauth_query: oauthQuery}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+			[
+				`/api/auth/oauth2/authorize?${oauthQuery}`,
+				{credentials: "same-origin", headers: {Accept: "application/json"}},
+			],
+			[
+				"/api/auth/sign-in/email",
+				{
+					body: JSON.stringify({
+						callbackURL: `/sign-in?${oauthQuery}`,
+						email: "alice@example.com",
+						oauth_query: oauthQuery,
+						password: "example-password",
+					}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+		]);
+	});
+
+	it("returns only display-safe public client metadata", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(
+				Response.json({
+					client_id: "oauth-client",
+					client_name: "Codex",
+					client_uri: "https://client.example.com",
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect(await fetchOAuthClient("oauth client/one")).toStrictEqual({
+			id: "oauth-client",
+			name: "Codex",
+			uri: "https://client.example.com",
+		});
+		expect(fetchMock.mock.calls).toStrictEqual([
+			["/api/auth/oauth2/public-client?client_id=oauth%20client%2Fone", {credentials: "same-origin"}],
 		]);
 	});
 });

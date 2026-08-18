@@ -13,6 +13,7 @@ import {
 	observeDurableObjectStorage,
 	observeEnvironment,
 	observeHttpExchange,
+	observeRedactedHttpExchange,
 	observeWebSocketFrame,
 	reconstructObservation,
 	type ObservationSink,
@@ -261,6 +262,86 @@ describe("D1 binding observation", () => {
 });
 
 describe("Durable Object and transport observation", () => {
+	it("redacts authentication-handler failures before emitting them", async () => {
+		const captured = capture();
+		const context = createObservationContext("test.oauth-failure", "oauth-failure-correlation", captured.sink);
+		const request = new Request("https://example.com/api/auth/oauth2/token", {method: "POST"});
+
+		await expect(
+			observeRedactedHttpExchange(context, request, async () => {
+				await Promise.resolve();
+				throw new Error("refresh-token-secret");
+			}),
+		).rejects.toThrow("refresh-token-secret");
+		expect(
+			capturedEvents(captured.lines).map(({operation, phase, data}) => ({operation, phase, data})),
+		).toStrictEqual([
+			{
+				operation: "http.request",
+				phase: "input",
+				data: {
+					body: {redacted: true},
+					headers: [],
+					method: "POST",
+					url: "https://example.com/api/auth/oauth2/token",
+				},
+			},
+			{operation: "http.exchange", phase: "failure", data: {redacted: true}},
+		]);
+		expect(captured.lines.join("\n")).not.toContain("secret");
+	});
+
+	it("omits OAuth queries, cookies, authorization headers, and token bodies", async () => {
+		const captured = capture();
+		const context = createObservationContext("test.oauth-redaction", "oauth-redaction-correlation", captured.sink);
+		const request = new Request("https://example.com/api/auth/oauth2/token?code=authorization-code-secret", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer access-token-secret",
+				Cookie: "session=session-cookie-secret",
+				"Content-Type": "application/x-www-form-urlencoded",
+			},
+			body: new URLSearchParams({code_verifier: "pkce-verifier-secret", refresh_token: "refresh-token-secret"}),
+		});
+		const response = await observeRedactedHttpExchange(context, request, async (handledRequest) => {
+			await handledRequest.text();
+			return Response.json(
+				{access_token: "access-token-secret", refresh_token: "refresh-token-secret"},
+				{headers: {"Set-Cookie": "session=session-cookie-secret"}},
+			);
+		});
+		await response.text();
+
+		expect(
+			capturedEvents(captured.lines)
+				.filter(({operation}) => operation === "http.request" || operation === "http.response")
+				.map(({operation, phase, data}) => ({operation, phase, data})),
+		).toStrictEqual([
+			{
+				operation: "http.request",
+				phase: "input",
+				data: {
+					body: {redacted: true},
+					headers: ["authorization", "content-type", "cookie"],
+					method: "POST",
+					url: "https://example.com/api/auth/oauth2/token",
+				},
+			},
+			{
+				operation: "http.response",
+				phase: "output",
+				data: {
+					body: {redacted: true},
+					headers: ["content-type", "set-cookie"],
+					status: 200,
+					statusText: "OK",
+					webSocket: false,
+				},
+			},
+		]);
+		expect(captured.lines.join("\n")).not.toContain("secret");
+	});
+
 	it("redacts machine credentials from HTTP headers, URLs, and bodies", async () => {
 		const captured = capture();
 		const context = createObservationContext("test.machine-token", "machine-token-correlation", captured.sink);

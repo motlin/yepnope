@@ -15,6 +15,13 @@
 			"when": 1787083557506,
 			"tag": "002_remove_account_names",
 			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1787093783400,
+			"tag": "003_oauth_mcp_provider",
+			"breakpoints": true
 		}
 	]
 }

@@ -6,6 +6,7 @@ import type {
 	AuthenticationUser,
 	CurrentDeckConnectionState,
 	LiveApplicationState,
+	OAuthClientSummary,
 	PairingStatus,
 	CurrentDeckStream,
 } from "../src/api";
@@ -31,6 +32,16 @@ const alice: AuthenticationUser = {
 };
 
 const fetchSession = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser | null>>());
+const fetchOAuthClient = vi.hoisted(() =>
+	vi.fn<(_clientId: string) => Promise<OAuthClientSummary>>(async () =>
+		Promise.resolve({id: "oauth-client", name: "Codex", uri: null}),
+	),
+);
+const resumeOAuthAuthorization = vi.hoisted(() => vi.fn<(_oauthQuery: string) => Promise<string>>());
+const signInForOAuth = vi.hoisted(() =>
+	vi.fn<(_email: string, _password: string, _oauthQuery: string) => Promise<string>>(),
+);
+const submitOAuthConsent = vi.hoisted(() => vi.fn<(_oauthQuery: string, _accept: boolean) => Promise<string>>());
 const fetchAccountDevices = vi.hoisted(() =>
 	vi.fn<() => Promise<AccountDevices>>(async () => Promise.resolve({machines: [], pushDevices: []})),
 );
@@ -62,6 +73,7 @@ vi.mock("../src/api", () => ({
 	fetchAccountDevices,
 	fetchAfk,
 	fetchPairingStatus,
+	fetchOAuthClient,
 	fetchSession,
 	issuePairingCode: vi.fn<() => Promise<import("../src/api").IssuedPairingCode>>(),
 	openCurrentDeckStream: vi.fn<(onState: (state: LiveApplicationState) => void) => CurrentDeckStream>((onState) => {
@@ -82,13 +94,16 @@ vi.mock("../src/api", () => ({
 	registerAccount: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
 	requestPasswordReset: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	resetPassword: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	resumeOAuthAuthorization,
 	renameMachine,
 	renamePushDevice,
 	revokeMachine,
 	revokePushDevice,
 	sendVerificationEmail: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	signIn: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
+	signInForOAuth,
 	signOut: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	submitOAuthConsent,
 	submitAnswer: vi.fn<(_questionId: string, _disposition: Disposition) => Promise<void>>(async () =>
 		Promise.resolve(),
 	),
@@ -110,6 +125,8 @@ import {
 	resetPassword,
 	sendVerificationEmail,
 	signIn,
+	signInForOAuth as signInForOAuthApi,
+	submitOAuthConsent as submitOAuthConsentApi,
 } from "../src/api";
 import {isIos, isStandalone} from "../src/push";
 
@@ -140,18 +157,97 @@ beforeEach(() => {
 	vi.mocked(isIos).mockReturnValue(false);
 	vi.mocked(isStandalone).mockReturnValue(false);
 	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
+	fetchOAuthClient.mockResolvedValue({id: "oauth-client", name: "Codex", uri: null});
 	fetchSession.mockResolvedValue(alice);
 	fetchAccountDevices.mockResolvedValue({machines: [], pushDevices: []});
 	renameMachine.mockResolvedValue(undefined);
 	renamePushDevice.mockResolvedValue(undefined);
 	revokeMachine.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
 	revokePushDevice.mockResolvedValue(undefined);
+	resumeOAuthAuthorization.mockReturnValue(new Promise<string>(() => {}));
+	signInForOAuth.mockReturnValue(new Promise<string>(() => {}));
+	submitOAuthConsent.mockReturnValue(new Promise<string>(() => {}));
 });
 
 afterEach(() => {
 	vi.useRealTimers();
 	vi.clearAllMocks();
 	vi.unstubAllGlobals();
+});
+
+describe("OAuth consent continuity", () => {
+	it("preserves the signed authorization request when a signed-out user signs in", async () => {
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions yepnope:afk",
+			sig: "signed-authorization-request",
+		}).toString();
+		fetchSession.mockResolvedValueOnce(null).mockResolvedValueOnce(alice);
+		signInForOAuth.mockResolvedValue(`${window.location.origin}/oauth/consent?${oauthQuery}`);
+		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
+
+		render(<App />);
+
+		expect(await screen.findByRole("heading", {name: "Sign in"})).toBeDefined();
+		expect(`${window.location.pathname}${window.location.search}`).toBe(`/sign-in?${oauthQuery}`);
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Sign in"}));
+
+		await waitFor(() => {
+			expect(vi.mocked(signInForOAuthApi).mock.calls).toStrictEqual([
+				["alice@example.com", "example-password", oauthQuery],
+			]);
+			expect(screen.getByRole("heading", {name: "Authorize MCP client"})).toBeDefined();
+		});
+	});
+
+	it("identifies the client, explains every scope, and offers explicit allow and cancel actions", async () => {
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions yepnope:afk",
+			sig: "signed-authorization-request",
+		}).toString();
+		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
+
+		render(<App />);
+
+		expect(await screen.findByText("Codex")).toBeDefined();
+		expect(
+			["Use your YepNope identity", "Stay connected", "Ask questions", "Manage AFK routing"].map(
+				(label) => screen.getByText(label).textContent,
+			),
+		).toStrictEqual(["Use your YepNope identity", "Stay connected", "Ask questions", "Manage AFK routing"]);
+		expect(screen.getByRole("button", {name: "Allow"})).toBeDefined();
+		fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+
+		await waitFor(() => {
+			expect(vi.mocked(submitOAuthConsentApi).mock.calls).toStrictEqual([[oauthQuery, false]]);
+		});
+	});
+
+	it("rejects unsupported scope and resource requests before loading client metadata", async () => {
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/different-resource`,
+			scope: "openid admin",
+			sig: "signed-authorization-request",
+		}).toString();
+		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
+
+		render(<App />);
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"This authorization request is invalid or has expired.",
+		);
+		expect({
+			allow: screen.queryByRole("button", {name: "Allow"}),
+			cancel: screen.queryByRole("button", {name: "Cancel"}),
+			clientCalls: fetchOAuthClient.mock.calls,
+		}).toStrictEqual({allow: null, cancel: null, clientCalls: []});
+	});
 });
 
 describe("App live question synchronization", () => {

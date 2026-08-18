@@ -3,6 +3,7 @@ import {
 	claimLegacyIdentity,
 	fetchAccountDevices,
 	fetchAfk,
+	fetchOAuthClient,
 	fetchPairingStatus,
 	fetchSession,
 	issuePairingCode,
@@ -10,19 +11,23 @@ import {
 	registerAccount,
 	requestPasswordReset,
 	resetPassword,
+	resumeOAuthAuthorization,
 	renameMachine,
 	renamePushDevice,
 	revokeMachine,
 	revokePushDevice,
 	sendVerificationEmail,
 	signIn,
+	signInForOAuth,
 	signOut,
 	submitAnswer,
+	submitOAuthConsent,
 	updateAfk,
 	type AuthenticationUser,
 	type AccountDevices,
 	type CurrentDeckStream,
 	type IssuedPairingCode,
+	type OAuthClientSummary,
 	type PairingStatus,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
@@ -129,7 +134,15 @@ interface SettingsProps {
 	onPairingStatusChange: (status: PairingStatus) => void;
 }
 
-type AppView = "deck" | "settings" | "sign-in" | "register" | "verify-email" | "forgot-password" | "reset-password";
+type AppView =
+	| "deck"
+	| "settings"
+	| "sign-in"
+	| "register"
+	| "verify-email"
+	| "forgot-password"
+	| "reset-password"
+	| "oauth-consent";
 
 function viewFromPath(pathname: string): AppView {
 	switch (pathname) {
@@ -145,6 +158,8 @@ function viewFromPath(pathname: string): AppView {
 			return "forgot-password";
 		case "/reset-password":
 			return "reset-password";
+		case "/oauth/consent":
+			return "oauth-consent";
 		default:
 			return "deck";
 	}
@@ -164,6 +179,8 @@ function pathForView(view: AppView): string {
 			return "/forgot-password";
 		case "reset-password":
 			return "/reset-password";
+		case "oauth-consent":
+			return "/oauth/consent";
 		case "deck":
 			return "/";
 	}
@@ -172,6 +189,25 @@ function pathForView(view: AppView): string {
 
 function unreachableView(view: never): never {
 	throw new Error(`Unknown application route: ${String(view)}`);
+}
+
+function oauthQueryFromLocation(): string | null {
+	const parameters = new URLSearchParams(window.location.search);
+	return parameters.has("client_id") && parameters.has("sig") ? parameters.toString() : null;
+}
+
+function oauthCallbackPath(oauthQuery: string): string {
+	return `/sign-in?${oauthQuery}`;
+}
+
+function followOAuthRedirect(url: string): void {
+	const target = new URL(url, window.location.origin);
+	if (target.origin === window.location.origin && viewFromPath(target.pathname) === "oauth-consent") {
+		window.history.replaceState({}, "", `${target.pathname}${target.search}`);
+		window.dispatchEvent(new PopStateEvent("popstate"));
+		return;
+	}
+	window.location.assign(target.href);
 }
 
 const PAIRING_STATUS_FALLBACK_MILLISECONDS = 5_000;
@@ -203,9 +239,11 @@ function errorMessage(error: unknown): string {
 
 interface SignInProps extends AccountRouteProps {
 	onAuthenticated: (user: AuthenticationUser) => void;
+	onOAuthAuthenticated: (user: AuthenticationUser, redirectUrl: string) => void;
 }
 
-function SignIn({onAuthenticated, onNavigate}: SignInProps): ReactElement {
+function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps): ReactElement {
+	const oauthQuery = oauthQueryFromLocation();
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -216,7 +254,16 @@ function SignIn({onAuthenticated, onNavigate}: SignInProps): ReactElement {
 		setSubmitting(true);
 		setError(null);
 		try {
-			onAuthenticated(await signIn(email, password));
+			if (oauthQuery === null) {
+				onAuthenticated(await signIn(email, password));
+			} else {
+				const redirectUrl = await signInForOAuth(email, password, oauthQuery);
+				const user = await fetchSession();
+				if (user === null || !user.emailVerified) {
+					throw new Error("Verify your YepNope email before authorizing this MCP client.");
+				}
+				onOAuthAuthenticated(user, redirectUrl);
+			}
 		} catch (caught) {
 			setError(errorMessage(caught));
 		} finally {
@@ -226,7 +273,11 @@ function SignIn({onAuthenticated, onNavigate}: SignInProps): ReactElement {
 
 	return (
 		<AccountPanel title="Sign in">
-			<p>Sign in to recover your machines, questions, and settings on this browser.</p>
+			<p>
+				{oauthQuery === null
+					? "Sign in to recover your machines, questions, and settings on this browser."
+					: "Sign in with your verified YepNope account to continue authorizing this MCP client."}
+			</p>
 			<form className="account-form" onSubmit={(event) => void submit(event)}>
 				<label>
 					Email
@@ -300,6 +351,7 @@ interface RegisterProps extends AccountRouteProps {
 type VerificationDelivery = "accepted" | "failed" | "idle";
 
 function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
+	const oauthQuery = oauthQueryFromLocation();
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -310,9 +362,18 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 		setSubmitting(true);
 		setError(null);
 		try {
-			await registerAccount(email, password);
+			const callbackURL = oauthQuery === null ? "/verify-email" : oauthCallbackPath(oauthQuery);
+			if (oauthQuery === null) {
+				await registerAccount(email, password);
+			} else {
+				await registerAccount(email, password, callbackURL);
+			}
 			try {
-				await sendVerificationEmail(email);
+				if (oauthQuery === null) {
+					await sendVerificationEmail(email);
+				} else {
+					await sendVerificationEmail(email, callbackURL);
+				}
 				onRegistered(email, "accepted");
 			} catch {
 				onRegistered(email, "failed");
@@ -393,6 +454,7 @@ interface VerifyEmailProps extends AccountRouteProps {
 
 function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailProps): ReactElement {
 	const parameters = new URLSearchParams(window.location.search);
+	const oauthQuery = oauthQueryFromLocation();
 	const verificationError = parameters.get("error");
 	const [email, setEmail] = useState(initialEmail);
 	const [delivery, setDelivery] = useState(initialDelivery);
@@ -403,7 +465,11 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 		setSubmitting(true);
 		setDelivery("idle");
 		try {
-			await sendVerificationEmail(email);
+			if (oauthQuery === null) {
+				await sendVerificationEmail(email);
+			} else {
+				await sendVerificationEmail(email, oauthCallbackPath(oauthQuery));
+			}
 			setDelivery("accepted");
 		} catch {
 			setDelivery("failed");
@@ -596,6 +662,132 @@ function ResetPassword({onNavigate}: AccountRouteProps): ReactElement {
 					)}
 					<button type="submit">Save new password</button>
 				</form>
+			)}
+		</AccountPanel>
+	);
+}
+
+const OAUTH_CAPABILITIES = {
+	openid: {
+		description: "Confirm which verified YepNope account is authorizing the connection.",
+		label: "Use your YepNope identity",
+	},
+	offline_access: {
+		description: "Refresh this connection without asking you to sign in each time.",
+		label: "Stay connected",
+	},
+	"yepnope:questions": {
+		description: "Send questions to YepNope and wait for your Yep, Nope, or Skip answer.",
+		label: "Ask questions",
+	},
+	"yepnope:afk": {
+		description: "Read and change whether YepNope routes questions while you are away.",
+		label: "Manage AFK routing",
+	},
+} as const;
+
+function isOAuthCapability(scope: string): scope is keyof typeof OAUTH_CAPABILITIES {
+	return Object.hasOwn(OAUTH_CAPABILITIES, scope);
+}
+
+function OAuthConsent(): ReactElement {
+	const oauthQuery = oauthQueryFromLocation();
+	const parameters = new URLSearchParams(oauthQuery ?? "");
+	const clientId = parameters.get("client_id");
+	const requestedScopes = (parameters.get("scope") ?? "").split(" ").filter((scope) => scope !== "");
+	const recognizedScopes = requestedScopes.filter(isOAuthCapability);
+	const requestedResources = parameters.getAll("resource");
+	const expectedResource = new URL("/mcp", window.location.origin).href;
+	const requestIsValid =
+		oauthQuery !== null &&
+		clientId !== null &&
+		requestedScopes.length > 0 &&
+		requestedScopes.length === new Set(requestedScopes).size &&
+		recognizedScopes.length === requestedScopes.length &&
+		requestedResources.length === 1 &&
+		requestedResources[0] === expectedResource;
+	const [client, setClient] = useState<OAuthClientSummary | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [submitting, setSubmitting] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		if (!requestIsValid) {
+			setError("This authorization request is invalid or has expired.");
+			return undefined;
+		}
+		fetchOAuthClient(clientId).then(
+			(loadedClient) => {
+				if (!cancelled) {
+					setClient(loadedClient);
+				}
+			},
+			() => {
+				if (!cancelled) {
+					setError("This MCP client could not be verified. Start the connection again from the client.");
+				}
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [clientId, requestIsValid]);
+
+	async function decide(accept: boolean): Promise<void> {
+		if (oauthQuery === null || !requestIsValid) {
+			return;
+		}
+		setSubmitting(true);
+		setError(null);
+		try {
+			followOAuthRedirect(await submitOAuthConsent(oauthQuery, accept));
+		} catch (caught) {
+			setError(errorMessage(caught));
+			setSubmitting(false);
+		}
+	}
+
+	return (
+		<AccountPanel title="Authorize MCP client">
+			{client === null ? (
+				<p>{error === null ? "Checking the requesting client…" : "YepNope cannot continue this request."}</p>
+			) : (
+				<p>
+					<strong>{client.name}</strong> wants to connect to your YepNope account.
+				</p>
+			)}
+			{requestIsValid && (
+				<ul className="oauth-capabilities">
+					{recognizedScopes.map((scope) => {
+						const capability = OAUTH_CAPABILITIES[scope];
+						return (
+							<li key={scope}>
+								<strong>{capability.label}</strong>
+								<span>{capability.description}</span>
+							</li>
+						);
+					})}
+				</ul>
+			)}
+			{error !== null && (
+				<p className="form-error" role="alert">
+					{error}
+				</p>
+			)}
+			{client !== null && requestIsValid && (
+				<div className="oauth-actions">
+					<button type="button" disabled={submitting} onClick={() => void decide(true)}>
+						{submitting ? "Responding…" : "Allow"}
+					</button>
+					<button
+						type="button"
+						className="secondary"
+						disabled={submitting}
+						onClick={() => void decide(false)}
+					>
+						Cancel
+					</button>
+				</div>
 			)}
 		</AccountPanel>
 	);
@@ -1110,14 +1302,18 @@ export function App(): ReactElement {
 			"verify-email": "Verify email · YepNope",
 			"forgot-password": "Reset password · YepNope",
 			"reset-password": "Choose a password · YepNope",
+			"oauth-consent": "Authorize MCP client · YepNope",
 		};
 		document.title = titles[view];
 	}, [view]);
 
 	function navigate(nextView: AppView): void {
-		const path = pathForView(nextView);
-		if (window.location.pathname !== path) {
-			window.history.pushState({}, "", path);
+		const oauthQuery = oauthQueryFromLocation();
+		const preserveOAuthQuery =
+			oauthQuery !== null && (nextView === "sign-in" || nextView === "register" || nextView === "verify-email");
+		const target = `${pathForView(nextView)}${preserveOAuthQuery ? `?${oauthQuery}` : ""}`;
+		if (`${window.location.pathname}${window.location.search}` !== target) {
+			window.history.pushState({}, "", target);
 		}
 		setView(nextView);
 	}
@@ -1127,6 +1323,26 @@ export function App(): ReactElement {
 		fetchSession().then(
 			(user) => {
 				if (!cancelled) {
+					const oauthQuery = oauthQueryFromLocation();
+					if (user === null && oauthQuery !== null && window.location.pathname === "/oauth/consent") {
+						window.history.replaceState({}, "", `/sign-in?${oauthQuery}`);
+						setView("sign-in");
+					}
+					if (
+						user !== null &&
+						oauthQuery !== null &&
+						(window.location.pathname === "/sign-in" || window.location.pathname === "/verify-email")
+					) {
+						setSession(user);
+						setSessionReady(true);
+						resumeOAuthAuthorization(oauthQuery).then(followOAuthRedirect, () => {
+							if (!cancelled) {
+								setSession(user);
+								setSessionReady(true);
+							}
+						});
+						return;
+					}
 					setSession(user);
 					if (user !== null && window.location.pathname === "/verify-email") {
 						window.history.replaceState({}, "", "/");
@@ -1353,6 +1569,11 @@ export function App(): ReactElement {
 							setSessionReady(true);
 							navigate("settings");
 						}}
+						onOAuthAuthenticated={(user, redirectUrl) => {
+							setSession(user);
+							setSessionReady(true);
+							followOAuthRedirect(redirectUrl);
+						}}
 					/>
 				);
 			case "register":
@@ -1378,6 +1599,14 @@ export function App(): ReactElement {
 				return <ForgotPassword onNavigate={navigate} />;
 			case "reset-password":
 				return <ResetPassword onNavigate={navigate} />;
+			case "oauth-consent":
+				if (!sessionReady) {
+					return <div className="loading">Checking your session…</div>;
+				}
+				if (session === null) {
+					return <div className="loading">Sign in is required to continue.</div>;
+				}
+				return <OAuthConsent />;
 			case "deck":
 				return <Deck questions={currentQuestions} onAnswer={onAnswer} />;
 		}

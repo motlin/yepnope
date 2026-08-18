@@ -1154,6 +1154,34 @@ export async function observeHttpExchange(
 	}
 }
 
+export async function observeRedactedHttpExchange(
+	context: ObservationContext,
+	request: Request,
+	handle: (request: Request) => Promise<Response>,
+): Promise<Response> {
+	const url = new URL(request.url);
+	emitHttpObservation(context, "http.request", {
+		body: {redacted: true},
+		headers: Array.from(request.headers.keys()).sort(),
+		method: request.method,
+		url: `${url.origin}${url.pathname}`,
+	});
+	try {
+		const response = await handle(request);
+		emitHttpObservation(context, "http.response", {
+			body: {redacted: true},
+			headers: Array.from(response.headers.keys()).sort(),
+			status: response.status,
+			statusText: response.statusText,
+			webSocket: response.webSocket !== null,
+		});
+		return response;
+	} catch (error) {
+		emitDebugObservation(context, "http.exchange", "failure", {redacted: true}, "error");
+		throw error;
+	}
+}
+
 function cursorMetadata(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): unknown {
 	return {
 		columnNames: cursor.columnNames,

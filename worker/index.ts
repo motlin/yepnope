@@ -2,7 +2,13 @@ import {authenticateBrowserSession, authenticateRequest, createWorkerAuthenticat
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
 import {claimLegacyIdentity} from "./identity-linking";
 import {cleanupExpiredIdentityRecords} from "./identity-lifecycle";
-import {createObservationContext, emitObservation, observeEnvironment, observeHttpExchange} from "./observability";
+import {
+	createObservationContext,
+	emitObservation,
+	observeEnvironment,
+	observeHttpExchange,
+	observeRedactedHttpExchange,
+} from "./observability";
 import {
 	claimPairingCode,
 	createPairingCode,
@@ -31,6 +37,11 @@ const STREAM_PATH = /^\/api\/v1\/questions\/[^/]+\/stream$/;
 const CURRENT_DECK_STREAM_PATH = "/api/v1/current-deck/stream";
 const MACHINE_MANAGEMENT_PATH = /^\/api\/v1\/account\/machines\/([0-9a-f]{32})$/;
 const PUSH_DEVICE_MANAGEMENT_PATH = /^\/api\/v1\/account\/push-devices\/([0-9a-f]{64})$/;
+const ROOT_AUTHENTICATION_METADATA_PATHS = new Set([
+	"/.well-known/oauth-authorization-server/api/auth",
+	"/.well-known/oauth-protected-resource",
+	"/.well-known/oauth-protected-resource/mcp",
+]);
 
 export default {
 	async fetch(request, environment, executionContext): Promise<Response> {
@@ -45,8 +56,16 @@ export default {
 
 		const observationContext = createObservationContext("worker.main");
 		const env = observeEnvironment(environment, observationContext);
-		return observeHttpExchange(observationContext, request, async (request) => {
-			if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
+		const observeExchange =
+			url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")
+				? observeRedactedHttpExchange
+				: observeHttpExchange;
+		return observeExchange(observationContext, request, async (request) => {
+			if (
+				url.pathname === "/api/auth" ||
+				url.pathname.startsWith("/api/auth/") ||
+				ROOT_AUTHENTICATION_METADATA_PATHS.has(url.pathname)
+			) {
 				return createWorkerAuthentication(env, executionContext).handler(request);
 			}
 

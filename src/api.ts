@@ -59,10 +59,69 @@ export async function signIn(email: string, password: string): Promise<Authentic
 	return result.user;
 }
 
-export async function registerAccount(email: string, password: string): Promise<AuthenticationUser> {
+const oauthRedirectResponseSchema = z.object({redirect: z.boolean(), url: z.url()});
+
+export async function signInForOAuth(email: string, password: string, oauthQuery: string): Promise<string> {
+	const result = await requestJson(
+		"/api/auth/sign-in/email",
+		jsonRequest({
+			callbackURL: `/sign-in?${oauthQuery}`,
+			email,
+			oauth_query: oauthQuery,
+			password,
+		}),
+		oauthRedirectResponseSchema,
+	);
+	return result.url;
+}
+
+export async function resumeOAuthAuthorization(oauthQuery: string): Promise<string> {
+	const result = await requestJson(
+		`/api/auth/oauth2/authorize?${oauthQuery}`,
+		{headers: {Accept: "application/json"}},
+		oauthRedirectResponseSchema,
+	);
+	return result.url;
+}
+
+const oauthClientResponseSchema = z.object({
+	client_id: z.string(),
+	client_name: z.string().optional(),
+	client_uri: z.url().optional(),
+});
+
+export interface OAuthClientSummary {
+	id: string;
+	name: string;
+	uri: string | null;
+}
+
+export async function fetchOAuthClient(clientId: string): Promise<OAuthClientSummary> {
+	const result = await requestJson(
+		`/api/auth/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`,
+		{},
+		oauthClientResponseSchema,
+	);
+	return {id: result.client_id, name: result.client_name ?? "MCP client", uri: result.client_uri ?? null};
+}
+
+export async function submitOAuthConsent(oauthQuery: string, accept: boolean): Promise<string> {
+	const result = await requestJson(
+		"/api/auth/oauth2/consent",
+		jsonRequest({accept, oauth_query: oauthQuery}),
+		oauthRedirectResponseSchema,
+	);
+	return result.url;
+}
+
+export async function registerAccount(
+	email: string,
+	password: string,
+	callbackURL = "/verify-email",
+): Promise<AuthenticationUser> {
 	const result = await requestJson(
 		"/api/auth/sign-up/email",
-		jsonRequest({email, password, callbackURL: "/verify-email"}),
+		jsonRequest({email, password, callbackURL}),
 		authenticatedResponseSchema,
 	);
 	return result.user;
@@ -70,12 +129,8 @@ export async function registerAccount(email: string, password: string): Promise<
 
 const successResponseSchema = z.object({status: z.literal(true)});
 
-export async function sendVerificationEmail(email: string): Promise<void> {
-	await requestJson(
-		"/api/auth/send-verification-email",
-		jsonRequest({email, callbackURL: "/verify-email"}),
-		successResponseSchema,
-	);
+export async function sendVerificationEmail(email: string, callbackURL = "/verify-email"): Promise<void> {
+	await requestJson("/api/auth/send-verification-email", jsonRequest({email, callbackURL}), successResponseSchema);
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
