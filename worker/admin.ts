@@ -1,5 +1,6 @@
 import {createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey} from "jose";
 import {z} from "zod";
+import {createObservationContext, observeEnvironment, observeHttpExchange} from "./observability";
 import type {UserDurableObject} from "./user-do";
 
 const objectIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -74,50 +75,54 @@ async function parseJson<T>(request: Request, schema: z.ZodType<T>): Promise<T |
 
 export function createAdminHandler(authenticate: AccessAuthenticator = authenticateAccessRequest) {
 	return {
-		async fetch(request: Request, environment: AdminEnvironment): Promise<Response> {
-			try {
-				await authenticate(request, environment);
-			} catch {
-				return jsonResponse({error: "unauthorized"}, {status: 401});
-			}
-
-			const url = new URL(request.url);
-			if (request.method === "GET" && url.pathname === "/v1/inventory-context") {
-				const [tableCounts, liveOwnerObjectIds] = await Promise.all([
-					listD1TableCounts(environment.DB),
-					listLiveOwnerObjectIds(environment),
-				]);
-				return jsonResponse({d1: {table_counts: tableCounts}, live_owner_object_ids: liveOwnerObjectIds});
-			}
-
-			if (request.method === "POST" && url.pathname === "/v1/objects/diagnostics") {
-				const body = await parseJson(request, objectDiagnosticsRequestSchema);
-				if (body === null) {
-					return jsonResponse({error: "invalid_request"}, {status: 400});
+		async fetch(request: Request, rawEnvironment: AdminEnvironment): Promise<Response> {
+			const observationContext = createObservationContext("worker.admin");
+			const environment = observeEnvironment(rawEnvironment, observationContext);
+			return observeHttpExchange(observationContext, request, async () => {
+				try {
+					await authenticate(request, environment);
+				} catch {
+					return jsonResponse({error: "unauthorized"}, {status: 401});
 				}
-				const objects = [];
-				for (const objectId of body.object_ids) {
-					const stub = environment.USER_DO.get(environment.USER_DO.idFromString(objectId));
-					objects.push({object_id: objectId, ...(await stub.getRedactedStorageDiagnostics())});
-				}
-				return jsonResponse({objects});
-			}
 
-			if (request.method === "POST" && url.pathname === "/v1/objects/delete") {
-				const body = await parseJson(request, objectDeletionRequestSchema);
-				if (body === null) {
-					return jsonResponse({error: "invalid_request"}, {status: 400});
+				const url = new URL(request.url);
+				if (request.method === "GET" && url.pathname === "/v1/inventory-context") {
+					const [tableCounts, liveOwnerObjectIds] = await Promise.all([
+						listD1TableCounts(environment.DB),
+						listLiveOwnerObjectIds(environment),
+					]);
+					return jsonResponse({d1: {table_counts: tableCounts}, live_owner_object_ids: liveOwnerObjectIds});
 				}
-				const liveOwnerObjectIds = await listLiveOwnerObjectIds(environment);
-				if (liveOwnerObjectIds.includes(body.object_id)) {
-					return jsonResponse({error: "live_owner"}, {status: 409});
-				}
-				const stub = environment.USER_DO.get(environment.USER_DO.idFromString(body.object_id));
-				await stub.deleteAll();
-				return jsonResponse({object_id: body.object_id, status: "deleted"});
-			}
 
-			return jsonResponse({error: "not_found"}, {status: 404});
+				if (request.method === "POST" && url.pathname === "/v1/objects/diagnostics") {
+					const body = await parseJson(request, objectDiagnosticsRequestSchema);
+					if (body === null) {
+						return jsonResponse({error: "invalid_request"}, {status: 400});
+					}
+					const objects = [];
+					for (const objectId of body.object_ids) {
+						const stub = environment.USER_DO.get(environment.USER_DO.idFromString(objectId));
+						objects.push({object_id: objectId, ...(await stub.getRedactedStorageDiagnostics())});
+					}
+					return jsonResponse({objects});
+				}
+
+				if (request.method === "POST" && url.pathname === "/v1/objects/delete") {
+					const body = await parseJson(request, objectDeletionRequestSchema);
+					if (body === null) {
+						return jsonResponse({error: "invalid_request"}, {status: 400});
+					}
+					const liveOwnerObjectIds = await listLiveOwnerObjectIds(environment);
+					if (liveOwnerObjectIds.includes(body.object_id)) {
+						return jsonResponse({error: "live_owner"}, {status: 409});
+					}
+					const stub = environment.USER_DO.get(environment.USER_DO.idFromString(body.object_id));
+					await stub.deleteAll();
+					return jsonResponse({object_id: body.object_id, status: "deleted"});
+				}
+
+				return jsonResponse({error: "not_found"}, {status: 404});
+			});
 		},
 	};
 }

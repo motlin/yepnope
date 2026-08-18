@@ -16,6 +16,14 @@ import {
 } from "./db/do-schema";
 import migrationBundle from "./migrations/do/migrations.js";
 import {hashToken} from "./auth";
+import {
+	createObservationContext,
+	emitObservation,
+	observeDurableObjectState,
+	observeHttpExchange,
+	observeWebSocketFrame,
+	type ObservationContext,
+} from "./observability";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
 import {
 	dispositionSchema,
@@ -143,11 +151,17 @@ function findRowConflict<Row extends object>(
 
 export class UserDurableObject extends DurableObject<Env> {
 	private readonly database: DrizzleSqliteDODatabase;
+	private readonly observationContext: ObservationContext;
 	private initialization: Promise<void> | undefined;
 
-	constructor(ctx: DurableObjectState, env: Env) {
+	constructor(ctx: DurableObjectState<Record<never, never>>, env: Env) {
 		super(ctx, env);
-		this.database = drizzle(ctx.storage);
+		this.observationContext = {
+			...createObservationContext("durable_object.user"),
+			objectId: ctx.id.toString(),
+		};
+		this.ctx = observeDurableObjectState(ctx, this.observationContext);
+		this.database = drizzle(this.ctx.storage);
 	}
 
 	private async initialize(): Promise<void> {
@@ -413,8 +427,21 @@ export class UserDurableObject extends DurableObject<Env> {
 		endpoint: string,
 		request: {headers: Record<string, string>; body: Uint8Array},
 	) => number | Promise<number> = async (endpoint, request) => {
-		const response = await fetch(endpoint, {method: "POST", headers: request.headers, body: request.body});
-		return response.status;
+		emitObservation(this.observationContext, "push.request", "input", {endpoint, request});
+		try {
+			const response = await fetch(endpoint, {method: "POST", headers: request.headers, body: request.body});
+			const result = {
+				status: response.status,
+				statusText: response.statusText,
+				headers: Array.from(response.headers.entries()),
+				body: response.body === null ? null : await response.clone().arrayBuffer(),
+			};
+			emitObservation(this.observationContext, "push.response", "output", result);
+			return response.status;
+		} catch (error) {
+			emitObservation(this.observationContext, "push.request", "failure", {endpoint, request, error}, "error");
+			throw error;
+		}
 	};
 
 	async registerDevice(subscription: PushSubscription, label: string): Promise<void> {
@@ -507,9 +534,12 @@ export class UserDurableObject extends DurableObject<Env> {
 			});
 			// 🚧 An unreachable push service must not fail the whole loop or the waitUntil.
 			let status = 0;
+			emitObservation(this.observationContext, "push.transport", "input", request);
 			try {
 				status = await this.pushTransport(request.endpoint, {headers: request.headers, body: request.body});
-			} catch {
+				emitObservation(this.observationContext, "push.transport", "output", {status});
+			} catch (error) {
+				emitObservation(this.observationContext, "push.transport", "failure", {request, error}, "error");
 				status = 0;
 			}
 			if (status === 404 || status === 410) {
@@ -525,101 +555,122 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	override async fetch(request: Request): Promise<Response> {
-		await this.initialize();
-		const url = new URL(request.url);
-		if (url.pathname === "/api/v1/current-deck/stream") {
+		return observeHttpExchange(this.observationContext, request, async () => {
+			await this.initialize();
+			const url = new URL(request.url);
+			if (url.pathname === "/api/v1/current-deck/stream") {
+				if (request.headers.get("Upgrade") !== "websocket") {
+					return new Response(null, {status: 426});
+				}
+				const machineCount = Number(request.headers.get("X-YepNope-Machine-Count"));
+				if (!Number.isSafeInteger(machineCount) || machineCount < 0) {
+					return new Response(null, {status: 400});
+				}
+				const pair = new WebSocketPair();
+				this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
+				pair[1].serializeAttachment({machineCount} satisfies CurrentDeckSocketAttachment);
+				await this.sendCurrentDeckState(pair[1], machineCount);
+				const selectedProtocol = request.headers.get("Sec-WebSocket-Protocol")?.startsWith("yepnope,") === true;
+				return selectedProtocol
+					? new Response(null, {
+							status: 101,
+							webSocket: pair[0],
+							headers: {"Sec-WebSocket-Protocol": "yepnope"},
+						})
+					: new Response(null, {status: 101, webSocket: pair[0]});
+			}
+			const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
+			if (match === null) {
+				return new Response(null, {status: 404});
+			}
 			if (request.headers.get("Upgrade") !== "websocket") {
 				return new Response(null, {status: 426});
 			}
-			const machineCount = Number(request.headers.get("X-YepNope-Machine-Count"));
-			if (!Number.isSafeInteger(machineCount) || machineCount < 0) {
-				return new Response(null, {status: 400});
+			const batchId = match[1];
+			if (batchId === undefined || !(await this.batchExists(batchId))) {
+				return new Response(null, {status: 404});
 			}
 			const pair = new WebSocketPair();
-			this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
-			pair[1].serializeAttachment({machineCount} satisfies CurrentDeckSocketAttachment);
-			await this.sendCurrentDeckState(pair[1], machineCount);
-			const selectedProtocol = request.headers.get("Sec-WebSocket-Protocol")?.startsWith("yepnope,") === true;
-			return selectedProtocol
-				? new Response(null, {
-						status: 101,
-						webSocket: pair[0],
-						headers: {"Sec-WebSocket-Protocol": "yepnope"},
-					})
-				: new Response(null, {status: 101, webSocket: pair[0]});
-		}
-		const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
-		if (match === null) {
-			return new Response(null, {status: 404});
-		}
-		if (request.headers.get("Upgrade") !== "websocket") {
-			return new Response(null, {status: 426});
-		}
-		const batchId = match[1];
-		if (batchId === undefined || !(await this.batchExists(batchId))) {
-			return new Response(null, {status: 404});
-		}
-		const pair = new WebSocketPair();
-		// 😴 Hibernation API: a held-open HTTP request is not hibernation eligible (spec §4.4).
-		this.ctx.acceptWebSocket(pair[1], [batchId]);
-		await this.sendCurrentState(pair[1], batchId);
-		return new Response(null, {status: 101, webSocket: pair[0]});
+			// 😴 Hibernation API: a held-open HTTP request is not hibernation eligible (spec §4.4).
+			this.ctx.acceptWebSocket(pair[1], [batchId]);
+			await this.sendCurrentState(pair[1], batchId);
+			return new Response(null, {status: 101, webSocket: pair[0]});
+		});
 	}
 
 	// 💓 Any inbound frame is a heartbeat (batch identifier option C in .llm/decisions.md).
-	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void> {
-		await this.initialize();
-		const batchId = this.ctx.getTags(socket)[0];
-		if (batchId === CURRENT_DECK_SOCKET_TAG) {
-			await this.sendCurrentDeckState(socket, this.getSocketMachineCount(socket));
-			return;
+	override async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+		observeWebSocketFrame(this.observationContext, "inbound", message);
+		try {
+			await this.initialize();
+			const batchId = this.ctx.getTags(socket)[0];
+			if (batchId === CURRENT_DECK_SOCKET_TAG) {
+				await this.sendCurrentDeckState(socket, this.getSocketMachineCount(socket));
+				return;
+			}
+			if (batchId === undefined || !(await this.batchExists(batchId))) {
+				this.sendWebSocketFrame(
+					socket,
+					errorFrame(batchId ?? "unknown", {}, "unknown_batch", "this batch no longer exists"),
+				);
+				socket.close(1008, "unknown batch");
+				return;
+			}
+			this.assertWritable();
+			await this.database.update(batches).set({lastHeartbeatAt: Date.now()}).where(eq(batches.id, batchId));
+			await this.sendCurrentState(socket, batchId);
+		} catch (error) {
+			emitObservation(this.observationContext, "websocket.message", "failure", error, "error");
+			throw error;
 		}
-		if (batchId === undefined || !(await this.batchExists(batchId))) {
-			socket.send(errorFrame(batchId ?? "unknown", {}, "unknown_batch", "this batch no longer exists"));
-			socket.close(1008, "unknown batch");
-			return;
-		}
-		this.assertWritable();
-		await this.database.update(batches).set({lastHeartbeatAt: Date.now()}).where(eq(batches.id, batchId));
-		await this.sendCurrentState(socket, batchId);
 	}
 
 	// 🗑️ The single DO alarm serves two deadlines: 7 day retention (spec §13.1) and
 	// heartbeat-and-delete retraction (option C in .llm/decisions.md, spec §5).
 	override async alarm(): Promise<void> {
-		await this.initialize();
-		if (this.isMergeLocked()) {
-			return;
+		emitObservation(this.observationContext, "do.alarm", "input", null);
+		try {
+			await this.initialize();
+			if (this.isMergeLocked()) {
+				emitObservation(this.observationContext, "do.alarm", "output", {mergeLocked: true});
+				return;
+			}
+			const now = Date.now();
+			const expired = await this.database
+				.select({id: batches.id})
+				.from(batches)
+				.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
+			await this.deleteBatches(
+				expired.map((row) => row.id),
+				TerminalActivityOutcome.Expired,
+				"batch_expired",
+				"this batch passed the 7 day retention limit",
+				"batch expired",
+			);
+			// 💀 Unanswered questions whose agent stopped heartbeating: retract rather than let the
+			// user answer into a void. Resolved batches keep their answers until retention so a
+			// returning agent can still collect them.
+			const stale = await this.database
+				.selectDistinct({id: batches.id})
+				.from(batches)
+				.innerJoin(questions, eq(questions.batchId, batches.id))
+				.leftJoin(answers, eq(answers.questionId, questions.id))
+				.where(
+					and(isNull(answers.questionId), lte(batches.lastHeartbeatAt, now - HEARTBEAT_GRACE_MILLISECONDS)),
+				);
+			await this.deleteBatches(
+				stale.map((row) => row.id),
+				TerminalActivityOutcome.Retracted,
+				"batch_retracted",
+				"the agent asking these questions stopped heartbeating",
+				"batch retracted",
+			);
+			await this.armNextDeadline();
+			emitObservation(this.observationContext, "do.alarm", "output", {mergeLocked: false});
+		} catch (error) {
+			emitObservation(this.observationContext, "do.alarm", "failure", error, "error");
+			throw error;
 		}
-		const now = Date.now();
-		const expired = await this.database
-			.select({id: batches.id})
-			.from(batches)
-			.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
-		await this.deleteBatches(
-			expired.map((row) => row.id),
-			TerminalActivityOutcome.Expired,
-			"batch_expired",
-			"this batch passed the 7 day retention limit",
-			"batch expired",
-		);
-		// 💀 Unanswered questions whose agent stopped heartbeating: retract rather than let the
-		// user answer into a void. Resolved batches keep their answers until retention so a
-		// returning agent can still collect them.
-		const stale = await this.database
-			.selectDistinct({id: batches.id})
-			.from(batches)
-			.innerJoin(questions, eq(questions.batchId, batches.id))
-			.leftJoin(answers, eq(answers.questionId, questions.id))
-			.where(and(isNull(answers.questionId), lte(batches.lastHeartbeatAt, now - HEARTBEAT_GRACE_MILLISECONDS)));
-		await this.deleteBatches(
-			stale.map((row) => row.id),
-			TerminalActivityOutcome.Retracted,
-			"batch_retracted",
-			"the agent asking these questions stopped heartbeating",
-			"batch retracted",
-		);
-		await this.armNextDeadline();
 	}
 
 	async prepareLegacyIdentityClaim(destinationUserId: string): Promise<LegacyIdentityPreparation> {
@@ -803,7 +854,7 @@ export class UserDurableObject extends DurableObject<Env> {
 		});
 		for (const closure of socketClosures) {
 			for (const socket of closure.sockets) {
-				socket.send(closure.frame);
+				this.sendWebSocketFrame(socket, closure.frame);
 				socket.close(1000, closeReason);
 			}
 		}
@@ -873,15 +924,15 @@ export class UserDurableObject extends DurableObject<Env> {
 	private async sendCurrentState(socket: WebSocket, batchId: string): Promise<void> {
 		const dispositions = await this.batchDispositions(batchId);
 		if (isComplete(dispositions)) {
-			socket.send(resolvedFrame(batchId, dispositions));
+			this.sendWebSocketFrame(socket, resolvedFrame(batchId, dispositions));
 			socket.close(1000, "resolved");
 			return;
 		}
-		socket.send(stateFrame(batchId, dispositions));
+		this.sendWebSocketFrame(socket, stateFrame(batchId, dispositions));
 	}
 
 	private async sendCurrentDeckState(socket: WebSocket, machineCount: number): Promise<void> {
-		socket.send(JSON.stringify(await this.getCurrentDeckState(machineCount)));
+		this.sendWebSocketFrame(socket, JSON.stringify(await this.getCurrentDeckState(machineCount)));
 	}
 
 	private async broadcastCurrentDeckState(): Promise<void> {
@@ -903,10 +954,15 @@ export class UserDurableObject extends DurableObject<Env> {
 		const complete = isComplete(dispositions);
 		const frame = complete ? resolvedFrame(batchId, dispositions) : stateFrame(batchId, dispositions);
 		for (const socket of this.ctx.getWebSockets(batchId)) {
-			socket.send(frame);
+			this.sendWebSocketFrame(socket, frame);
 			if (complete) {
 				socket.close(1000, "resolved");
 			}
 		}
+	}
+
+	private sendWebSocketFrame(socket: WebSocket, frame: string | ArrayBuffer | ArrayBufferView): void {
+		observeWebSocketFrame(this.observationContext, "outbound", frame);
+		socket.send(frame);
 	}
 }

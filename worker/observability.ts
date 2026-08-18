@@ -1,0 +1,1101 @@
+/* oxlint-disable typescript/no-deprecated, typescript/no-redundant-type-constituents, typescript/no-unnecessary-condition, typescript/no-unnecessary-type-assertion, typescript/no-unnecessary-type-conversion, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/no-unsafe-return, typescript/no-unsafe-type-assertion, typescript/unified-signatures -- Cloudflare runtime bindings require reflective typed proxies. */
+
+const OBSERVATION_SCHEMA = "yepnope.io.v1";
+const OBSERVATION_CHUNK_BYTES = 24 * 1024;
+
+type ObservationSeverity = "error" | "log";
+
+export type ObservationSink = (severity: ObservationSeverity, line: string) => void;
+
+export interface ObservationContext {
+	component: string;
+	correlationId: string;
+	objectId?: string;
+	sink?: ObservationSink;
+}
+
+interface ObservationEvent {
+	schema: typeof OBSERVATION_SCHEMA;
+	event_id: string;
+	correlation_id: string;
+	component: string;
+	object_id?: string;
+	operation: string;
+	phase: string;
+	timestamp: number;
+	data: EncodedObservedValue;
+}
+
+interface ObservationChunk {
+	schema: typeof OBSERVATION_SCHEMA;
+	event_id: string;
+	correlation_id: string;
+	component: string;
+	operation: string;
+	phase: string;
+	chunk_index: number;
+	chunk_count: number;
+	encoding: "base64";
+	chunk: string;
+}
+
+type EncodedObservedValue =
+	| {kind: "null"}
+	| {kind: "undefined"}
+	| {kind: "boolean"; value: boolean}
+	| {kind: "string"; value: string}
+	| {kind: "number"; value: string}
+	| {kind: "bigint"; value: string}
+	| {kind: "array"; id: number; value: EncodedObservedValue[]}
+	| {kind: "object"; id: number; value: Array<[string, EncodedObservedValue]>}
+	| {kind: "map"; id: number; value: Array<[EncodedObservedValue, EncodedObservedValue]>}
+	| {kind: "set"; id: number; value: EncodedObservedValue[]}
+	| {kind: "date"; id: number; value: string}
+	| {
+			kind: "error";
+			id: number;
+			name: string;
+			message: string;
+			stack?: string;
+			cause: EncodedObservedValue;
+			properties: Array<[string, EncodedObservedValue]>;
+	  }
+	| {kind: "array_buffer"; id: number; value: string}
+	| {kind: "array_buffer_view"; id: number; view: string; value: string}
+	| {kind: "reference"; id: number};
+
+function defaultObservationSink(severity: ObservationSeverity, line: string): void {
+	if (severity === "error") {
+		console.error(line);
+		return;
+	}
+	console.log(line);
+}
+
+export function createObservationContext(
+	component: string,
+	correlationId = crypto.randomUUID(),
+	sink?: ObservationSink,
+): ObservationContext {
+	return sink === undefined ? {component, correlationId} : {component, correlationId, sink};
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let binary = "";
+	for (let offset = 0; offset < bytes.length; offset += 16_384) {
+		binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 16_384, bytes.length)));
+	}
+	return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+	const binary = atob(value);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) {
+		bytes[index] = binary.charCodeAt(index);
+	}
+	return bytes;
+}
+
+function encodeNumber(value: number): string {
+	if (Number.isNaN(value)) {
+		return "NaN";
+	}
+	if (value === Number.POSITIVE_INFINITY) {
+		return "Infinity";
+	}
+	if (value === Number.NEGATIVE_INFINITY) {
+		return "-Infinity";
+	}
+	if (Object.is(value, -0)) {
+		return "-0";
+	}
+	return String(value);
+}
+
+function decodeNumber(value: string): number {
+	switch (value) {
+		case "NaN":
+			return Number.NaN;
+		case "Infinity":
+			return Number.POSITIVE_INFINITY;
+		case "-Infinity":
+			return Number.NEGATIVE_INFINITY;
+		case "-0":
+			return -0;
+		default:
+			return Number(value);
+	}
+}
+
+function encodeValue(value: unknown, references: Map<object, number>): EncodedObservedValue {
+	if (value === null) {
+		return {kind: "null"};
+	}
+	switch (typeof value) {
+		case "undefined":
+			return {kind: "undefined"};
+		case "boolean":
+			return {kind: "boolean", value};
+		case "string":
+			return {kind: "string", value};
+		case "number":
+			return {kind: "number", value: encodeNumber(value)};
+		case "bigint":
+			return {kind: "bigint", value: String(value)};
+		case "function":
+		case "symbol":
+			throw new TypeError(`Cannot observe ${typeof value} values`);
+		case "object":
+			break;
+	}
+
+	const reference = references.get(value);
+	if (reference !== undefined) {
+		return {kind: "reference", id: reference};
+	}
+	const id = references.size;
+	references.set(value, id);
+
+	if (value instanceof ArrayBuffer) {
+		return {kind: "array_buffer", id, value: bytesToBase64(new Uint8Array(value))};
+	}
+	if (ArrayBuffer.isView(value)) {
+		return {
+			kind: "array_buffer_view",
+			id,
+			view: value.constructor.name,
+			value: bytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)),
+		};
+	}
+	if (value instanceof Date) {
+		return {kind: "date", id, value: value.toISOString()};
+	}
+	if (value instanceof Error) {
+		const properties = Object.keys(value)
+			.filter((key) => key !== "cause")
+			.sort()
+			.map((key): [string, EncodedObservedValue] => [key, encodeValue(Reflect.get(value, key), references)]);
+		return {
+			kind: "error",
+			id,
+			name: value.name,
+			message: value.message,
+			...(value.stack === undefined ? {} : {stack: value.stack}),
+			cause: encodeValue(value.cause, references),
+			properties,
+		};
+	}
+	if (Array.isArray(value)) {
+		return {kind: "array", id, value: value.map((item) => encodeValue(item, references))};
+	}
+	if (value instanceof Map) {
+		return {
+			kind: "map",
+			id,
+			value: Array.from(value, ([key, item]) => [encodeValue(key, references), encodeValue(item, references)]),
+		};
+	}
+	if (value instanceof Set) {
+		return {kind: "set", id, value: Array.from(value, (item) => encodeValue(item, references))};
+	}
+	return {
+		kind: "object",
+		id,
+		value: Object.keys(value)
+			.sort()
+			.map((key): [string, EncodedObservedValue] => [key, encodeValue(Reflect.get(value, key), references)]),
+	};
+}
+
+export function encodeObservedValue(value: unknown): EncodedObservedValue {
+	return encodeValue(value, new Map());
+}
+
+function decodeArrayBufferView(view: string, bytes: Uint8Array): ArrayBufferView {
+	const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+	switch (view) {
+		case "DataView":
+			return new DataView(buffer);
+		case "Int8Array":
+			return new Int8Array(buffer);
+		case "Uint8Array":
+			return new Uint8Array(buffer);
+		case "Uint8ClampedArray":
+			return new Uint8ClampedArray(buffer);
+		case "Int16Array":
+			return new Int16Array(buffer);
+		case "Uint16Array":
+			return new Uint16Array(buffer);
+		case "Int32Array":
+			return new Int32Array(buffer);
+		case "Uint32Array":
+			return new Uint32Array(buffer);
+		case "Float32Array":
+			return new Float32Array(buffer);
+		case "Float64Array":
+			return new Float64Array(buffer);
+		case "BigInt64Array":
+			return new BigInt64Array(buffer);
+		case "BigUint64Array":
+			return new BigUint64Array(buffer);
+		default:
+			throw new TypeError(`Unsupported observed ArrayBuffer view: ${view}`);
+	}
+}
+
+function decodeValue(value: EncodedObservedValue, references: Map<number, object>): unknown {
+	switch (value.kind) {
+		case "null":
+			return null;
+		case "undefined":
+			return undefined;
+		case "boolean":
+		case "string":
+			return value.value;
+		case "number":
+			return decodeNumber(value.value);
+		case "bigint":
+			return BigInt(value.value);
+		case "reference": {
+			const reference = references.get(value.id);
+			if (reference === undefined) {
+				throw new TypeError(`Unknown observed reference: ${value.id}`);
+			}
+			return reference;
+		}
+		case "array": {
+			const decoded: unknown[] = [];
+			references.set(value.id, decoded);
+			decoded.push(...value.value.map((item) => decodeValue(item, references)));
+			return decoded;
+		}
+		case "object": {
+			const decoded: Record<string, unknown> = {};
+			references.set(value.id, decoded);
+			for (const [key, item] of value.value) {
+				decoded[key] = decodeValue(item, references);
+			}
+			return decoded;
+		}
+		case "map": {
+			const decoded = new Map<unknown, unknown>();
+			references.set(value.id, decoded);
+			for (const [key, item] of value.value) {
+				decoded.set(decodeValue(key, references), decodeValue(item, references));
+			}
+			return decoded;
+		}
+		case "set": {
+			const decoded = new Set<unknown>();
+			references.set(value.id, decoded);
+			for (const item of value.value) {
+				decoded.add(decodeValue(item, references));
+			}
+			return decoded;
+		}
+		case "date": {
+			const decoded = new Date(value.value);
+			references.set(value.id, decoded);
+			return decoded;
+		}
+		case "error": {
+			const decoded = value.name === "TypeError" ? new TypeError(value.message) : new Error(value.message);
+			references.set(value.id, decoded);
+			if (decoded.name !== value.name) {
+				decoded.name = value.name;
+			}
+			if (value.stack !== undefined) {
+				decoded.stack = value.stack;
+			}
+			decoded.cause = decodeValue(value.cause, references);
+			for (const [key, item] of value.properties) {
+				Reflect.set(decoded, key, decodeValue(item, references));
+			}
+			return decoded;
+		}
+		case "array_buffer": {
+			const bytes = base64ToBytes(value.value);
+			const decoded = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+			references.set(value.id, decoded);
+			return decoded;
+		}
+		case "array_buffer_view": {
+			const decoded = decodeArrayBufferView(value.view, base64ToBytes(value.value));
+			references.set(value.id, decoded);
+			return decoded;
+		}
+	}
+	throw new TypeError("Unsupported encoded observed value");
+}
+
+export function decodeObservedValue(value: EncodedObservedValue): unknown {
+	return decodeValue(value, new Map());
+}
+
+export function emitObservation(
+	context: ObservationContext,
+	operation: string,
+	phase: string,
+	data: unknown,
+	severity: ObservationSeverity = "log",
+): string[] {
+	const event: ObservationEvent = {
+		schema: OBSERVATION_SCHEMA,
+		event_id: crypto.randomUUID(),
+		correlation_id: context.correlationId,
+		component: context.component,
+		...(context.objectId === undefined ? {} : {object_id: context.objectId}),
+		operation,
+		phase,
+		timestamp: Date.now(),
+		data: encodeObservedValue(data),
+	};
+	const bytes = new TextEncoder().encode(JSON.stringify(event));
+	const chunkCount = Math.max(1, Math.ceil(bytes.length / OBSERVATION_CHUNK_BYTES));
+	const lines: string[] = [];
+	const sink = context.sink ?? defaultObservationSink;
+	for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+		const line = JSON.stringify({
+			schema: OBSERVATION_SCHEMA,
+			event_id: event.event_id,
+			correlation_id: event.correlation_id,
+			component: event.component,
+			operation,
+			phase,
+			chunk_index: chunkIndex,
+			chunk_count: chunkCount,
+			encoding: "base64",
+			chunk: bytesToBase64(
+				bytes.subarray(
+					chunkIndex * OBSERVATION_CHUNK_BYTES,
+					Math.min((chunkIndex + 1) * OBSERVATION_CHUNK_BYTES, bytes.length),
+				),
+			),
+		} satisfies ObservationChunk);
+		lines.push(line);
+		sink(severity, line);
+	}
+	return lines;
+}
+
+export function reconstructObservation(lines: string[]): ObservationEvent {
+	const chunks = lines
+		.map((line) => JSON.parse(line) as ObservationChunk)
+		.sort((left, right) => left.chunk_index - right.chunk_index);
+	const first = chunks[0];
+	if (first === undefined || chunks.length !== first.chunk_count) {
+		throw new TypeError("Observed event chunks are incomplete");
+	}
+	for (const [index, chunk] of chunks.entries()) {
+		if (
+			chunk.schema !== OBSERVATION_SCHEMA ||
+			chunk.event_id !== first.event_id ||
+			chunk.chunk_index !== index ||
+			chunk.chunk_count !== first.chunk_count ||
+			chunk.encoding !== "base64"
+		) {
+			throw new TypeError("Observed event chunks do not form one ordered event");
+		}
+	}
+	const byteParts = chunks.map((chunk) => base64ToBytes(chunk.chunk));
+	const byteLength = byteParts.reduce((total, part) => total + part.length, 0);
+	const bytes = new Uint8Array(byteLength);
+	let offset = 0;
+	for (const part of byteParts) {
+		bytes.set(part, offset);
+		offset += part.length;
+	}
+	return JSON.parse(new TextDecoder().decode(bytes)) as ObservationEvent;
+}
+
+export function decodedObservationData(event: ObservationEvent): unknown {
+	return decodeObservedValue(event.data);
+}
+
+interface ObservedD1StatementDescription {
+	query: string;
+	bindings: unknown[];
+}
+
+class ObservedD1PreparedStatement implements D1PreparedStatement {
+	readonly rawStatement: D1PreparedStatement;
+	readonly description: ObservedD1StatementDescription;
+	private readonly context: ObservationContext;
+
+	constructor(
+		rawStatement: D1PreparedStatement,
+		context: ObservationContext,
+		description: ObservedD1StatementDescription,
+	) {
+		this.rawStatement = rawStatement;
+		this.context = context;
+		this.description = description;
+	}
+
+	bind(...values: unknown[]): D1PreparedStatement {
+		emitObservation(this.context, "d1.statement.bind", "input", {
+			query: this.description.query,
+			bindings: values,
+		});
+		try {
+			const statement = this.rawStatement.bind(...values);
+			emitObservation(this.context, "d1.statement.bind", "output", {
+				query: this.description.query,
+				bindings: values,
+			});
+			return new ObservedD1PreparedStatement(statement, this.context, {
+				query: this.description.query,
+				bindings: values,
+			});
+		} catch (error) {
+			emitObservation(this.context, "d1.statement.bind", "failure", error, "error");
+			throw error;
+		}
+	}
+
+	first<T = unknown>(columnName: string): Promise<T | null>;
+	first<T = Record<string, unknown>>(): Promise<T | null>;
+	async first<T = Record<string, unknown>>(columnName?: string): Promise<T | null> {
+		return this.execute("first", columnName === undefined ? [] : [columnName], async () =>
+			columnName === undefined ? this.rawStatement.first<T>() : this.rawStatement.first<T>(columnName),
+		);
+	}
+
+	async run<T = Record<string, unknown>>(): Promise<D1Result<T>> {
+		return this.execute("run", [], async () => this.rawStatement.run<T>());
+	}
+
+	async all<T = Record<string, unknown>>(): Promise<D1Result<T>> {
+		return this.execute("all", [], async () => this.rawStatement.all<T>());
+	}
+
+	raw<T = unknown[]>(options: {columnNames: true}): Promise<[string[], ...T[]]>;
+	raw<T = unknown[]>(options?: {columnNames?: false}): Promise<T[]>;
+	async raw<T = unknown[]>(options?: {columnNames?: boolean}): Promise<T[] | [string[], ...T[]]> {
+		if (options?.columnNames === true) {
+			return this.execute("raw", [options], async () => this.rawStatement.raw<T>({columnNames: true}));
+		}
+		return this.execute("raw", options === undefined ? [] : [options], async () => this.rawStatement.raw<T>());
+	}
+
+	private async execute<Result>(
+		method: string,
+		arguments_: unknown[],
+		execute: () => Promise<Result>,
+	): Promise<Result> {
+		const operation = `d1.statement.${method}`;
+		emitObservation(this.context, operation, "input", {statement: this.description, arguments: arguments_});
+		try {
+			const result = await execute();
+			emitObservation(this.context, operation, "output", {
+				statement: this.description,
+				arguments: arguments_,
+				result,
+			});
+			return result;
+		} catch (error) {
+			emitObservation(
+				this.context,
+				operation,
+				"failure",
+				{
+					statement: this.description,
+					arguments: arguments_,
+					error,
+				},
+				"error",
+			);
+			throw error;
+		}
+	}
+}
+
+function unwrapD1Statements(statements: D1PreparedStatement[]): {
+	rawStatements: D1PreparedStatement[];
+	descriptions: ObservedD1StatementDescription[];
+} {
+	const rawStatements: D1PreparedStatement[] = [];
+	const descriptions: ObservedD1StatementDescription[] = [];
+	for (const statement of statements) {
+		if (!(statement instanceof ObservedD1PreparedStatement)) {
+			throw new TypeError("Observed D1 batches require statements prepared by the observed binding");
+		}
+		rawStatements.push(statement.rawStatement);
+		descriptions.push(statement.description);
+	}
+	return {rawStatements, descriptions};
+}
+
+class ObservedD1DatabaseSession implements D1DatabaseSession {
+	private readonly rawSession: D1DatabaseSession;
+	private readonly context: ObservationContext;
+
+	constructor(rawSession: D1DatabaseSession, context: ObservationContext) {
+		this.rawSession = rawSession;
+		this.context = context;
+	}
+
+	prepare(query: string): D1PreparedStatement {
+		emitObservation(this.context, "d1.session.prepare", "input", {query});
+		try {
+			const statement = new ObservedD1PreparedStatement(this.rawSession.prepare(query), this.context, {
+				query,
+				bindings: [],
+			});
+			emitObservation(this.context, "d1.session.prepare", "output", {query});
+			return statement;
+		} catch (error) {
+			emitObservation(this.context, "d1.session.prepare", "failure", {query, error}, "error");
+			throw error;
+		}
+	}
+
+	async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+		const {rawStatements, descriptions} = unwrapD1Statements(statements);
+		emitObservation(this.context, "d1.session.batch", "input", {statements: descriptions});
+		try {
+			const result = await this.rawSession.batch<T>(rawStatements);
+			emitObservation(this.context, "d1.session.batch", "output", {statements: descriptions, result});
+			return result;
+		} catch (error) {
+			emitObservation(this.context, "d1.session.batch", "failure", {statements: descriptions, error}, "error");
+			throw error;
+		}
+	}
+
+	getBookmark(): D1SessionBookmark | null {
+		emitObservation(this.context, "d1.session.get_bookmark", "input", null);
+		try {
+			const result = this.rawSession.getBookmark();
+			emitObservation(this.context, "d1.session.get_bookmark", "output", result);
+			return result;
+		} catch (error) {
+			emitObservation(this.context, "d1.session.get_bookmark", "failure", error, "error");
+			throw error;
+		}
+	}
+}
+
+class ObservedD1Database implements D1Database {
+	private readonly rawDatabase: D1Database;
+	private readonly context: ObservationContext;
+
+	constructor(rawDatabase: D1Database, context: ObservationContext) {
+		this.rawDatabase = rawDatabase;
+		this.context = context;
+	}
+
+	prepare(query: string): D1PreparedStatement {
+		emitObservation(this.context, "d1.prepare", "input", {query});
+		try {
+			const statement = new ObservedD1PreparedStatement(this.rawDatabase.prepare(query), this.context, {
+				query,
+				bindings: [],
+			});
+			emitObservation(this.context, "d1.prepare", "output", {query});
+			return statement;
+		} catch (error) {
+			emitObservation(this.context, "d1.prepare", "failure", {query, error}, "error");
+			throw error;
+		}
+	}
+
+	async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+		const {rawStatements, descriptions} = unwrapD1Statements(statements);
+		emitObservation(this.context, "d1.batch", "input", {statements: descriptions});
+		try {
+			const result = await this.rawDatabase.batch<T>(rawStatements);
+			emitObservation(this.context, "d1.batch", "output", {statements: descriptions, result});
+			return result;
+		} catch (error) {
+			emitObservation(this.context, "d1.batch", "failure", {statements: descriptions, error}, "error");
+			throw error;
+		}
+	}
+
+	async exec(query: string): Promise<D1ExecResult> {
+		emitObservation(this.context, "d1.exec", "input", {query});
+		try {
+			const result = await this.rawDatabase.exec(query);
+			emitObservation(this.context, "d1.exec", "output", {query, result});
+			return result;
+		} catch (error) {
+			emitObservation(this.context, "d1.exec", "failure", {query, error}, "error");
+			throw error;
+		}
+	}
+
+	withSession(constraintOrBookmark?: D1SessionBookmark | D1SessionConstraint): D1DatabaseSession {
+		emitObservation(this.context, "d1.with_session", "input", {constraintOrBookmark});
+		try {
+			const session = new ObservedD1DatabaseSession(
+				this.rawDatabase.withSession(constraintOrBookmark),
+				this.context,
+			);
+			emitObservation(this.context, "d1.with_session", "output", {constraintOrBookmark});
+			return session;
+		} catch (error) {
+			emitObservation(this.context, "d1.with_session", "failure", {constraintOrBookmark, error}, "error");
+			throw error;
+		}
+	}
+
+	async dump(): Promise<ArrayBuffer> {
+		emitObservation(this.context, "d1.dump", "input", null);
+		try {
+			const result = await this.rawDatabase.dump();
+			emitObservation(this.context, "d1.dump", "output", result);
+			return result;
+		} catch (error) {
+			emitObservation(this.context, "d1.dump", "failure", error, "error");
+			throw error;
+		}
+	}
+}
+
+export function observeD1Database(database: D1Database, context: ObservationContext): D1Database {
+	return new ObservedD1Database(database, context);
+}
+
+async function observedBody(message: Request | Response): Promise<ArrayBuffer | null> {
+	if (message.body === null) {
+		return null;
+	}
+	return message.clone().arrayBuffer();
+}
+
+async function requestObservation(request: Request): Promise<unknown> {
+	return {
+		method: request.method,
+		url: request.url,
+		headers: Array.from(request.headers.entries()),
+		body: await observedBody(request),
+	};
+}
+
+async function responseObservation(response: Response): Promise<unknown> {
+	return {
+		status: response.status,
+		statusText: response.statusText,
+		headers: Array.from(response.headers.entries()),
+		body: await observedBody(response),
+		webSocket: response.webSocket !== null,
+	};
+}
+
+export async function observeHttpExchange(
+	context: ObservationContext,
+	request: Request,
+	handle: () => Promise<Response>,
+): Promise<Response> {
+	try {
+		emitObservation(context, "http.request", "input", await requestObservation(request));
+	} catch (error) {
+		emitObservation(context, "http.request.capture", "failure", error, "error");
+	}
+	try {
+		const response = await handle();
+		try {
+			emitObservation(context, "http.response", "output", await responseObservation(response));
+		} catch (error) {
+			emitObservation(context, "http.response.capture", "failure", error, "error");
+		}
+		return response;
+	} catch (error) {
+		emitObservation(context, "http.exchange", "failure", error, "error");
+		throw error;
+	}
+}
+
+function cursorMetadata(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): unknown {
+	return {
+		columnNames: cursor.columnNames,
+		rowsRead: cursor.rowsRead,
+		rowsWritten: cursor.rowsWritten,
+	};
+}
+
+function observeIterator<Value>(
+	iterator: IterableIterator<Value>,
+	context: ObservationContext,
+	operation: string,
+	cursor: SqlStorageCursor<Record<string, SqlStorageValue>>,
+): IterableIterator<Value> {
+	let observed: IterableIterator<Value>;
+	observed = new Proxy(iterator, {
+		get(target, property) {
+			if (property === Symbol.iterator) {
+				return (): IterableIterator<Value> => observed;
+			}
+			const member = Reflect.get(target, property, target);
+			if (typeof member !== "function") {
+				return member;
+			}
+			return (...arguments_: unknown[]): unknown => {
+				try {
+					const result = Reflect.apply(member, target, arguments_);
+					emitObservation(context, `${operation}.${String(property)}`, "output", {
+						result,
+						metadata: cursorMetadata(cursor),
+					});
+					return result;
+				} catch (error) {
+					emitObservation(context, `${operation}.${String(property)}`, "failure", error, "error");
+					throw error;
+				}
+			};
+		},
+	});
+	return observed;
+}
+
+function observeSqlCursor<Row extends Record<string, SqlStorageValue>>(
+	cursor: SqlStorageCursor<Row>,
+	context: ObservationContext,
+	query: string,
+	bindings: unknown[],
+): SqlStorageCursor<Row> {
+	return new Proxy(cursor, {
+		get(target, property) {
+			if (property === "next") {
+				return () => {
+					try {
+						const result = target.next();
+						emitObservation(context, "do.sql.cursor.next", "output", {
+							query,
+							bindings,
+							result,
+							metadata: cursorMetadata(target),
+						});
+						return result;
+					} catch (error) {
+						emitObservation(context, "do.sql.cursor.next", "failure", {query, bindings, error}, "error");
+						throw error;
+					}
+				};
+			}
+			if (property === "toArray" || property === "one") {
+				return (): unknown => {
+					const operation = `do.sql.cursor.${String(property)}`;
+					try {
+						const result = property === "toArray" ? target.toArray() : target.one();
+						emitObservation(context, operation, "output", {
+							query,
+							bindings,
+							result,
+							metadata: cursorMetadata(target),
+						});
+						return result;
+					} catch (error) {
+						emitObservation(context, operation, "failure", {query, bindings, error}, "error");
+						throw error;
+					}
+				};
+			}
+			if (property === "raw") {
+				return <Value extends SqlStorageValue[]>(): IterableIterator<Value> =>
+					observeIterator(target.raw<Value>(), context, "do.sql.cursor.raw.next", target);
+			}
+			if (property === Symbol.iterator) {
+				return (): IterableIterator<Row> =>
+					observeIterator(target[Symbol.iterator](), context, "do.sql.cursor.iterator.next", target);
+			}
+			if (property === "columnNames" || property === "rowsRead" || property === "rowsWritten") {
+				try {
+					const result = Reflect.get(target, property, target);
+					emitObservation(context, `do.sql.cursor.${String(property)}`, "output", {query, bindings, result});
+					return result;
+				} catch (error) {
+					emitObservation(
+						context,
+						`do.sql.cursor.${String(property)}`,
+						"failure",
+						{query, bindings, error},
+						"error",
+					);
+					throw error;
+				}
+			}
+			const result = Reflect.get(target, property, target);
+			return typeof result === "function" ? result.bind(target) : result;
+		},
+	});
+}
+
+function observeSqlStorage(storage: SqlStorage, context: ObservationContext): SqlStorage {
+	return new Proxy(storage, {
+		get(target, property) {
+			if (property === "exec") {
+				return <Row extends Record<string, SqlStorageValue>>(query: string, ...bindings: unknown[]) => {
+					emitObservation(context, "do.sql.exec", "input", {query, bindings});
+					try {
+						const cursor = target.exec<Row>(query, ...bindings);
+						emitObservation(context, "do.sql.exec", "output", {query, bindings, cursor: "created"});
+						return observeSqlCursor(cursor, context, query, bindings);
+					} catch (error) {
+						emitObservation(context, "do.sql.exec", "failure", {query, bindings, error}, "error");
+						throw error;
+					}
+				};
+			}
+			if (property === "databaseSize") {
+				try {
+					const result = target.databaseSize;
+					emitObservation(context, "do.sql.database_size", "output", result);
+					return result;
+				} catch (error) {
+					emitObservation(context, "do.sql.database_size", "failure", error, "error");
+					throw error;
+				}
+			}
+			const result = Reflect.get(target, property, target);
+			return typeof result === "function" ? result.bind(target) : result;
+		},
+	});
+}
+
+function observeSynchronousKvStorage(storage: SyncKvStorage, context: ObservationContext): SyncKvStorage {
+	return new Proxy(storage, {
+		get(target, property) {
+			const member = Reflect.get(target, property, target);
+			if (typeof member !== "function") {
+				return member;
+			}
+			return (...arguments_: unknown[]): unknown => {
+				const operation = `do.storage.kv.${String(property)}`;
+				emitObservation(context, operation, "input", {arguments: arguments_});
+				try {
+					const result = Reflect.apply(member, target, arguments_);
+					const observedResult = property === "list" ? Array.from(result as Iterable<unknown>) : result;
+					emitObservation(context, operation, "output", observedResult);
+					return property === "list" ? observedResult : result;
+				} catch (error) {
+					emitObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
+					throw error;
+				}
+			};
+		},
+	});
+}
+
+function observeDurableObjectTransaction(
+	transaction: DurableObjectTransaction,
+	context: ObservationContext,
+): DurableObjectTransaction {
+	return new Proxy(transaction, {
+		get(target, property) {
+			const member = Reflect.get(target, property, target);
+			if (typeof member !== "function") {
+				return member;
+			}
+			return (...arguments_: unknown[]): unknown =>
+				observePlatformOperation(context, `do.storage.transaction.${String(property)}`, arguments_, () =>
+					Reflect.apply(member, target, arguments_),
+				);
+		},
+	});
+}
+
+function observePlatformOperation(
+	context: ObservationContext,
+	operation: string,
+	arguments_: unknown[],
+	execute: () => unknown,
+): unknown {
+	emitObservation(context, operation, "input", {arguments: arguments_});
+	try {
+		const result = execute();
+		if (isPromiseLike(result)) {
+			return Promise.resolve(result).then(
+				(value) => {
+					emitObservation(context, operation, "output", value);
+					return value;
+				},
+				(error: unknown) => {
+					emitObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
+					throw error;
+				},
+			);
+		}
+		emitObservation(context, operation, "output", result);
+		return result;
+	} catch (error) {
+		emitObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
+		throw error;
+	}
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+	return (
+		(typeof value === "object" && value !== null && typeof Reflect.get(value, "then") === "function") ||
+		(typeof value === "function" && typeof Reflect.get(value, "then") === "function")
+	);
+}
+
+export function observeDurableObjectStorage(
+	storage: DurableObjectStorage,
+	context: ObservationContext,
+): DurableObjectStorage {
+	const sql = observeSqlStorage(storage.sql, context);
+	const keyValue = observeSynchronousKvStorage(storage.kv, context);
+	return new Proxy(storage, {
+		get(target, property) {
+			if (property === "sql") {
+				return sql;
+			}
+			if (property === "kv") {
+				return keyValue;
+			}
+			if (property === "transaction") {
+				return async <Result>(
+					closure: (transaction: DurableObjectTransaction) => Promise<Result>,
+				): Promise<Result> =>
+					observePlatformOperation(context, "do.storage.transaction", [], async () =>
+						target.transaction(async (transaction) =>
+							closure(observeDurableObjectTransaction(transaction, context)),
+						),
+					) as Promise<Result>;
+			}
+			if (property === "transactionSync") {
+				return <Result>(closure: () => Result): Result =>
+					observePlatformOperation(context, "do.storage.transaction_sync", [], () =>
+						target.transactionSync(closure),
+					) as Result;
+			}
+			const member = Reflect.get(target, property, target);
+			if (typeof member !== "function") {
+				return member;
+			}
+			return (...arguments_: unknown[]): unknown =>
+				observePlatformOperation(context, `do.storage.${String(property)}`, arguments_, () =>
+					Reflect.apply(member, target, arguments_),
+				);
+		},
+	});
+}
+
+export function observeDurableObjectState<Properties>(
+	state: DurableObjectState<Properties>,
+	context: ObservationContext,
+): DurableObjectState<Properties> {
+	const storage = observeDurableObjectStorage(state.storage, context);
+	return new Proxy(state, {
+		get(target, property) {
+			if (property === "storage") {
+				return storage;
+			}
+			const member = Reflect.get(target, property, target);
+			return typeof member === "function" ? member.bind(target) : member;
+		},
+	});
+}
+
+function observeDurableObjectStub(stub: DurableObjectStub, context: ObservationContext): DurableObjectStub {
+	return new Proxy(stub, {
+		get(target, property) {
+			const member = Reflect.get(target, property, target);
+			if (typeof member !== "function") {
+				return member;
+			}
+			if (property === "fetch") {
+				return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+					const request = new Request(input, init);
+					return observeHttpExchange(context, request, async () => target.fetch(request));
+				};
+			}
+			return (...arguments_: unknown[]): unknown =>
+				observePlatformOperation(context, `do.rpc.${String(property)}`, arguments_, () =>
+					Reflect.apply(member, target, arguments_),
+				);
+		},
+	});
+}
+
+function observeDurableObjectNamespace(
+	namespace: DurableObjectNamespace,
+	context: ObservationContext,
+): DurableObjectNamespace {
+	return new Proxy(namespace, {
+		get(target, property) {
+			const member = Reflect.get(target, property, target);
+			if (typeof member !== "function") {
+				return member;
+			}
+			if (property === "get" || property === "getByName") {
+				return (...arguments_: unknown[]): DurableObjectStub => {
+					const operation = `do.namespace.${String(property)}`;
+					emitObservation(context, operation, "input", {arguments: arguments_});
+					try {
+						const stub = Reflect.apply(member, target, arguments_) as DurableObjectStub;
+						emitObservation(context, operation, "output", {
+							id: stub.id.toString(),
+							name: stub.name,
+						});
+						return observeDurableObjectStub(stub, {
+							...context,
+							objectId: stub.id.toString(),
+						});
+					} catch (error) {
+						emitObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
+						throw error;
+					}
+				};
+			}
+			return (...arguments_: unknown[]): unknown =>
+				observePlatformOperation(context, `do.namespace.${String(property)}`, arguments_, () =>
+					Reflect.apply(member, target, arguments_),
+				);
+		},
+	});
+}
+
+function observeEmailBinding(email: SendEmail, context: ObservationContext): SendEmail {
+	return new Proxy(email, {
+		get(target, property) {
+			const member = Reflect.get(target, property, target);
+			if (property !== "send" || typeof member !== "function") {
+				return typeof member === "function" ? member.bind(target) : member;
+			}
+			return async (message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult> =>
+				observePlatformOperation(context, "email.send", [message], () =>
+					Reflect.apply(member, target, [message]),
+				) as Promise<EmailSendResult>;
+		},
+	});
+}
+
+export function observeEnvironment<Environment extends object>(
+	environment: Environment,
+	context: ObservationContext,
+): Environment {
+	const database = observeD1Database(Reflect.get(environment, "DB") as D1Database, context);
+	const namespace = observeDurableObjectNamespace(
+		Reflect.get(environment, "USER_DO") as DurableObjectNamespace,
+		context,
+	);
+	const rawEmail = Reflect.get(environment, "EMAIL") as SendEmail | undefined;
+	const email = rawEmail === undefined ? undefined : observeEmailBinding(rawEmail, context);
+	return new Proxy(environment, {
+		get(target, property) {
+			switch (property) {
+				case "DB":
+					return database;
+				case "USER_DO":
+					return namespace;
+				case "EMAIL":
+					return email;
+				default:
+					return Reflect.get(target, property, target);
+			}
+		},
+	});
+}
+
+export function observeWebSocketFrame(
+	context: ObservationContext,
+	direction: "inbound" | "outbound",
+	message: unknown,
+): void {
+	emitObservation(context, "websocket.frame", direction, message);
+}

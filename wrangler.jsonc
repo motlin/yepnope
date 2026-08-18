@@ -31,5 +31,9 @@
 		"BETTER_AUTH_URL": "https://yepnope.app",
 		"VAPID_SUBJECT": "mailto:push@yepnope.app",
 	},
-	"observability": {"enabled": true},
+	"observability": {
+		"enabled": true,
+		"logs": {"enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "persist": true},
+		"traces": {"enabled": true, "head_sampling_rate": 1, "persist": true},
+	},
 }
