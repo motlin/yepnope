@@ -66,6 +66,12 @@ export interface SubmittedAnswer {
 	disposition: Disposition;
 }
 
+export interface PushDevice {
+	id: string;
+	label: string;
+	createdAt: number;
+}
+
 export interface LegacyIdentitySnapshot {
 	state: {
 		questionsAsked: number;
@@ -309,13 +315,41 @@ export class UserDurableObject extends DurableObject<Env> {
 		return response.status;
 	};
 
-	async registerDevice(subscription: PushSubscription): Promise<void> {
+	async registerDevice(subscription: PushSubscription, label: string): Promise<void> {
 		this.assertWritable();
 		const serialized = JSON.stringify(subscription);
 		await this.database
 			.insert(devices)
-			.values({id: await hashToken(subscription.endpoint), pushSubscription: serialized, createdAt: Date.now()})
+			.values({
+				id: await hashToken(subscription.endpoint),
+				label,
+				pushSubscription: serialized,
+				createdAt: Date.now(),
+			})
 			.onConflictDoUpdate({target: devices.id, set: {pushSubscription: serialized}});
+	}
+
+	async listPushDevices(): Promise<PushDevice[]> {
+		return this.database
+			.select({id: devices.id, label: devices.label, createdAt: devices.createdAt})
+			.from(devices)
+			.orderBy(asc(devices.createdAt), asc(devices.id));
+	}
+
+	async renamePushDevice(deviceId: string, label: string): Promise<boolean> {
+		this.assertWritable();
+		const renamed = await this.database
+			.update(devices)
+			.set({label})
+			.where(eq(devices.id, deviceId))
+			.returning({id: devices.id});
+		return renamed.length === 1;
+	}
+
+	async revokePushDevice(deviceId: string): Promise<boolean> {
+		this.assertWritable();
+		const revoked = await this.database.delete(devices).where(eq(devices.id, deviceId)).returning({id: devices.id});
+		return revoked.length === 1;
 	}
 
 	// 📣 One push per batch (spec §6.2). The service worker fetches question content after receipt,

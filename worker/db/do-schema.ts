@@ -13,6 +13,7 @@ export const state = sqliteTable("state", {
 
 export const devices = sqliteTable("devices", {
 	id: text("id").primaryKey(),
+	label: text("label").notNull().default("Browser notifications"),
 	pushSubscription: text("push_subscription").notNull(),
 	createdAt: integer("created_at").notNull(),
 });

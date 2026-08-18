@@ -131,6 +131,93 @@ export async function claimLegacyIdentity(legacyToken: string): Promise<void> {
 	);
 }
 
+const managedMachineSchema = z.object({
+	id: z.string(),
+	label: z.string(),
+	created_at: z.number(),
+	last_used_at: z.number().nullable(),
+});
+
+const managedPushDeviceSchema = z.object({
+	id: z.string(),
+	label: z.string(),
+	created_at: z.number(),
+});
+
+const accountDevicesResponseSchema = z.object({
+	machines: z.array(managedMachineSchema),
+	push_devices: z.array(managedPushDeviceSchema),
+});
+
+export interface ManagedMachine {
+	id: string;
+	label: string;
+	createdAt: number;
+	lastUsedAt: number | null;
+}
+
+export interface ManagedPushDevice {
+	id: string;
+	label: string;
+	createdAt: number;
+}
+
+export interface AccountDevices {
+	machines: ManagedMachine[];
+	pushDevices: ManagedPushDevice[];
+}
+
+export async function fetchAccountDevices(): Promise<AccountDevices> {
+	const body = await requestJson("/api/v1/account/devices", {}, accountDevicesResponseSchema);
+	return {
+		machines: body.machines.map((machine) => ({
+			id: machine.id,
+			label: machine.label,
+			createdAt: machine.created_at,
+			lastUsedAt: machine.last_used_at,
+		})),
+		pushDevices: body.push_devices.map((device) => ({
+			id: device.id,
+			label: device.label,
+			createdAt: device.created_at,
+		})),
+	};
+}
+
+export async function renameMachine(machineId: string, label: string): Promise<void> {
+	await requestJson(
+		`/api/v1/account/machines/${machineId}`,
+		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({label})},
+		okResponseSchema,
+	);
+}
+
+const revokeMachineResponseSchema = z.object({
+	status: z.string(),
+	pairing: pairingStatusResponseSchema,
+});
+
+export async function revokeMachine(machineId: string): Promise<PairingStatus> {
+	const body = await requestJson(
+		`/api/v1/account/machines/${machineId}`,
+		{method: "DELETE"},
+		revokeMachineResponseSchema,
+	);
+	return {paired: body.pairing.paired, machineCount: body.pairing.machine_count};
+}
+
+export async function renamePushDevice(deviceId: string, label: string): Promise<void> {
+	await requestJson(
+		`/api/v1/account/push-devices/${deviceId}`,
+		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({label})},
+		okResponseSchema,
+	);
+}
+
+export async function revokePushDevice(deviceId: string): Promise<void> {
+	await requestJson(`/api/v1/account/push-devices/${deviceId}`, {method: "DELETE"}, okResponseSchema);
+}
+
 const questionSchema = z.object({
 	batch_id: z.string(),
 	project: z.string(),

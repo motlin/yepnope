@@ -1,4 +1,4 @@
-import {and, count, eq, isNull, lte} from "drizzle-orm";
+import {and, asc, count, eq, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {machineTokens, pairingCodes} from "./db/d1-schema";
@@ -37,6 +37,53 @@ export interface MintedMachineCredential {
 export interface IssuedPairingCode {
 	code: string;
 	expiresAt: number;
+}
+
+export interface PairedMachine {
+	id: string;
+	label: string;
+	createdAt: number;
+	lastUsedAt: number | null;
+}
+
+export async function listPairedMachines(database: D1Database, userId: string): Promise<PairedMachine[]> {
+	return drizzle(database)
+		.select({
+			id: machineTokens.id,
+			label: machineTokens.label,
+			createdAt: machineTokens.createdAt,
+			lastUsedAt: machineTokens.lastUsedAt,
+		})
+		.from(machineTokens)
+		.where(
+			and(
+				eq(machineTokens.userId, userId),
+				eq(machineTokens.credentialType, "machine"),
+				isNull(machineTokens.revokedAt),
+			),
+		)
+		.orderBy(asc(machineTokens.createdAt), asc(machineTokens.id));
+}
+
+export async function renameMachine(
+	database: D1Database,
+	userId: string,
+	machineId: string,
+	label: string,
+): Promise<boolean> {
+	const renamed = await drizzle(database)
+		.update(machineTokens)
+		.set({label})
+		.where(
+			and(
+				eq(machineTokens.id, machineId),
+				eq(machineTokens.userId, userId),
+				eq(machineTokens.credentialType, "machine"),
+				isNull(machineTokens.revokedAt),
+			),
+		)
+		.returning({id: machineTokens.id});
+	return renamed.length === 1;
 }
 
 export async function getPairedMachineCount(database: D1Database, userId: string): Promise<number> {
@@ -100,7 +147,7 @@ export async function revokeMachineToken(
 	database: D1Database,
 	namespace: DurableObjectNamespace<UserDurableObject>,
 	userId: string,
-	tokenHash: string,
+	machineId: string,
 	revokedAt: number,
 ): Promise<boolean> {
 	const revoked = await drizzle(database)
@@ -108,13 +155,13 @@ export async function revokeMachineToken(
 		.set({revokedAt})
 		.where(
 			and(
-				eq(machineTokens.tokenHash, tokenHash),
+				eq(machineTokens.id, machineId),
 				eq(machineTokens.userId, userId),
 				eq(machineTokens.credentialType, "machine"),
 				isNull(machineTokens.revokedAt),
 			),
 		)
-		.returning({tokenHash: machineTokens.tokenHash});
+		.returning({id: machineTokens.id});
 	if (revoked.length === 0) {
 		return false;
 	}

@@ -1,7 +1,6 @@
 import {env} from "cloudflare:workers";
 import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
-import {hashToken} from "../auth";
 import {revokeMachineToken} from "../pairing";
 import {
 	API_ORIGIN,
@@ -168,8 +167,17 @@ describe("AFK mode", () => {
 		});
 
 		const refreshed = nextMessage(socket);
+		const machine = await env.DB.prepare("SELECT id FROM machine_tokens WHERE user_id = ?")
+			.bind(userId)
+			.first<{id: string}>();
 		expect(
-			await revokeMachineToken(env.DB, env.USER_DO, userId, await hashToken(token), Date.UTC(2000, 0, 1)),
+			await revokeMachineToken(
+				env.DB,
+				env.USER_DO,
+				userId,
+				required(machine?.id, "machine id"),
+				Date.UTC(2000, 0, 1),
+			),
 		).toBe(true);
 		expect(JSON.parse(await refreshed)).toStrictEqual({
 			type: "questions",

@@ -2,11 +2,19 @@ import {authenticateBrowserSession, authenticateRequest, createWorkerAuthenticat
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
 import {claimLegacyIdentity} from "./identity-linking";
 import {cleanupExpiredIdentityRecords} from "./identity-lifecycle";
-import {claimPairingCode, createPairingCode, getPairedMachineCount} from "./pairing";
+import {
+	claimPairingCode,
+	createPairingCode,
+	getPairedMachineCount,
+	listPairedMachines,
+	renameMachine,
+	revokeMachineToken,
+} from "./pairing";
 import type {UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
 	createBatchRequestSchema,
+	deviceLabelRequestSchema,
 	legacyIdentityClaimRequestSchema,
 	MAX_REQUEST_BYTES,
 	pairClaimRequestSchema,
@@ -19,6 +27,8 @@ export {UserDurableObject} from "./user-do";
 
 const STREAM_PATH = /^\/api\/v1\/questions\/[^/]+\/stream$/;
 const QUESTIONS_STREAM_PATH = "/api/v1/questions/stream";
+const MACHINE_MANAGEMENT_PATH = /^\/api\/v1\/account\/machines\/([0-9a-f]{32})$/;
+const PUSH_DEVICE_MANAGEMENT_PATH = /^\/api\/v1\/account\/push-devices\/([0-9a-f]{64})$/;
 
 export default {
 	async fetch(request, env, executionContext): Promise<Response> {
@@ -68,6 +78,26 @@ export default {
 				return new Response(null, {status: 401});
 			}
 			return claimLegacyBrowserIdentity(request, env, accountUserId);
+		}
+		const machineManagementMatch = MACHINE_MANAGEMENT_PATH.exec(url.pathname);
+		const pushDeviceManagementMatch = PUSH_DEVICE_MANAGEMENT_PATH.exec(url.pathname);
+		if (
+			(url.pathname === "/api/v1/account/devices" && request.method === "GET") ||
+			(machineManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE")) ||
+			(pushDeviceManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE"))
+		) {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			if (accountUserId === null) {
+				return new Response(null, {status: 401});
+			}
+			const accountStub = env.USER_DO.getByName(accountUserId);
+			if (url.pathname === "/api/v1/account/devices") {
+				return listAccountDevices(env.DB, accountStub, accountUserId);
+			}
+			if (machineManagementMatch !== null) {
+				return manageMachine(request, env, accountUserId, machineManagementMatch[1]);
+			}
+			return managePushDevice(request, accountStub, pushDeviceManagementMatch?.[1]);
 		}
 
 		const authenticatedRequest = withBrowserSocketAuthorization(request, url);
@@ -193,8 +223,75 @@ async function subscribePush(request: Request, stub: DurableObjectStub<UserDurab
 	if (!parsed.success) {
 		return new Response(null, {status: 400});
 	}
-	await stub.registerDevice(parsed.data);
+	await stub.registerDevice(parsed.data, "Browser notifications");
 	return Response.json({status: "ok"});
+}
+
+async function listAccountDevices(
+	database: D1Database,
+	stub: DurableObjectStub<UserDurableObject>,
+	userId: string,
+): Promise<Response> {
+	const [machines, pushDevices] = await Promise.all([listPairedMachines(database, userId), stub.listPushDevices()]);
+	return Response.json({
+		machines: machines.map((machine) => ({
+			id: machine.id,
+			label: machine.label,
+			created_at: machine.createdAt,
+			last_used_at: machine.lastUsedAt,
+		})),
+		push_devices: pushDevices.map((device) => ({
+			id: device.id,
+			label: device.label,
+			created_at: device.createdAt,
+		})),
+	});
+}
+
+async function manageMachine(
+	request: Request,
+	environment: Env,
+	userId: string,
+	machineId: string | undefined,
+): Promise<Response> {
+	if (machineId === undefined) {
+		return new Response(null, {status: 404});
+	}
+	if (request.method === "PUT") {
+		const parsed = deviceLabelRequestSchema.safeParse(await request.json().catch(() => null));
+		if (!parsed.success) {
+			return new Response(null, {status: 400});
+		}
+		return (await renameMachine(environment.DB, userId, machineId, parsed.data.label))
+			? Response.json({status: "ok"})
+			: new Response(null, {status: 404});
+	}
+	const revoked = await revokeMachineToken(environment.DB, environment.USER_DO, userId, machineId, Date.now());
+	if (!revoked) {
+		return new Response(null, {status: 404});
+	}
+	const machineCount = await getPairedMachineCount(environment.DB, userId);
+	return Response.json({status: "ok", pairing: {paired: machineCount > 0, machine_count: machineCount}});
+}
+
+async function managePushDevice(
+	request: Request,
+	stub: DurableObjectStub<UserDurableObject>,
+	deviceId: string | undefined,
+): Promise<Response> {
+	if (deviceId === undefined) {
+		return new Response(null, {status: 404});
+	}
+	if (request.method === "PUT") {
+		const parsed = deviceLabelRequestSchema.safeParse(await request.json().catch(() => null));
+		if (!parsed.success) {
+			return new Response(null, {status: 400});
+		}
+		return (await stub.renamePushDevice(deviceId, parsed.data.label))
+			? Response.json({status: "ok"})
+			: new Response(null, {status: 404});
+	}
+	return (await stub.revokePushDevice(deviceId)) ? Response.json({status: "ok"}) : new Response(null, {status: 404});
 }
 
 async function createQuestions(

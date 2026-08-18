@@ -473,6 +473,92 @@ body {
 	gap: 8px;
 }
 
+.hint h4 {
+	margin: 16px 0 8px;
+	color: #d7dae0;
+	font-size: 13px;
+}
+
+.device-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.managed-device {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	border-top: 1px solid #32353d;
+	padding-top: 10px;
+}
+
+.managed-device strong,
+.managed-device small {
+	display: block;
+}
+
+.managed-device strong {
+	color: #eceef2;
+	font-size: 14px;
+}
+
+.managed-device small {
+	margin-top: 3px;
+	color: #8f96a1;
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.device-actions {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 6px;
+}
+
+.managed-device .device-actions button {
+	padding: 6px 9px;
+	font-size: 12px;
+}
+
+.managed-device .device-actions button.danger {
+	border: 1px solid rgb(229 72 77 / 55%);
+	background: rgb(229 72 77 / 12%);
+	color: #ffb4b7;
+}
+
+.device-rename,
+.device-rename label {
+	display: flex;
+	width: 100%;
+}
+
+.device-rename {
+	align-items: flex-end;
+	gap: 8px;
+}
+
+.device-rename label {
+	flex-direction: column;
+	gap: 5px;
+	color: #b9bec7;
+	font-size: 12px;
+}
+
+.device-rename input {
+	min-width: 0;
+	border: 1px solid #41454e;
+	border-radius: 8px;
+	background: #141519;
+	color: #eceef2;
+	font: inherit;
+	padding: 7px 8px;
+}
+
 .hint button.secondary {
 	border: 1px solid #41454e;
 	background: transparent;

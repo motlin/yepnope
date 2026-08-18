@@ -124,14 +124,14 @@ describe("sendBatchPush", () => {
 		});
 	});
 
-	it("drops devices the push service reports gone", async () => {
-		const userId = "push-gone";
+	it.each([404, 410])("drops devices when the push service returns %i", async (staleStatus) => {
+		const userId = `push-gone-${staleStatus}`;
 		const token = await registerMachineToken(userId);
 		const receiver = await createPushReceiver("https://push.example.com/send/gone");
 		await subscribe(token, receiver);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Still there?", body: ""}]);
 
-		const {delivered} = await deliverBatchPush(userId, created.batch_id, 410);
+		const {delivered} = await deliverBatchPush(userId, created.batch_id, staleStatus);
 		expect(delivered).toBe(0);
 
 		const stub = env.USER_DO.getByName(userId);

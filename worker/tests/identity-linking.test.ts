@@ -64,10 +64,13 @@ describe("POST /api/v1/account/claim-legacy", () => {
 			],
 		});
 		await source.submitAnswers([{question_id: sourceBatch.questionIds[0]!, disposition: "yep"}]);
-		await source.registerDevice({
-			endpoint: "https://push.example.com/legacy-device",
-			keys: {p256dh: "legacy-public-key", auth: "legacy-auth-secret"},
-		});
+		await source.registerDevice(
+			{
+				endpoint: "https://push.example.com/legacy-device",
+				keys: {p256dh: "legacy-public-key", auth: "legacy-auth-secret"},
+			},
+			"Alice's browser",
+		);
 
 		const destination = env.USER_DO.getByName(session.userId);
 		const destinationBatch = await destination.createBatch({
@@ -269,14 +272,14 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		const legacyToken = "legacy-app-token-for-conflict-that-is-long-enough";
 		await seedLegacyIdentity(legacyUserId, legacyToken, "DEF567");
 		const endpoint = "https://push.example.com/shared-device";
-		await env.USER_DO.getByName(legacyUserId).registerDevice({
-			endpoint,
-			keys: {p256dh: "legacy-public-key", auth: "legacy-auth-secret"},
-		});
-		await env.USER_DO.getByName(session.userId).registerDevice({
-			endpoint,
-			keys: {p256dh: "account-public-key", auth: "account-auth-secret"},
-		});
+		await env.USER_DO.getByName(legacyUserId).registerDevice(
+			{endpoint, keys: {p256dh: "legacy-public-key", auth: "legacy-auth-secret"}},
+			"Alice's old browser",
+		);
+		await env.USER_DO.getByName(session.userId).registerDevice(
+			{endpoint, keys: {p256dh: "account-public-key", auth: "account-auth-secret"}},
+			"Alice's new browser",
+		);
 
 		const response = await claimLegacy(session.cookie, legacyToken);
 		expect({body: await response.json(), status: response.status}).toStrictEqual({

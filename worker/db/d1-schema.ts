@@ -89,7 +89,10 @@ export const verifications = sqliteTable(
 export const machineTokens = sqliteTable(
 	"machine_tokens",
 	{
-		tokenHash: text("token_hash").primaryKey(),
+		id: text("id")
+			.primaryKey()
+			.default(sql`(lower(hex(randomblob(16))))`),
+		tokenHash: text("token_hash").notNull().unique(),
 		userId: text("user_id")
 			.notNull()
 			.references(() => users.id, {onDelete: "cascade"}),

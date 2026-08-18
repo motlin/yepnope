@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
-import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import type {AuthenticationUser, LiveApplicationState, PairingStatus, QuestionsStream} from "../src/api";
+import type {
+	AccountDevices,
+	AuthenticationUser,
+	LiveApplicationState,
+	PairingStatus,
+	QuestionsStream,
+} from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
 const initialQuestions: DeckQuestion[] = [
@@ -25,7 +31,16 @@ const alice: AuthenticationUser = {
 };
 
 const fetchSession = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser | null>>());
+const fetchAccountDevices = vi.hoisted(() =>
+	vi.fn<() => Promise<AccountDevices>>(async () => Promise.resolve({machines: [], pushDevices: []})),
+);
 const claimLegacyIdentity = vi.hoisted(() => vi.fn<(_token: string) => Promise<void>>(async () => Promise.resolve()));
+const renameMachine = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
+const renamePushDevice = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
+const revokeMachine = vi.hoisted(() =>
+	vi.fn<(_id: string) => Promise<PairingStatus>>(async () => Promise.resolve({paired: false, machineCount: 0})),
+);
+const revokePushDevice = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>());
 
 const fetchPairingStatus = vi.hoisted(() =>
 	vi.fn<() => Promise<PairingStatus>>(async () => Promise.resolve({paired: true, machineCount: 1})),
@@ -38,6 +53,7 @@ const refreshStream = vi.fn<() => void>();
 
 vi.mock("../src/api", () => ({
 	claimLegacyIdentity,
+	fetchAccountDevices,
 	fetchAfk: vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)),
 	fetchPairingStatus,
 	fetchSession,
@@ -52,6 +68,10 @@ vi.mock("../src/api", () => ({
 	registerAccount: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
 	requestPasswordReset: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	resetPassword: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	renameMachine,
+	renamePushDevice,
+	revokeMachine,
+	revokePushDevice,
 	sendVerificationEmail: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	signIn: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
 	signOut: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
@@ -107,6 +127,11 @@ beforeEach(() => {
 	vi.mocked(isStandalone).mockReturnValue(false);
 	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1});
 	fetchSession.mockResolvedValue(alice);
+	fetchAccountDevices.mockResolvedValue({machines: [], pushDevices: []});
+	renameMachine.mockResolvedValue(undefined);
+	renamePushDevice.mockResolvedValue(undefined);
+	revokeMachine.mockResolvedValue({paired: false, machineCount: 0});
+	revokePushDevice.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -447,6 +472,68 @@ describe("Better Auth account routes", () => {
 
 		expect(await screen.findByText("alice@example.com")).toBeDefined();
 		expect(screen.getByText("✓ Verified email · Session active")).toBeDefined();
+	});
+
+	it("renames and revokes paired machines and browser notification devices", async () => {
+		let accountDevices: AccountDevices = {
+			machines: [{id: "machine-alice", label: "Alice laptop", createdAt: 946_684_800_000, lastUsedAt: null}],
+			pushDevices: [{id: "push-alice", label: "Alice phone", createdAt: 946_684_800_000}],
+		};
+		fetchAccountDevices.mockImplementation(async () => Promise.resolve(accountDevices));
+		renameMachine.mockImplementation(async (_id, label) => {
+			accountDevices = {
+				...accountDevices,
+				machines: accountDevices.machines.map((machine) => ({...machine, label})),
+			};
+			return Promise.resolve();
+		});
+		revokePushDevice.mockImplementation(async () => {
+			accountDevices = {...accountDevices, pushDevices: []};
+			return Promise.resolve();
+		});
+		revokeMachine.mockImplementation(async () => {
+			accountDevices = {...accountDevices, machines: []};
+			return Promise.resolve({paired: false, machineCount: 0});
+		});
+		window.history.replaceState({}, "", "/settings");
+		render(<App />);
+
+		const machineRow = (await screen.findByText("Alice laptop")).closest("li");
+		if (machineRow === null) {
+			throw new Error("missing machine row");
+		}
+		fireEvent.click(within(machineRow).getByRole("button", {name: "Rename"}));
+		fireEvent.change(within(machineRow).getByRole("textbox", {name: "Device name"}), {
+			target: {value: "Work laptop"},
+		});
+		fireEvent.click(within(machineRow).getByRole("button", {name: "Save"}));
+		await waitFor(() => {
+			expect(renameMachine.mock.calls).toStrictEqual([["machine-alice", "Work laptop"]]);
+			expect(screen.getByText("Work laptop").textContent).toBe("Work laptop");
+		});
+
+		const pushRow = screen.getByText("Alice phone").closest("li");
+		if (pushRow === null) {
+			throw new Error("missing push device row");
+		}
+		fireEvent.click(within(pushRow).getByRole("button", {name: "Revoke"}));
+		await waitFor(() => {
+			expect(revokePushDevice.mock.calls).toStrictEqual([["push-alice"]]);
+			expect(screen.getByText("No browsers receive notifications.").textContent).toBe(
+				"No browsers receive notifications.",
+			);
+		});
+
+		const renamedMachineRow = screen.getByText("Work laptop").closest("li");
+		if (renamedMachineRow === null) {
+			throw new Error("missing renamed machine row");
+		}
+		fireEvent.click(within(renamedMachineRow).getByRole("button", {name: "Revoke"}));
+		await waitFor(() => {
+			expect(revokeMachine.mock.calls).toStrictEqual([["machine-alice"]]);
+			expect(screen.getByText("No paired machines.").textContent).toBe("No paired machines.");
+			expect(screen.getByRole("button", {name: "Pair a machine"}).textContent).toBe("Pair a machine");
+		});
 	});
 
 	it("recovers the same account-owned deck after a second browser signs in", async () => {

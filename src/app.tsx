@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent} from "react";
 import {
 	claimLegacyIdentity,
+	fetchAccountDevices,
 	fetchAfk,
 	fetchPairingStatus,
 	fetchSession,
@@ -9,12 +10,17 @@ import {
 	registerAccount,
 	requestPasswordReset,
 	resetPassword,
+	renameMachine,
+	renamePushDevice,
+	revokeMachine,
+	revokePushDevice,
 	sendVerificationEmail,
 	signIn,
 	signOut,
 	submitAnswer,
 	updateAfk,
 	type AuthenticationUser,
+	type AccountDevices,
 	type QuestionsStream,
 	type IssuedPairingCode,
 	type PairingStatus,
@@ -596,6 +602,101 @@ function ResetPassword({onNavigate}: AccountRouteProps): ReactElement {
 	);
 }
 
+interface ManagedDeviceRowProps {
+	createdAt: number;
+	label: string;
+	lastUsedText: string;
+	onRename: (label: string) => Promise<void>;
+	onRevoke: () => Promise<void>;
+}
+
+function ManagedDeviceRow({createdAt, label, lastUsedText, onRename, onRevoke}: ManagedDeviceRowProps): ReactElement {
+	const [editing, setEditing] = useState(false);
+	const [nextLabel, setNextLabel] = useState(label);
+	const [busy, setBusy] = useState(false);
+
+	async function save(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+		event.preventDefault();
+		setBusy(true);
+		try {
+			await onRename(nextLabel);
+			setEditing(false);
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	return (
+		<li className="managed-device">
+			{editing ? (
+				<form className="device-rename" onSubmit={(event) => void save(event)}>
+					<label>
+						Device name
+						<input
+							type="text"
+							maxLength={100}
+							required
+							value={nextLabel}
+							onChange={(event) => {
+								setNextLabel(event.currentTarget.value);
+							}}
+						/>
+					</label>
+					<div className="device-actions">
+						<button type="submit" disabled={busy}>
+							Save
+						</button>
+						<button
+							type="button"
+							className="secondary"
+							disabled={busy}
+							onClick={() => {
+								setNextLabel(label);
+								setEditing(false);
+							}}
+						>
+							Cancel
+						</button>
+					</div>
+				</form>
+			) : (
+				<>
+					<div>
+						<strong>{label}</strong>
+						<small>
+							Added {new Date(createdAt).toLocaleString()} · {lastUsedText}
+						</small>
+					</div>
+					<div className="device-actions">
+						<button
+							type="button"
+							className="secondary"
+							onClick={() => {
+								setEditing(true);
+							}}
+						>
+							Rename
+						</button>
+						<button
+							type="button"
+							className="danger"
+							disabled={busy}
+							onClick={() => {
+								setBusy(true);
+								void onRevoke().finally(() => {
+									setBusy(false);
+								});
+							}}
+						>
+							Revoke
+						</button>
+					</div>
+				</>
+			)}
+		</li>
+	);
+}
+
 function Settings({
 	session,
 	pairingStatus,
@@ -612,10 +713,29 @@ function Settings({
 	const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 	const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
 	const [accountError, setAccountError] = useState<string | null>(null);
+	const [accountDevices, setAccountDevices] = useState<AccountDevices | null>(null);
+	const [devicesError, setDevicesError] = useState<string | null>(null);
 	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">(
 		"Notification" in window && Notification.permission === "granted" ? "subscribed" : "idle",
 	);
 	const pairingCode = useRef<HTMLElement | null>(null);
+
+	const reloadDevices = useCallback(async (): Promise<void> => {
+		if (session === null) {
+			setAccountDevices(null);
+			return;
+		}
+		try {
+			setAccountDevices(await fetchAccountDevices());
+			setDevicesError(null);
+		} catch (caught) {
+			setDevicesError(errorMessage(caught));
+		}
+	}, [session]);
+
+	useEffect(() => {
+		void reloadDevices();
+	}, [reloadDevices]);
 
 	useEffect(() => {
 		const element = pairingCode.current;
@@ -656,6 +776,7 @@ function Settings({
 					setPairingBaseline(null);
 					setPairingOutcome("paired");
 					setCopyState("idle");
+					void reloadDevices();
 				} else if (Date.now() >= pendingPairing.expiresAt) {
 					setPairing(null);
 					setPairingBaseline(null);
@@ -673,7 +794,17 @@ function Settings({
 			cancelled = true;
 			window.clearInterval(timer);
 		};
-	}, [onPairingStatusChange, pairing, pairingBaseline, session]);
+	}, [onPairingStatusChange, pairing, pairingBaseline, reloadDevices, session]);
+
+	async function runDeviceAction(action: () => Promise<void>): Promise<void> {
+		setDevicesError(null);
+		try {
+			await action();
+			await reloadDevices();
+		} catch (caught) {
+			setDevicesError(errorMessage(caught));
+		}
+	}
 
 	async function copyIssuedPairingCode(issued: Promise<IssuedPairingCode>): Promise<void> {
 		if (typeof ClipboardItem !== "undefined" && typeof navigator.clipboard.write === "function") {
@@ -782,9 +913,17 @@ function Settings({
 						<button
 							type="button"
 							onClick={() => {
-								enablePush().then(setPushState, () => {
-									setPushState("error");
-								});
+								void enablePush().then(
+									(result) => {
+										setPushState(result);
+										if (result === "subscribed") {
+											void reloadDevices();
+										}
+									},
+									() => {
+										setPushState("error");
+									},
+								);
 							}}
 						>
 							Enable notifications
@@ -795,6 +934,65 @@ function Settings({
 					</>
 				)}
 			</div>
+			{session !== null && (
+				<div className="hint">
+					<h3>Devices</h3>
+					<p>Rename devices you recognize and revoke credentials you no longer use.</p>
+					<h4>Paired machines</h4>
+					{accountDevices === null ? (
+						<p>Loading devices…</p>
+					) : accountDevices.machines.length === 0 ? (
+						<p>No paired machines.</p>
+					) : (
+						<ul className="device-list">
+							{accountDevices.machines.map((machine) => (
+								<ManagedDeviceRow
+									key={machine.id}
+									createdAt={machine.createdAt}
+									label={machine.label}
+									lastUsedText={
+										machine.lastUsedAt === null
+											? "Never used"
+											: `Last used ${new Date(machine.lastUsedAt).toLocaleString()}`
+									}
+									onRename={async (label) =>
+										runDeviceAction(async () => renameMachine(machine.id, label))
+									}
+									onRevoke={async () =>
+										runDeviceAction(async () => {
+											onPairingStatusChange(await revokeMachine(machine.id));
+										})
+									}
+								/>
+							))}
+						</ul>
+					)}
+					<h4>Browser notifications</h4>
+					{accountDevices !== null && accountDevices.pushDevices.length === 0 ? (
+						<p>No browsers receive notifications.</p>
+					) : (
+						<ul className="device-list">
+							{accountDevices?.pushDevices.map((device) => (
+								<ManagedDeviceRow
+									key={device.id}
+									createdAt={device.createdAt}
+									label={device.label}
+									lastUsedText="Receives push notifications"
+									onRename={async (label) =>
+										runDeviceAction(async () => renamePushDevice(device.id, label))
+									}
+									onRevoke={async () => runDeviceAction(async () => revokePushDevice(device.id))}
+								/>
+							))}
+						</ul>
+					)}
+					{devicesError !== null && (
+						<p className="form-error" role="alert">
+							{devicesError}
+						</p>
+					)}
+				</div>
+			)}
 			<div className="hint">
 				<h3>{pairingStatus?.paired === true ? "Pair another machine" : "Pair a machine"}</h3>
 				{session === null ? (
