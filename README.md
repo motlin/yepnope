@@ -180,7 +180,10 @@ the Worker's `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN` variables. Deploy with
 The administration CLI requires `CLOUDFLARE_ACCOUNT_ID`,
 `CLOUDFLARE_API_TOKEN`, `YEPNOPE_DO_NAMESPACE_ID`, `YEPNOPE_ADMIN_URL`,
 `CF_ACCESS_CLIENT_ID`, and `CF_ACCESS_CLIENT_SECRET`. It emits table counts and
-physical object IDs, never stored credentials or content:
+known object IDs, never stored credentials or content. Cloudflare's List Objects
+entries are stable known IDs, not a count of live or allocated Durable Objects.
+Diagnostics headline the number of IDs where `hasStoredData=true` and report
+known empty IDs separately:
 
 ```sh
 npm run admin:storage -- diagnostics
@@ -191,5 +194,9 @@ npm run admin:storage -- cleanup --confirm --expected-count 3
 Cleanup defaults to a dry run. A confirmed cleanup repeats the complete
 cursor-paginated namespace inventory, refuses an inventory or ownership race,
 deletes one orphan at a time, and verifies each object's storage was
-deallocated before continuing. After a partial failure, rerun the dry run and
-confirm its new expected count.
+deallocated before continuing. `deleteAll()` deallocates SQLite, key-value, and
+alarm storage, but Cloudflare may retain the Durable Object's stable identity in
+the namespace inventory with `hasStoredData=false`. Cleanup is complete when no
+target ID has stored data, even if known empty IDs remain; do not rotate the
+namespace merely to force the known-identity count to zero. After a partial
+failure, rerun the dry run and confirm its new orphan stored-object count.

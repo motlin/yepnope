@@ -98,7 +98,7 @@ export async function listNamespaceObjects(
 	const seenObjectIds = new Set<string>();
 	for (const current of objects) {
 		if (seenObjectIds.has(current.id)) {
-			throw new Error(`Cloudflare returned duplicate Durable Object ${current.id}`);
+			throw new Error(`Cloudflare returned duplicate known object ID ${current.id}`);
 		}
 		seenObjectIds.add(current.id);
 	}
@@ -147,7 +147,11 @@ function storedObjectIds(inventory: NamespaceObject[]): string[] {
 	return inventory.filter(({hasStoredData}) => hasStoredData).map(({id}) => id);
 }
 
-function orphanObjectIds(inventory: NamespaceObject[], liveOwnerObjectIds: string[]): string[] {
+function knownEmptyObjectIds(inventory: NamespaceObject[]): string[] {
+	return inventory.filter(({hasStoredData}) => !hasStoredData).map(({id}) => id);
+}
+
+function orphanStoredObjectIds(inventory: NamespaceObject[], liveOwnerObjectIds: string[]): string[] {
 	const owners = new Set(liveOwnerObjectIds);
 	return storedObjectIds(inventory).filter((id) => !owners.has(id));
 }
@@ -163,13 +167,15 @@ async function verifyDeallocation(
 	environment: StorageAdminEnvironment,
 	dependencies: StorageAdminDependencies,
 	objectIds: string[],
-): Promise<void> {
+	initialInventory: NamespaceObject[],
+): Promise<NamespaceObject[]> {
 	const remaining = new Set(objectIds);
 	const consecutiveEmptyInventories = new Map(objectIds.map((objectId) => [objectId, 0]));
+	let latestInventory = initialInventory;
 	for (let attempt = 0; attempt < 60 && remaining.size > 0; attempt += 1) {
-		const inventory = await listNamespaceObjects(environment, dependencies.fetch);
+		latestInventory = await listNamespaceObjects(environment, dependencies.fetch);
 		for (const objectId of [...remaining]) {
-			if (inventory.find(({id}) => id === objectId)?.hasStoredData === true) {
+			if (latestInventory.find(({id}) => id === objectId)?.hasStoredData === true) {
 				consecutiveEmptyInventories.set(objectId, 0);
 				continue;
 			}
@@ -187,8 +193,9 @@ async function verifyDeallocation(
 		}
 	}
 	if (remaining.size > 0) {
-		throw new Error(`${remaining.size} Durable Objects still report stored data after deletion`);
+		throw new Error(`${remaining.size} known object IDs still have stored data after deletion`);
 	}
+	return latestInventory;
 }
 
 function parseCleanupOptions(arguments_: string[]): CleanupOptions {
@@ -238,13 +245,16 @@ async function diagnostics(
 		listNamespaceObjects(environment, dependencies.fetch),
 		getInventoryContext(environment, dependencies.fetch),
 	]);
-	const objectDiagnostics = await getObjectDiagnostics(environment, dependencies.fetch, storedObjectIds(inventory));
+	const storedObjectIdentifiers = storedObjectIds(inventory);
+	const objectDiagnostics = await getObjectDiagnostics(environment, dependencies.fetch, storedObjectIdentifiers);
 	return {
 		mode: "diagnostics",
 		d1: context.d1,
-		inventory: inventory.map(({id, hasStoredData}) => ({has_stored_data: hasStoredData, object_id: id})),
-		objects: objectDiagnostics,
-		orphan_object_ids: orphanObjectIds(inventory, context.live_owner_object_ids),
+		stored_object_count: storedObjectIdentifiers.length,
+		stored_objects: objectDiagnostics,
+		orphan_stored_object_ids: orphanStoredObjectIds(inventory, context.live_owner_object_ids),
+		known_empty_object_ids: knownEmptyObjectIds(inventory),
+		known_object_ids: inventory.map(({id}) => id),
 	};
 }
 
@@ -255,12 +265,21 @@ async function cleanup(
 ): Promise<unknown> {
 	const initialInventory = await listNamespaceObjects(environment, dependencies.fetch);
 	const initialContext = await getInventoryContext(environment, dependencies.fetch);
-	const initialOrphans = orphanObjectIds(initialInventory, initialContext.live_owner_object_ids);
+	const initialStoredObjectIdentifiers = storedObjectIds(initialInventory);
+	const initialOrphans = orphanStoredObjectIds(initialInventory, initialContext.live_owner_object_ids);
 	if (!options.confirm) {
-		return {mode: "dry-run", expected_count: initialOrphans.length, orphan_object_ids: initialOrphans};
+		return {
+			mode: "dry-run",
+			stored_object_count: initialStoredObjectIdentifiers.length,
+			orphan_stored_object_count: initialOrphans.length,
+			orphan_stored_object_ids: initialOrphans,
+			known_empty_object_ids: knownEmptyObjectIds(initialInventory),
+		};
 	}
 	if (options.expectedCount !== initialOrphans.length) {
-		throw new Error(`expected ${options.expectedCount} orphan objects, found ${initialOrphans.length}`);
+		throw new Error(
+			`expected ${options.expectedCount} orphan object IDs with stored data, found ${initialOrphans.length}`,
+		);
 	}
 
 	const confirmedInventory = await listNamespaceObjects(environment, dependencies.fetch);
@@ -269,11 +288,11 @@ async function cleanup(
 		inventorySignature(initialInventory, initialContext.live_owner_object_ids) !==
 		inventorySignature(confirmedInventory, confirmedContext.live_owner_object_ids)
 	) {
-		throw new Error("namespace inventory or live owners changed after confirmation");
+		throw new Error("known object IDs, stored-data state, or live owners changed after confirmation");
 	}
-	const confirmedOrphans = orphanObjectIds(confirmedInventory, confirmedContext.live_owner_object_ids);
+	const confirmedOrphans = orphanStoredObjectIds(confirmedInventory, confirmedContext.live_owner_object_ids);
 	if (confirmedOrphans.length !== options.expectedCount) {
-		throw new Error("orphan count changed after confirmation");
+		throw new Error("orphan stored-object count changed after confirmation");
 	}
 
 	const deletedObjectIds: string[] = [];
@@ -290,11 +309,17 @@ async function cleanup(
 	} catch (error) {
 		deletionFailure = error instanceof Error ? error : new Error("Durable Object deletion failed", {cause: error});
 	}
-	await verifyDeallocation(environment, dependencies, deletedObjectIds);
+	const verifiedInventory = await verifyDeallocation(environment, dependencies, deletedObjectIds, confirmedInventory);
 	if (deletionFailure !== undefined) {
 		throw deletionFailure;
 	}
-	return {deleted_count: confirmedOrphans.length, mode: "confirmed", status: "complete"};
+	return {
+		deleted_stored_object_count: confirmedOrphans.length,
+		known_empty_object_ids: knownEmptyObjectIds(verifiedInventory),
+		mode: "confirmed",
+		remaining_stored_object_count: storedObjectIds(verifiedInventory).length,
+		status: "complete",
+	};
 }
 
 export async function runStorageAdministration(

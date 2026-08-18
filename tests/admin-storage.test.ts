@@ -33,8 +33,8 @@ function inventoryContext(liveOwnerObjectIds: string[] = []) {
 	});
 }
 
-describe("Durable Object namespace inventory", () => {
-	it("follows every cursor and returns a sorted physical inventory", async () => {
+describe("known Durable Object IDs", () => {
+	it("follows every cursor and returns sorted IDs with their stored-data state", async () => {
 		const request = vi
 			.fn<typeof fetch>()
 			.mockResolvedValueOnce(namespacePage([{id: BOB_OBJECT_ID, hasStoredData: true}], "next-page"))
@@ -105,18 +105,17 @@ describe("orphan Durable Object cleanup", () => {
 		expect(result).toStrictEqual({
 			mode: "diagnostics",
 			d1: {table_counts: [{name: "user", rows: 0}]},
-			inventory: [
-				{has_stored_data: false, object_id: ALICE_OBJECT_ID},
-				{has_stored_data: true, object_id: BOB_OBJECT_ID},
-			],
-			objects: [
+			stored_object_count: 1,
+			stored_objects: [
 				{
 					object_id: BOB_OBJECT_ID,
 					alarm_set: false,
 					table_counts: [{name: "devices", rows: 1}],
 				},
 			],
-			orphan_object_ids: [BOB_OBJECT_ID],
+			orphan_stored_object_ids: [BOB_OBJECT_ID],
+			known_empty_object_ids: [ALICE_OBJECT_ID],
+			known_object_ids: [ALICE_OBJECT_ID, BOB_OBJECT_ID],
 		});
 		expect(JSON.stringify(result).includes("example-client-secret")).toBe(false);
 	});
@@ -140,13 +139,19 @@ describe("orphan Durable Object cleanup", () => {
 				fetch: request,
 				write: (value) => writes.push(value),
 			}),
-		).toStrictEqual({mode: "dry-run", expected_count: 1, orphan_object_ids: [ALICE_OBJECT_ID]});
+		).toStrictEqual({
+			mode: "dry-run",
+			stored_object_count: 2,
+			orphan_stored_object_count: 1,
+			orphan_stored_object_ids: [ALICE_OBJECT_ID],
+			known_empty_object_ids: [],
+		});
 		await expect(
 			runStorageAdministration(["cleanup", "--confirm", "--expected-count", "2"], TEST_ENVIRONMENT, {
 				fetch: request,
 				write: (value) => writes.push(value),
 			}),
-		).rejects.toThrow("expected 2 orphan objects, found 1");
+		).rejects.toThrow("expected 2 orphan object IDs with stored data, found 1");
 		expect({
 			writes,
 			deletionRequests: request.mock.calls.filter(([input]) => requestUrl(input).pathname.endsWith("/delete"))
@@ -180,7 +185,7 @@ describe("orphan Durable Object cleanup", () => {
 				fetch: request,
 				write: () => undefined,
 			}),
-		).rejects.toThrow("namespace inventory or live owners changed after confirmation");
+		).rejects.toThrow("known object IDs, stored-data state, or live owners changed after confirmation");
 		expect(request.mock.calls.filter(([input]) => requestUrl(input).pathname.endsWith("/delete"))).toStrictEqual(
 			[],
 		);
@@ -223,14 +228,42 @@ describe("orphan Durable Object cleanup", () => {
 				fetch: request,
 				write: (value) => writes.push(value),
 			}),
-		).toStrictEqual({mode: "dry-run", expected_count: 1, orphan_object_ids: [BOB_OBJECT_ID]});
+		).toStrictEqual({
+			mode: "dry-run",
+			stored_object_count: 1,
+			orphan_stored_object_count: 1,
+			orphan_stored_object_ids: [BOB_OBJECT_ID],
+			known_empty_object_ids: [ALICE_OBJECT_ID],
+		});
+	});
 
-		storedObjects.delete(BOB_OBJECT_ID);
+	it("completes at zero stored objects while known empty IDs remain", async () => {
+		const request = vi.fn<typeof fetch>(async (input) => {
+			const url = requestUrl(input);
+			return Promise.resolve(
+				url.hostname === "api.cloudflare.com"
+					? namespacePage([
+							{id: ALICE_OBJECT_ID, hasStoredData: false},
+							{id: BOB_OBJECT_ID, hasStoredData: false},
+						])
+					: inventoryContext(),
+			);
+		});
+
 		expect(
 			await runStorageAdministration(["cleanup", "--confirm", "--expected-count", "0"], TEST_ENVIRONMENT, {
 				fetch: request,
-				write: (value) => writes.push(value),
+				write: () => undefined,
 			}),
-		).toStrictEqual({deleted_count: 0, mode: "confirmed", status: "complete"});
+		).toStrictEqual({
+			deleted_stored_object_count: 0,
+			known_empty_object_ids: [ALICE_OBJECT_ID, BOB_OBJECT_ID],
+			mode: "confirmed",
+			remaining_stored_object_count: 0,
+			status: "complete",
+		});
+		expect(request.mock.calls.filter(([input]) => requestUrl(input).pathname.endsWith("/delete"))).toStrictEqual(
+			[],
+		);
 	});
 });
