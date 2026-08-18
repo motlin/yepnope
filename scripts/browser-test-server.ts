@@ -19,7 +19,7 @@ function run(command: string, arguments_: string[]): void {
 	const result = spawnSync(command, arguments_, {
 		cwd: repositoryDirectory,
 		encoding: "utf8",
-		env: {...process.env, CI: "true"},
+		env: {...process.env, CI: "true", VITE_APPLICATION_VERSION: "browser-version-n"},
 	});
 	if (result.status !== 0) {
 		throw new Error(`${command} failed while preparing the browser test server`);

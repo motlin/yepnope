@@ -16,6 +16,7 @@ export default defineConfig({
 		browserName: "chromium",
 		headless: true,
 		ignoreHTTPSErrors: true,
+		launchOptions: {args: ["--ignore-certificate-errors"]},
 		trace: "off",
 		screenshot: "off",
 		video: "off",

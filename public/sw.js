@@ -2,13 +2,86 @@
 // is fetched after receipt and shown only where notification actions can answer it.
 "use strict";
 
-self.addEventListener("install", () => {
-	void self.skipWaiting();
+const SERVICE_WORKER_VERSION = "__SERVICE_WORKER_VERSION__";
+const VERSION_RESPONSE_TIMEOUT_MILLISECONDS = 750;
+const acknowledgedClientIds = new Set();
+const migratedClientIds = new Set();
+
+function waitForVersionResponses() {
+	return new Promise((resolve) => {
+		setTimeout(resolve, VERSION_RESPONSE_TIMEOUT_MILLISECONDS);
+	});
+}
+
+async function probeWindowClients() {
+	const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true});
+	for (const client of windows) {
+		client.postMessage({
+			type: "service-worker-version-probe",
+			serviceWorkerVersion: SERVICE_WORKER_VERSION,
+		});
+	}
+	if (windows.some((client) => !acknowledgedClientIds.has(client.id))) {
+		await waitForVersionResponses();
+	}
+	return windows;
+}
+
+async function prepareInstallation() {
+	const windows = await probeWindowClients();
+	if (windows.some((client) => !acknowledgedClientIds.has(client.id))) {
+		await self.skipWaiting();
+	}
+}
+
+self.addEventListener("install", (event) => {
+	event.waitUntil(prepareInstallation());
+});
+
+self.addEventListener("message", (event) => {
+	const message = event.data;
+	if (typeof message !== "object" || message === null || event.source?.id === undefined) {
+		return;
+	}
+	if (
+		message.type === "application-version" &&
+		typeof message.applicationVersion === "string" &&
+		message.serviceWorkerVersion === SERVICE_WORKER_VERSION
+	) {
+		acknowledgedClientIds.add(event.source.id);
+		return;
+	}
+	if (message.type === "activate-service-worker" && typeof message.applicationVersion === "string") {
+		acknowledgedClientIds.add(event.source.id);
+		event.source.postMessage({
+			type: "service-worker-version-probe",
+			serviceWorkerVersion: SERVICE_WORKER_VERSION,
+		});
+		event.waitUntil(self.skipWaiting());
+	}
 });
 
 self.addEventListener("activate", (event) => {
-	event.waitUntil(self.clients.claim());
+	event.waitUntil(activateServiceWorker());
 });
+
+async function activateServiceWorker() {
+	const windows = await probeWindowClients();
+	await self.clients.claim();
+	await Promise.all(
+		windows.map(async (client) => {
+			if (
+				acknowledgedClientIds.has(client.id) ||
+				migratedClientIds.has(client.id) ||
+				client.frameType !== "top-level"
+			) {
+				return;
+			}
+			migratedClientIds.add(client.id);
+			await client.navigate(client.url);
+		}),
+	);
+}
 
 async function setBadge(outstanding) {
 	if ("setAppBadge" in navigator) {

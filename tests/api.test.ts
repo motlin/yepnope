@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {CurrentDeckConnectionState, openCurrentDeckStream, type LiveApplicationState} from "../src/api";
+import {APPLICATION_UPDATE_EVENT} from "../src/application-updates";
 
 const sessionUser = {
 	id: "user-alice",
@@ -260,12 +261,10 @@ describe("openCurrentDeckStream", () => {
 		stream.close();
 	});
 
-	it("closes an active socket when a service worker update takes control", () => {
+	it("closes an active socket when the application update protocol starts", () => {
 		mockAvailableSession();
-		const serviceWorker = new EventTarget();
-		Object.defineProperty(navigator, "serviceWorker", {configurable: true, value: serviceWorker});
 		const stream = openCurrentDeckStream(() => undefined);
-		serviceWorker.dispatchEvent(new Event("controllerchange"));
+		window.dispatchEvent(new Event(APPLICATION_UPDATE_EVENT));
 
 		expect({readyState: latestSocket().readyState, state: stream.state()}).toStrictEqual({
 			readyState: FakeWebSocket.CLOSED,

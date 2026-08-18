@@ -1205,7 +1205,13 @@ export function App(): ReactElement {
 				refreshPairingStatus();
 			}
 		}
-		function onServiceWorkerMessage(): void {
+		function onServiceWorkerMessage(event: MessageEvent<unknown>): void {
+			if (typeof event.data !== "object" || event.data === null || !("type" in event.data)) {
+				return;
+			}
+			if (event.data.type !== "refresh") {
+				return;
+			}
 			stream.refresh();
 			refreshAfk();
 			refreshPairingStatus();

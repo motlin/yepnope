@@ -1,5 +1,6 @@
 import {z} from "zod";
 import type {DeckQuestion, Disposition} from "./deck";
+import {APPLICATION_UPDATE_EVENT} from "./application-updates";
 
 // 🌐 Thin client for the Worker API. Same-origin in production; the dev server proxies /api.
 
@@ -341,7 +342,6 @@ export function openCurrentDeckStream(
 	const sessionRevalidationFailureCount =
 		options.sessionRevalidationFailureCount ?? SESSION_REVALIDATION_FAILURE_COUNT;
 	const random = options.random ?? Math.random;
-	const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
 
 	function shouldPause(): boolean {
 		return !navigator.onLine || document.visibilityState !== "visible";
@@ -365,8 +365,8 @@ export function openCurrentDeckStream(
 		window.removeEventListener("online", onOnline);
 		window.removeEventListener("offline", onOffline);
 		window.removeEventListener("pagehide", onPageHide);
+		window.removeEventListener(APPLICATION_UPDATE_EVENT, onApplicationUpdate);
 		document.removeEventListener("visibilitychange", onVisibilityChange);
-		workerContainer?.removeEventListener("controllerchange", onApplicationUpdate);
 	}
 
 	function openCircuit(): void {
@@ -512,8 +512,8 @@ export function openCurrentDeckStream(
 	window.addEventListener("online", onOnline);
 	window.addEventListener("offline", onOffline);
 	window.addEventListener("pagehide", onPageHide);
+	window.addEventListener(APPLICATION_UPDATE_EVENT, onApplicationUpdate);
 	document.addEventListener("visibilitychange", onVisibilityChange);
-	workerContainer?.addEventListener("controllerchange", onApplicationUpdate);
 	connect();
 	return {
 		close: () => {

@@ -1,6 +1,22 @@
 import {defineConfig} from "vite-plus";
+import {execFileSync} from "node:child_process";
+import {readFileSync, writeFileSync} from "node:fs";
 import {resolve} from "node:path";
 import react from "@vitejs/plugin-react";
+
+const applicationVersion =
+	process.env["VITE_APPLICATION_VERSION"] ??
+	execFileSync("git", ["rev-parse", "HEAD"], {cwd: import.meta.dirname, encoding: "utf8"}).trim();
+
+function versionServiceWorker(): void {
+	const serviceWorkerPath = resolve(import.meta.dirname, "dist/sw.js");
+	const source = readFileSync(serviceWorkerPath, "utf8");
+	const placeholder = "__SERVICE_WORKER_VERSION__";
+	if (!source.includes(placeholder)) {
+		throw new Error("service worker version placeholder is missing");
+	}
+	writeFileSync(serviceWorkerPath, source.replaceAll(placeholder, applicationVersion));
+}
 
 export default defineConfig({
 	fmt: {
@@ -322,7 +338,16 @@ export default defineConfig({
 			typeCheck: true,
 		},
 	},
-	plugins: [react()],
+	plugins: [
+		react(),
+		{
+			name: "version-service-worker",
+			writeBundle: versionServiceWorker,
+		},
+	],
+	define: {
+		__APPLICATION_VERSION__: JSON.stringify(applicationVersion),
+	},
 	base: process.env["VITE_BASE_PATH"] ?? "/",
 	root: ".",
 	build: {

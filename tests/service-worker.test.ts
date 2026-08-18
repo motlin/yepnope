@@ -11,11 +11,21 @@ interface PushPayload {
 
 interface ServiceWorkerHarness {
 	clearAppBadge: ReturnType<typeof vi.fn>;
+	claimClients: ReturnType<typeof vi.fn>;
+	dispatchActivate(): Promise<void>;
+	dispatchInstall(): Promise<void>;
+	dispatchMessage(data: Record<string, unknown>, sourceId: string): Promise<void>;
 	dispatchNotificationClick(payload: Record<string, unknown>, action: string): Promise<void>;
 	dispatchPush(payload: PushPayload): Promise<void>;
 	fetchMock: ReturnType<typeof vi.fn>;
+	skipWaiting: ReturnType<typeof vi.fn>;
 	showNotification: ReturnType<typeof vi.fn>;
 	setAppBadge: ReturnType<typeof vi.fn>;
+	windowClients: Array<{
+		id: string;
+		navigate: ReturnType<typeof vi.fn>;
+		postMessage: ReturnType<typeof vi.fn>;
+	}>;
 }
 
 let serviceWorkerSource = "";
@@ -28,6 +38,7 @@ function createHarness(options: {
 	userAgent: string;
 	maxActions: number;
 	fetchQuestions: () => Promise<unknown>;
+	windowClients?: Array<{id: string; understandsVersionProtocol: boolean; url: string}>;
 }): ServiceWorkerHarness {
 	const listeners = new Map<string, (event: unknown) => void>();
 	const showNotification = vi.fn<(title: string, notificationOptions: unknown) => Promise<void>>(async () =>
@@ -36,31 +47,89 @@ function createHarness(options: {
 	const setAppBadge = vi.fn<(outstanding: number) => Promise<void>>(async () => Promise.resolve());
 	const clearAppBadge = vi.fn<() => Promise<void>>(async () => Promise.resolve());
 	const fetchMock = vi.fn<() => Promise<unknown>>(options.fetchQuestions);
+	const skipWaiting = vi.fn<() => Promise<void>>(async () => Promise.resolve());
+	const claimClients = vi.fn<() => Promise<void>>(async () => Promise.resolve());
+	const windowClients = (options.windowClients ?? []).map((client) => ({
+		frameType: "top-level",
+		id: client.id,
+		navigate: vi.fn<(url: string) => Promise<void>>(async () => Promise.resolve()),
+		postMessage: vi.fn<(message: Record<string, unknown>) => void>((message) => {
+			if (client.understandsVersionProtocol && message["type"] === "service-worker-version-probe") {
+				listeners.get("message")?.({
+					data: {
+						type: "application-version",
+						applicationVersion: "application-version-n",
+						serviceWorkerVersion: message["serviceWorkerVersion"],
+					},
+					source: {id: client.id},
+				});
+			}
+		}),
+		url: client.url,
+	}));
 	const self = {
 		Notification: {maxActions: options.maxActions},
 		addEventListener(type: string, listener: (event: unknown) => void) {
 			listeners.set(type, listener);
 		},
 		clients: {
-			claim: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
-			matchAll: vi.fn<() => Promise<unknown[]>>(async () => Promise.resolve([])),
+			claim: claimClients,
+			matchAll: vi.fn<() => Promise<unknown[]>>(async () => Promise.resolve(windowClients)),
 			openWindow: vi.fn<(url: string) => Promise<void>>(async () => Promise.resolve()),
 		},
 		registration: {showNotification},
-		skipWaiting: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+		skipWaiting,
 	};
 	const navigator = {
 		userAgent: options.userAgent,
 		setAppBadge,
 		clearAppBadge,
 	};
-	runInNewContext(serviceWorkerSource, {fetch: fetchMock, navigator, self});
+	runInNewContext(serviceWorkerSource, {
+		fetch: fetchMock,
+		navigator,
+		self,
+		setTimeout(callback: () => void) {
+			callback();
+		},
+	});
+
+	async function dispatchExtendableEvent(type: string, eventProperties: Record<string, unknown> = {}): Promise<void> {
+		let completion = Promise.resolve();
+		const listener = listeners.get(type);
+		if (listener === undefined) {
+			throw new Error(`${type} listener was not registered`);
+		}
+		listener({
+			...eventProperties,
+			waitUntil(promise: Promise<unknown>) {
+				completion = promise.then(() => undefined);
+			},
+		});
+		await completion;
+	}
 
 	return {
 		clearAppBadge,
+		claimClients,
 		fetchMock,
+		skipWaiting,
 		showNotification,
 		setAppBadge,
+		windowClients,
+		async dispatchActivate() {
+			await dispatchExtendableEvent("activate");
+		},
+		async dispatchInstall() {
+			await dispatchExtendableEvent("install");
+		},
+		async dispatchMessage(data, sourceId) {
+			const source = windowClients.find((client) => client.id === sourceId);
+			if (source === undefined) {
+				throw new Error(`message source ${sourceId} is missing`);
+			}
+			await dispatchExtendableEvent("message", {data, source});
+		},
 		async dispatchNotificationClick(payload, action) {
 			let completion = Promise.resolve();
 			const listener = listeners.get("notificationclick");
@@ -125,6 +194,90 @@ const singleQuestionResponse = {
 			],
 		}),
 };
+
+describe("service worker application updates", () => {
+	it("waits for an application handshake before activating a protocol-aware client", async () => {
+		const harness = createHarness({
+			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+			maxActions: 2,
+			fetchQuestions: async () => Promise.resolve({ok: true}),
+			windowClients: [
+				{id: "window-client-100", understandsVersionProtocol: true, url: "https://example.com/settings"},
+			],
+		});
+
+		await harness.dispatchInstall();
+		await harness.dispatchMessage(
+			{type: "activate-service-worker", applicationVersion: "application-version-n"},
+			"window-client-100",
+		);
+		await harness.dispatchActivate();
+		const client = harness.windowClients[0];
+		if (client === undefined) {
+			throw new Error("version-aware test client is missing");
+		}
+
+		expect({
+			claimCalls: harness.claimClients.mock.calls,
+			navigateCalls: client.navigate.mock.calls,
+			skipWaitingCalls: harness.skipWaiting.mock.calls,
+			versionProbeCalls: callsFrom(client.postMessage),
+		}).toStrictEqual({
+			claimCalls: [[]],
+			navigateCalls: [],
+			skipWaitingCalls: [[]],
+			versionProbeCalls: [
+				[
+					{
+						type: "service-worker-version-probe",
+						serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
+					},
+				],
+				[
+					{
+						type: "service-worker-version-probe",
+						serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
+					},
+				],
+				[
+					{
+						type: "service-worker-version-probe",
+						serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
+					},
+				],
+			],
+		});
+	});
+
+	it("activates and navigates an unresponsive legacy client only once", async () => {
+		const harness = createHarness({
+			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+			maxActions: 2,
+			fetchQuestions: async () => Promise.resolve({ok: true}),
+			windowClients: [
+				{id: "window-client-100", understandsVersionProtocol: false, url: "https://example.com/register"},
+			],
+		});
+
+		await harness.dispatchInstall();
+		await harness.dispatchActivate();
+		await harness.dispatchActivate();
+		const client = harness.windowClients[0];
+		if (client === undefined) {
+			throw new Error("legacy test client is missing");
+		}
+
+		expect({
+			claimCalls: harness.claimClients.mock.calls,
+			navigateCalls: client.navigate.mock.calls,
+			skipWaitingCalls: harness.skipWaiting.mock.calls,
+		}).toStrictEqual({
+			claimCalls: [[], []],
+			navigateCalls: [["https://example.com/register"]],
+			skipWaitingCalls: [[]],
+		});
+	});
+});
 
 describe("service worker push notifications", () => {
 	it.each([

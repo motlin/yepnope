@@ -2,11 +2,10 @@ import {StrictMode} from "react";
 import {createRoot} from "react-dom/client";
 import {Agentation} from "agentation";
 import {App} from "./app";
+import {initializeApplicationUpdates} from "./application-updates";
 import "./app.css";
 
-if ("serviceWorker" in navigator) {
-	void navigator.serviceWorker.register("/sw.js");
-}
+void initializeApplicationUpdates();
 
 const root = document.getElementById("app");
 
