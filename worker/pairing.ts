@@ -1,4 +1,4 @@
-import {and, eq, gt, lte} from "drizzle-orm";
+import {and, count, eq, gt, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {machineTokens, pairingCodes} from "./db/d1-schema";
@@ -45,6 +45,15 @@ export async function createAppIdentity(database: D1Database): Promise<MintedIde
 export interface IssuedPairingCode {
 	code: string;
 	expiresAt: number;
+}
+
+export async function getPairedMachineCount(database: D1Database, userId: string): Promise<number> {
+	// Each user has one app token; every additional token belongs to a paired machine.
+	const rows = await drizzle(database)
+		.select({value: count()})
+		.from(machineTokens)
+		.where(eq(machineTokens.userId, userId));
+	return Math.max(0, (rows[0]?.value ?? 1) - 1);
 }
 
 export async function createPairingCode(database: D1Database, userId: string): Promise<IssuedPairingCode> {

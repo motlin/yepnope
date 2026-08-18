@@ -43,6 +43,18 @@ export async function issuePairingCode(token: string): Promise<IssuedPairingCode
 	return {code: body.code, expiresAt: body.expires_at};
 }
 
+const pairingStatusResponseSchema = z.object({paired: z.boolean(), machine_count: z.number().int().nonnegative()});
+
+export interface PairingStatus {
+	paired: boolean;
+	machineCount: number;
+}
+
+export async function fetchPairingStatus(token: string): Promise<PairingStatus> {
+	const body = await requestJson("/api/v1/pair/status", {headers: authHeaders(token)}, pairingStatusResponseSchema);
+	return {paired: body.paired, machineCount: body.machine_count};
+}
+
 const questionSchema = z.object({
 	batch_id: z.string(),
 	project: z.string(),

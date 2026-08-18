@@ -142,7 +142,7 @@ Claude Code can display the server state in its status line. Export
 }
 ```
 
-The command reads the live server state and prints `📱 YepNope: ARMED` or
+The command reads the live server state and prints `📱 YepNope: ON` or
 `💻 YepNope: OFF`; configuration and server failures produce a warning without
 printing the token. It ignores Claude Code's session JSON on stdin and exits
 without starting the MCP server. `YEPNOPE_URL` overrides the service URL for

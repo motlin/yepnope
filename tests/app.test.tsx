@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import type {QuestionsStream} from "../src/api";
+import type {PairingStatus, QuestionsStream} from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
 const initialQuestions: DeckQuestion[] = [
@@ -17,12 +17,17 @@ const initialQuestions: DeckQuestion[] = [
 	},
 ];
 
+const fetchPairingStatus = vi.hoisted(() =>
+	vi.fn<() => Promise<PairingStatus>>(async () => Promise.resolve({paired: true, machineCount: 1})),
+);
+
 let publishQuestions: ((questions: DeckQuestion[]) => void) | undefined;
 const closeStream = vi.fn<() => void>();
 const refreshStream = vi.fn<() => void>();
 
 vi.mock("../src/api", () => ({
 	fetchAfk: vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)),
+	fetchPairingStatus,
 	issuePairingCode: vi.fn<() => Promise<{code: string; expiresAt: number}>>(),
 	openQuestionsStream: vi.fn<(_token: string, onQuestions: (questions: DeckQuestion[]) => void) => QuestionsStream>(
 		(_token, onQuestions) => {
@@ -60,6 +65,7 @@ beforeEach(() => {
 	refreshStream.mockClear();
 	vi.mocked(isIos).mockReturnValue(false);
 	vi.mocked(isStandalone).mockReturnValue(false);
+	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1});
 });
 
 afterEach(() => {
@@ -83,8 +89,56 @@ describe("App live question synchronization", () => {
 
 		window.history.pushState({}, "", "/");
 		fireEvent.popState(window);
-		expect(screen.getByText(/all caught up/i)).toBeDefined();
+		expect(screen.getByText("Approve this sample change?")).toBeDefined();
 		expect(document.title).toBe("YepNope");
+	});
+
+	it("keeps demo cards after pairing and refreshes the controls automatically", async () => {
+		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0});
+		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: Date.now() + 60_000});
+		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
+		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+
+		expect((await screen.findByRole("button", {name: "Pair a machine"})).getAttribute("aria-pressed")).toBeNull();
+		expect(screen.getByText("Approve this sample change?")).toBeDefined();
+		expect(screen.getByText("1 of 3")).toBeDefined();
+
+		fireEvent.click(screen.getByRole("button", {name: "Pair a machine"}));
+		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
+		expect(await screen.findByText("ABC234")).toBeDefined();
+
+		fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1});
+		await waitFor(
+			() => {
+				expect(screen.getByRole("status").textContent).toBe("✓ Machine paired");
+			},
+			{timeout: 2_000},
+		);
+		expect(screen.getByRole("button", {name: "AFK on"}).getAttribute("aria-pressed")).toBe("true");
+
+		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
+		expect(screen.getByText("Approve this sample change?")).toBeDefined();
+		expect(screen.getByText("1 of 3")).toBeDefined();
+	});
+
+	it("removes the redundant product name from the app header", async () => {
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+
+		expect(document.querySelector(".app-header")?.textContent).toBe("AFK on⚙");
 	});
 
 	it("opens settings directly from its route", async () => {
@@ -207,7 +261,7 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(screen.getByText(/all caught up/i)).toBeDefined();
+		expect(screen.getByText("Approve this sample change?")).toBeDefined();
 	});
 
 	it("closes the live stream when the app unmounts", async () => {

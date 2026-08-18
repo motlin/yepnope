@@ -1,6 +1,6 @@
 import {authenticateMachineToken} from "./auth";
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
-import {claimPairingCode, createAppIdentity, createPairingCode} from "./pairing";
+import {claimPairingCode, createAppIdentity, createPairingCode, getPairedMachineCount} from "./pairing";
 import type {UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
@@ -50,6 +50,10 @@ export default {
 		if (url.pathname === "/api/v1/pair/code" && request.method === "POST") {
 			const issued = await createPairingCode(env.DB, userId);
 			return Response.json({code: issued.code, expires_at: issued.expiresAt}, {status: 201});
+		}
+		if (url.pathname === "/api/v1/pair/status" && request.method === "GET") {
+			const machineCount = await getPairedMachineCount(env.DB, userId);
+			return Response.json({paired: machineCount > 0, machine_count: machineCount});
 		}
 		if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST") {
 			return subscribePush(request, stub);

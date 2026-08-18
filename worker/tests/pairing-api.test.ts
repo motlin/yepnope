@@ -53,6 +53,31 @@ describe("POST /api/v1/pair/code", () => {
 	});
 });
 
+describe("GET /api/v1/pair/status", () => {
+	it("requires authentication", async () => {
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/pair/status`);
+		expect(response.status).toBe(401);
+	});
+
+	it("reports machine pairing changes", async () => {
+		const appToken = await createAppIdentity();
+		const before = await worker.fetch(`${API_ORIGIN}/api/v1/pair/status`, {
+			headers: {Authorization: `Bearer ${appToken}`},
+		});
+		expect(before.status).toBe(200);
+		expect(await before.json()).toEqual({paired: false, machine_count: 0});
+
+		const issued = await requestPairingCode(appToken);
+		expect((await claimPairingCode(issued.code, "craig-mbp")).status).toBe(201);
+
+		const after = await worker.fetch(`${API_ORIGIN}/api/v1/pair/status`, {
+			headers: {Authorization: `Bearer ${appToken}`},
+		});
+		expect(after.status).toBe(200);
+		expect(await after.json()).toEqual({paired: true, machine_count: 1});
+	});
+});
+
 describe("POST /api/v1/pair/claim", () => {
 	it("exchanges a code for a machine token bound to the same user", async () => {
 		const appToken = await createAppIdentity();

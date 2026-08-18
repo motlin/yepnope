@@ -55,7 +55,7 @@ async function statuslineOutput(options: AfkCommandOptions): Promise<string> {
 			return `⚠️ YepNope: UNKNOWN (HTTP ${response.status})\n`;
 		}
 		const {afk} = afkResponseSchema.parse(await response.json());
-		return afk ? "📱 YepNope: ARMED\n" : "💻 YepNope: OFF\n";
+		return afk ? "📱 YepNope: ON\n" : "💻 YepNope: OFF\n";
 	} catch {
 		return "⚠️ YepNope: UNKNOWN\n";
 	}

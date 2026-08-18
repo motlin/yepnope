@@ -53,7 +53,7 @@ describe("yepnope-mcp afk", () => {
 	});
 
 	it.each([
-		{afk: true, output: "📱 YepNope: ARMED\n"},
+		{afk: true, output: "📱 YepNope: ON\n"},
 		{afk: false, output: "💻 YepNope: OFF\n"},
 	])("prints a compact statusline when AFK is $afk", async ({afk, output}) => {
 		backend = await startMockBackend({afk});

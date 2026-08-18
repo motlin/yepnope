@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState, type ReactElement} from "react";
 import {
 	fetchAfk,
+	fetchPairingStatus,
 	issuePairingCode,
 	openQuestionsStream,
 	pairNew,
@@ -8,8 +9,10 @@ import {
 	updateAfk,
 	type QuestionsStream,
 	type IssuedPairingCode,
+	type PairingStatus,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
+import {DEMO_QUESTIONS, isDemoQuestion} from "./demo-questions";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
 import {loadToken, saveToken} from "./token-store";
 
@@ -51,27 +54,38 @@ function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
 // A null state means the server has not answered yet, so the toggle reads neutral and inert.
 interface AfkToggleProps {
 	afk: boolean | null;
+	paired: boolean | null;
+	onPair: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({afk, onToggle}: AfkToggleProps): ReactElement {
-	const armed = afk === true;
+function AfkToggle({afk, paired, onPair, onToggle}: AfkToggleProps): ReactElement {
+	if (paired !== true) {
+		return (
+			<button type="button" className="afk-toggle" disabled={paired === null} onClick={onPair}>
+				{paired === null ? "Checking…" : "Pair a machine"}
+			</button>
+		);
+	}
+	const enabled = afk === true;
 	return (
 		<button
 			type="button"
-			className={armed ? "afk-toggle afk-on" : "afk-toggle"}
-			aria-pressed={armed}
+			className={enabled ? "afk-toggle afk-on" : "afk-toggle"}
+			aria-pressed={enabled}
 			disabled={afk === null}
 			onClick={onToggle}
 		>
-			{armed ? "AFK armed" : "AFK off"}
+			{enabled ? "AFK on" : "AFK off"}
 		</button>
 	);
 }
 
 interface SettingsProps {
 	token: string;
+	pairingStatus: PairingStatus | null;
 	onBack: () => void;
+	onPairingStatusChange: (status: PairingStatus) => void;
 }
 
 type AppView = "deck" | "settings";
@@ -84,9 +98,13 @@ function pathForView(view: AppView): string {
 	return view === "settings" ? "/settings" : "/";
 }
 
-function Settings({token, onBack}: SettingsProps): ReactElement {
+const PAIRING_STATUS_POLL_MILLISECONDS = 1_000;
+
+function Settings({token, pairingStatus, onBack, onPairingStatusChange}: SettingsProps): ReactElement {
 	const requiresIosInstall = isIos() && !isStandalone();
 	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
+	const [pairingBaseline, setPairingBaseline] = useState<number | null>(null);
+	const [pairingOutcome, setPairingOutcome] = useState<"paired" | "expired" | null>(null);
 	const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 	const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
 	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">(
@@ -109,6 +127,49 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 		selection.addRange(range);
 	}, [pairing]);
 
+	useEffect(() => {
+		if (pairing === null || pairingBaseline === null) {
+			return undefined;
+		}
+		const pendingPairing = pairing;
+		const baseline = pairingBaseline;
+		let cancelled = false;
+		let checking = false;
+		async function checkPairing(): Promise<void> {
+			if (checking) {
+				return;
+			}
+			checking = true;
+			try {
+				const status = await fetchPairingStatus(token);
+				if (cancelled) {
+					return;
+				}
+				onPairingStatusChange(status);
+				if (status.machineCount > baseline) {
+					setPairing(null);
+					setPairingBaseline(null);
+					setPairingOutcome("paired");
+					setCopyState("idle");
+				} else if (Date.now() >= pendingPairing.expiresAt) {
+					setPairing(null);
+					setPairingBaseline(null);
+					setPairingOutcome("expired");
+					setCopyState("idle");
+				}
+			} catch {
+				// A later poll retries transient status failures while the code remains valid.
+			} finally {
+				checking = false;
+			}
+		}
+		const timer = window.setInterval(() => void checkPairing(), PAIRING_STATUS_POLL_MILLISECONDS);
+		return () => {
+			cancelled = true;
+			window.clearInterval(timer);
+		};
+	}, [onPairingStatusChange, pairing, pairingBaseline, token]);
+
 	async function copyIssuedPairingCode(issued: Promise<IssuedPairingCode>): Promise<void> {
 		if (typeof ClipboardItem !== "undefined" && typeof navigator.clipboard.write === "function") {
 			const content = issued.then(({code}) => new Blob([code], {type: "text/plain"}));
@@ -119,14 +180,17 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 
 	async function generatePairingCode(): Promise<void> {
 		setIsGeneratingPairing(true);
+		setPairingOutcome(null);
+		const currentStatus = fetchPairingStatus(token);
 		const issued = issuePairingCode(token);
 		const copied = copyIssuedPairingCode(issued).then(
 			() => true,
 			() => false,
 		);
 		try {
-			const nextPairing = await issued;
-			const copiedSuccessfully = await copied;
+			const [nextPairing, copiedSuccessfully, status] = await Promise.all([issued, copied, currentStatus]);
+			onPairingStatusChange(status);
+			setPairingBaseline(status.machineCount);
 			setPairing(nextPairing);
 			setCopyState(copiedSuccessfully ? "copied" : "error");
 		} catch {
@@ -179,12 +243,16 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 				)}
 			</div>
 			<div className="hint">
-				<h3>Pair a machine</h3>
+				<h3>{pairingStatus?.paired === true ? "Pair another machine" : "Pair a machine"}</h3>
 				{requiresIosInstall ? (
 					<p>
 						Install first, then generate the code from the Home Screen app so pairing and notifications use
 						the same app identity.
 					</p>
+				) : pairingOutcome === "paired" ? (
+					<div className="copy-toast" role="status">
+						✓ Machine paired
+					</div>
 				) : copyState === "copied" ? (
 					<div className="copy-toast" role="status">
 						📋 Copied to clipboard
@@ -192,7 +260,13 @@ function Settings({token, onBack}: SettingsProps): ReactElement {
 				) : null}
 				{requiresIosInstall ? null : pairing === null ? (
 					<>
-						<p>Generate a code to copy it automatically, then paste it into the CLI on your machine.</p>
+						<p>
+							{pairingOutcome === "expired"
+								? "That code expired. Generate a new one to try again."
+								: pairingStatus?.paired === true
+									? "This app is paired. Generate another code to connect another machine."
+									: "Generate a code to copy it automatically, then paste it into the CLI on your machine."}
+						</p>
 						<button type="button" disabled={isGeneratingPairing} onClick={() => void generatePairingCode()}>
 							{isGeneratingPairing ? "Generating…" : "Generate and copy pairing code"}
 						</button>
@@ -233,6 +307,8 @@ export function App(): ReactElement {
 	const [token, setToken] = useState<string | null>(null);
 	const [questions, setQuestions] = useState<DeckQuestion[] | null>(null);
 	const [afk, setAfkState] = useState<boolean | null>(null);
+	const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
+	const [demoQuestions, setDemoQuestions] = useState<DeckQuestion[]>(() => [...DEMO_QUESTIONS]);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const questionsStream = useRef<QuestionsStream | null>(null);
 
@@ -285,11 +361,21 @@ export function App(): ReactElement {
 		});
 	}, [token]);
 
+	const refreshPairingStatus = useCallback(() => {
+		if (token === null) {
+			return;
+		}
+		fetchPairingStatus(token).then(setPairingStatus, () => {
+			// Keep the last known pairing state and retry on the next refresh.
+		});
+	}, [token]);
+
 	useEffect(() => {
 		if (token === null) {
 			return undefined;
 		}
 		refreshAfk();
+		refreshPairingStatus();
 		const stream = openQuestionsStream(token, (currentQuestions) => {
 			setQuestions(currentQuestions);
 			updateBadge(currentQuestions.length);
@@ -299,11 +385,13 @@ export function App(): ReactElement {
 			if (document.visibilityState === "visible") {
 				stream.refresh();
 				refreshAfk();
+				refreshPairingStatus();
 			}
 		}
 		function onServiceWorkerMessage(): void {
 			stream.refresh();
 			refreshAfk();
+			refreshPairingStatus();
 		}
 		document.addEventListener("visibilitychange", onVisible);
 		const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
@@ -316,9 +404,13 @@ export function App(): ReactElement {
 			document.removeEventListener("visibilitychange", onVisible);
 			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
 		};
-	}, [refreshAfk, token]);
+	}, [refreshAfk, refreshPairingStatus, token]);
 
 	function onAnswer(questionId: string, disposition: Disposition): void {
+		if (isDemoQuestion(questionId)) {
+			setDemoQuestions((current) => current.filter((question) => question.questionId !== questionId));
+			return;
+		}
 		if (token === null) {
 			return;
 		}
@@ -351,21 +443,29 @@ export function App(): ReactElement {
 			return (
 				<Settings
 					token={token}
+					pairingStatus={pairingStatus}
 					onBack={() => {
 						navigate("deck");
 					}}
+					onPairingStatusChange={setPairingStatus}
 				/>
 			);
 		}
-		return <Deck questions={questions} onAnswer={onAnswer} />;
+		return <Deck questions={questions.length === 0 ? demoQuestions : questions} onAnswer={onAnswer} />;
 	}
 
 	return (
 		<div className="app">
 			<div className="app-header">
-				<span className="brand">YepNope</span>
 				<span className="meta">
-					<AfkToggle afk={afk} onToggle={onToggleAfk} />
+					<AfkToggle
+						afk={afk}
+						paired={pairingStatus?.paired ?? null}
+						onPair={() => {
+							navigate("settings");
+						}}
+						onToggle={onToggleAfk}
+					/>
 					<HarnessIcon />
 					<button
 						type="button"
