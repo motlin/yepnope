@@ -1,19 +1,12 @@
 import journal from "./meta/_journal.json";
-import m0000 from "./0000_initial-schema.sql";
-import m0001 from "./0001_add-batch-git-context.sql";
-import m0002 from "./0002_previous_bishop.sql";
-import m0003 from "./0003_married_korath.sql";
-import m0004 from "./0004_brainy_ulik.sql";
-import m0005 from "./0005_petite_whirlwind.sql";
+import m0000 from "./001_initial.sql";
 
 export default {
+	hashes: {
+		m0000: "2e4223d7ead73ec26d2d0ca3f451e255532950d4c002730176fd0fd32e61cdcb",
+	},
 	journal,
 	migrations: {
 		m0000,
-		m0001,
-		m0002,
-		m0003,
-		m0004,
-		m0005,
 	},
 };

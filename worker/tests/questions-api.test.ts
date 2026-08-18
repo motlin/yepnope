@@ -33,6 +33,7 @@ describe("POST /api/v1/questions", () => {
 	it("rolls back the batch and current questions when activity bookkeeping fails", async () => {
 		const userId = "user-atomic-batch";
 		const stub = env.USER_DO.getByName(userId);
+		await stub.getAfk(false);
 
 		await runInDurableObject(stub, async (instance, state) => {
 			state.storage.sql.exec(`

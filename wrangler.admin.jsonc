@@ -14,7 +14,7 @@
 		{
 			"binding": "DB",
 			"database_name": "yepnope",
-			"database_id": "063099d0-41c7-4b2b-8f6d-2acf3e9aac2f",
+			"database_id": "c01bc768-a27b-4c08-b7b1-bd8c6963c60d",
 		},
 	],
 	"observability": {"enabled": true},

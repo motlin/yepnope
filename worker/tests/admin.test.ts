@@ -138,7 +138,7 @@ describe("admin storage diagnostics and cleanup", () => {
 						alarm_set: true,
 						object_id: objectId,
 						table_counts: [
-							{name: "__drizzle_migrations", rows: 6},
+							{name: "__drizzle_migrations", rows: 1},
 							{name: "answers", rows: 0},
 							{name: "batches", rows: 1},
 							{name: "devices", rows: 1},

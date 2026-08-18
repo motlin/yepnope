@@ -5,36 +5,8 @@
 		{
 			"idx": 0,
 			"version": "6",
-			"when": 1786914671968,
-			"tag": "0000_initial-schema",
-			"breakpoints": true
-		},
-		{
-			"idx": 1,
-			"version": "6",
-			"when": 1787026634802,
-			"tag": "0001_better-auth-accounts",
-			"breakpoints": true
-		},
-		{
-			"idx": 2,
-			"version": "6",
-			"when": 1787028143480,
-			"tag": "0002_robust_turbo",
-			"breakpoints": true
-		},
-		{
-			"idx": 3,
-			"version": "6",
-			"when": 1787029178139,
-			"tag": "0003_identity-lifecycle",
-			"breakpoints": true
-		},
-		{
-			"idx": 4,
-			"version": "6",
-			"when": 1787030908205,
-			"tag": "0004_premium_rick_jones",
+			"when": 1787063579091,
+			"tag": "001_initial",
 			"breakpoints": true
 		}
 	]

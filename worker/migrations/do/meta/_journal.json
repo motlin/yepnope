@@ -5,43 +5,8 @@
 		{
 			"idx": 0,
 			"version": "6",
-			"when": 1786914671494,
-			"tag": "0000_initial-schema",
-			"breakpoints": true
-		},
-		{
-			"idx": 1,
-			"version": "6",
-			"when": 1786923059733,
-			"tag": "0001_add-batch-git-context",
-			"breakpoints": true
-		},
-		{
-			"idx": 2,
-			"version": "6",
-			"when": 1787028143871,
-			"tag": "0002_previous_bishop",
-			"breakpoints": true
-		},
-		{
-			"idx": 3,
-			"version": "6",
-			"when": 1787030148024,
-			"tag": "0003_married_korath",
-			"breakpoints": true
-		},
-		{
-			"idx": 4,
-			"version": "6",
-			"when": 1787030908577,
-			"tag": "0004_brainy_ulik",
-			"breakpoints": true
-		},
-		{
-			"idx": 5,
-			"version": "6",
-			"when": 1787031739914,
-			"tag": "0005_petite_whirlwind",
+			"when": 1787063579441,
+			"tag": "001_initial",
 			"breakpoints": true
 		}
 	]

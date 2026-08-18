@@ -14,6 +14,34 @@ import {API_ORIGIN, createVerifiedBrowserSession, worker} from "./helpers";
 const ACCOUNT_PASSWORD = "correct-horse-battery-staple";
 
 describe("identity lifecycle", () => {
+	it("records one stable non-empty Durable Object baseline migration", async () => {
+		const object = env.USER_DO.getByName("migration-ledger-account");
+		expect(await object.getAfk(false)).toBe(false);
+		const before = await runInDurableObject(object, (_instance: UserDurableObject, state) =>
+			state.storage.sql
+				.exec<{migrations: number; nonEmptyHashes: number}>(
+					"SELECT count(*) AS migrations, count(*) FILTER (WHERE length(hash) > 0) AS nonEmptyHashes " +
+						"FROM __drizzle_migrations",
+				)
+				.one(),
+		);
+
+		expect(await object.getAfk(false)).toBe(false);
+		const after = await runInDurableObject(object, (_instance: UserDurableObject, state) =>
+			state.storage.sql
+				.exec<{migrations: number; nonEmptyHashes: number}>(
+					"SELECT count(*) AS migrations, count(*) FILTER (WHERE length(hash) > 0) AS nonEmptyHashes " +
+						"FROM __drizzle_migrations",
+				)
+				.one(),
+		);
+
+		expect({after, before}).toStrictEqual({
+			after: {migrations: 1, nonEmptyHashes: 1},
+			before: {migrations: 1, nonEmptyHashes: 1},
+		});
+	});
+
 	it("records account ownership and creates no machine credential during onboarding", async () => {
 		const session = await createVerifiedBrowserSession("alice@example.com");
 

@@ -95,12 +95,12 @@ export async function listNamespaceObjects(
 		cursor = nextCursor;
 	} while (cursor !== undefined);
 	objects.sort((left, right) => left.id.localeCompare(right.id));
-	for (let index = 1; index < objects.length; index += 1) {
-		const previous = objects[index - 1];
-		const current = objects[index];
-		if (previous.id === current.id) {
+	const seenObjectIds = new Set<string>();
+	for (const current of objects) {
+		if (seenObjectIds.has(current.id)) {
 			throw new Error(`Cloudflare returned duplicate Durable Object ${current.id}`);
 		}
+		seenObjectIds.add(current.id);
 	}
 	return objects;
 }
@@ -159,6 +159,38 @@ function inventorySignature(inventory: NamespaceObject[], liveOwnerObjectIds: st
 	});
 }
 
+async function verifyDeallocation(
+	environment: StorageAdminEnvironment,
+	dependencies: StorageAdminDependencies,
+	objectIds: string[],
+): Promise<void> {
+	const remaining = new Set(objectIds);
+	const consecutiveEmptyInventories = new Map(objectIds.map((objectId) => [objectId, 0]));
+	for (let attempt = 0; attempt < 60 && remaining.size > 0; attempt += 1) {
+		const inventory = await listNamespaceObjects(environment, dependencies.fetch);
+		for (const objectId of [...remaining]) {
+			if (inventory.find(({id}) => id === objectId)?.hasStoredData === true) {
+				consecutiveEmptyInventories.set(objectId, 0);
+				continue;
+			}
+			const confirmations = (consecutiveEmptyInventories.get(objectId) ?? 0) + 1;
+			consecutiveEmptyInventories.set(objectId, confirmations);
+			if (confirmations === 3) {
+				remaining.delete(objectId);
+				dependencies.write({object_id: objectId, status: "verified_deallocated"});
+			}
+		}
+		if (remaining.size > 0) {
+			await new Promise<void>((resolve) => {
+				setTimeout(resolve, 250);
+			});
+		}
+	}
+	if (remaining.size > 0) {
+		throw new Error(`${remaining.size} Durable Objects still report stored data after deletion`);
+	}
+}
+
 function parseCleanupOptions(arguments_: string[]): CleanupOptions {
 	let confirm = false;
 	let expectedCount: number | undefined;
@@ -172,12 +204,15 @@ function parseCleanupOptions(arguments_: string[]): CleanupOptions {
 			continue;
 		}
 		if (argument === "--expected-count") {
-			const value = arguments_[index + 1];
+			const value = arguments_.at(index + 1);
 			if (expectedCount !== undefined) {
 				throw new Error("--expected-count may be specified only once");
 			}
+			if (value === undefined || !/^\d+$/.test(value)) {
+				throw new Error("--expected-count requires a non-negative integer");
+			}
 			const parsed = Number(value);
-			if (!/^\d+$/.test(value) || !Number.isSafeInteger(parsed)) {
+			if (!Number.isSafeInteger(parsed)) {
 				throw new Error("--expected-count requires a non-negative integer");
 			}
 			expectedCount = parsed;
@@ -241,16 +276,23 @@ async function cleanup(
 		throw new Error("orphan count changed after confirmation");
 	}
 
-	for (const objectId of confirmedOrphans) {
-		const deletion = deletionResponseSchema.parse(
-			await adminRequest(environment, dependencies.fetch, "/v1/objects/delete", "POST", {object_id: objectId}),
-		);
-		const verificationInventory = await listNamespaceObjects(environment, dependencies.fetch);
-		const remaining = verificationInventory.find(({id}) => id === objectId);
-		if (remaining?.hasStoredData === true) {
-			throw new Error(`Durable Object ${objectId} still has stored data after deletion`);
+	const deletedObjectIds: string[] = [];
+	let deletionFailure: Error | undefined;
+	try {
+		for (const objectId of confirmedOrphans) {
+			const deletion = deletionResponseSchema.parse(
+				await adminRequest(environment, dependencies.fetch, "/v1/objects/delete", "POST", {
+					object_id: objectId,
+				}),
+			);
+			deletedObjectIds.push(deletion.object_id);
 		}
-		dependencies.write({object_id: deletion.object_id, status: "verified_deallocated"});
+	} catch (error) {
+		deletionFailure = error instanceof Error ? error : new Error("Durable Object deletion failed", {cause: error});
+	}
+	await verifyDeallocation(environment, dependencies, deletedObjectIds);
+	if (deletionFailure !== undefined) {
+		throw deletionFailure;
 	}
 	return {deleted_count: confirmedOrphans.length, mode: "confirmed", status: "complete"};
 }
@@ -284,6 +326,7 @@ async function main(): Promise<void> {
 	console.log(JSON.stringify(result, null, 2));
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+const entryPath = process.argv.at(1);
+if (entryPath !== undefined && import.meta.url === pathToFileURL(entryPath).href) {
 	await main();
 }

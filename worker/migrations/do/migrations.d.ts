@@ -4,6 +4,7 @@ interface MigrationJournal {
 }
 
 declare const migrationBundle: {
+	hashes: Record<string, string>;
 	journal: MigrationJournal;
 	migrations: Record<string, string>;
 };

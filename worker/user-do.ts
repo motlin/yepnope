@@ -143,18 +143,51 @@ function findRowConflict<Row extends object>(
 
 export class UserDurableObject extends DurableObject<Env> {
 	private readonly database: DrizzleSqliteDODatabase;
+	private initialization: Promise<void> | undefined;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.database = drizzle(ctx.storage);
-		// ⏳ Schema setup only: each DO migrates itself forward on wake (spec §4.1).
-		void ctx.blockConcurrencyWhile(async () => {
+	}
+
+	private async initialize(): Promise<void> {
+		this.initialization ??= (async () => {
+			const migration = migrationBundle.journal.entries[0];
+			const migrationHash = migrationBundle.hashes["m0000"];
+			if (
+				migrationBundle.journal.entries.length !== 1 ||
+				migration === undefined ||
+				migrationHash === undefined
+			) {
+				throw new Error("Durable Object migration bundle must contain exactly one hashed baseline");
+			}
 			await migrate(this.database, migrationBundle);
+			this.ctx.storage.sql.exec(
+				"UPDATE __drizzle_migrations SET hash = ? WHERE created_at = ? AND hash = ''",
+				migrationHash,
+				migration.when,
+			);
+			const migrationRecords = this.ctx.storage.sql
+				.exec<{hash: string; createdAt: number}>(
+					"SELECT hash, created_at AS createdAt FROM __drizzle_migrations ORDER BY created_at",
+				)
+				.toArray();
+			const migrationRecord = migrationRecords[0];
+			if (
+				migrationRecords.length !== 1 ||
+				migrationRecord === undefined ||
+				migrationRecord.hash !== migrationHash ||
+				migrationRecord.createdAt !== migration.when
+			) {
+				throw new Error("Durable Object migration ledger does not match the canonical baseline");
+			}
 			await this.database.insert(state).values({id: STATE_ROW_ID}).onConflictDoNothing();
-		});
+		})();
+		return this.initialization;
 	}
 
 	async createBatch(request: CreateBatchRequest): Promise<CreatedBatch> {
+		await this.initialize();
 		this.assertWritable();
 		const now = Date.now();
 		const batchId = crypto.randomUUID();
@@ -197,6 +230,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async getAfk(paired: boolean): Promise<boolean> {
+		await this.initialize();
 		if (!paired) {
 			return false;
 		}
@@ -205,6 +239,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async setAfk(afk: boolean, paired: boolean): Promise<AfkUpdateResult> {
+		await this.initialize();
 		this.assertWritable();
 		if (afk && !paired) {
 			return {status: "pairing_required", message: "Pair a machine before turning AFK on."};
@@ -215,6 +250,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async synchronizePairingState(machineCount: number): Promise<void> {
+		await this.initialize();
 		this.assertWritable();
 		if (machineCount === 0) {
 			await this.database.update(state).set({afk: false}).where(eq(state.id, STATE_ROW_ID));
@@ -226,6 +262,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async getCurrentQuestions(): Promise<CurrentQuestion[]> {
+		await this.initialize();
 		const oldestLiveCreation = Date.now() - RETENTION_MILLISECONDS;
 		const rows = await this.database
 			.select({
@@ -250,6 +287,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async getCurrentDeckState(machineCount: number): Promise<CurrentDeckState> {
+		await this.initialize();
 		const outstanding = await this.getCurrentQuestions();
 		return {
 			type: "current_deck",
@@ -273,6 +311,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async getActivitySummary(): Promise<ActivitySummary> {
+		await this.initialize();
 		const summary: ActivitySummary = {
 			total_questions: 0,
 			outstanding: 0,
@@ -315,6 +354,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {
+		await this.initialize();
 		this.assertWritable();
 		const affectedBatchIds = this.database.transaction((transaction) => {
 			const questionIds = submitted.map((answer) => answer.question_id);
@@ -378,6 +418,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	};
 
 	async registerDevice(subscription: PushSubscription, label: string): Promise<void> {
+		await this.initialize();
 		this.assertWritable();
 		const serialized = JSON.stringify(subscription);
 		await this.database
@@ -392,6 +433,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async listPushDevices(): Promise<PushDevice[]> {
+		await this.initialize();
 		return this.database
 			.select({id: devices.id, label: devices.label, createdAt: devices.createdAt})
 			.from(devices)
@@ -399,6 +441,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async renamePushDevice(deviceId: string, label: string): Promise<boolean> {
+		await this.initialize();
 		this.assertWritable();
 		const renamed = await this.database
 			.update(devices)
@@ -409,6 +452,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async revokePushDevice(deviceId: string): Promise<boolean> {
+		await this.initialize();
 		this.assertWritable();
 		const revoked = await this.database.delete(devices).where(eq(devices.id, deviceId)).returning({id: devices.id});
 		return revoked.length === 1;
@@ -417,6 +461,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	// 📣 One push per batch (spec §6.2). The service worker fetches question content after receipt,
 	// so the encrypted push payload contains metadata only.
 	async sendBatchPush(batchId: string): Promise<number> {
+		await this.initialize();
 		if (this.isMergeLocked()) {
 			return 0;
 		}
@@ -480,6 +525,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	override async fetch(request: Request): Promise<Response> {
+		await this.initialize();
 		const url = new URL(request.url);
 		if (url.pathname === "/api/v1/current-deck/stream") {
 			if (request.headers.get("Upgrade") !== "websocket") {
@@ -522,6 +568,7 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	// 💓 Any inbound frame is a heartbeat (batch identifier option C in .llm/decisions.md).
 	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void> {
+		await this.initialize();
 		const batchId = this.ctx.getTags(socket)[0];
 		if (batchId === CURRENT_DECK_SOCKET_TAG) {
 			await this.sendCurrentDeckState(socket, this.getSocketMachineCount(socket));
@@ -540,6 +587,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	// 🗑️ The single DO alarm serves two deadlines: 7 day retention (spec §13.1) and
 	// heartbeat-and-delete retraction (option C in .llm/decisions.md, spec §5).
 	override async alarm(): Promise<void> {
+		await this.initialize();
 		if (this.isMergeLocked()) {
 			return;
 		}
@@ -574,7 +622,8 @@ export class UserDurableObject extends DurableObject<Env> {
 		await this.armNextDeadline();
 	}
 
-	prepareLegacyIdentityClaim(destinationUserId: string): LegacyIdentityPreparation {
+	async prepareLegacyIdentityClaim(destinationUserId: string): Promise<LegacyIdentityPreparation> {
+		await this.initialize();
 		return this.database.transaction((transaction) => {
 			const existingLock = transaction.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
 			if (existingLock !== undefined && existingLock.destinationUserId !== destinationUserId) {
@@ -602,6 +651,7 @@ export class UserDurableObject extends DurableObject<Env> {
 		sourceUserId: string,
 		snapshot: LegacyIdentitySnapshot,
 	): Promise<LegacyIdentityMergeResult> {
+		await this.initialize();
 		const result = this.database.transaction((transaction): LegacyIdentityMergeResult => {
 			const imported = transaction
 				.select({sourceUserId: identityMerges.sourceUserId})
@@ -662,6 +712,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async clearClaimedLegacyIdentity(destinationUserId: string): Promise<void> {
+		await this.initialize();
 		const mergeLockTable = this.ctx.storage.sql
 			.exec<{name: string}>(
 				"SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'identity_merge_lock'",
@@ -679,6 +730,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async getRedactedStorageDiagnostics(): Promise<RedactedStorageDiagnostics> {
+		await this.initialize();
 		const tables = this.ctx.storage.sql
 			.exec<{name: string}>("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
 			.toArray()
@@ -701,7 +753,8 @@ export class UserDurableObject extends DurableObject<Env> {
 		return {deleted: true};
 	}
 
-	releaseLegacyIdentityClaim(destinationUserId: string): void {
+	async releaseLegacyIdentityClaim(destinationUserId: string): Promise<void> {
+		await this.initialize();
 		this.database
 			.delete(identityMergeLock)
 			.where(and(eq(identityMergeLock.id, 1), eq(identityMergeLock.destinationUserId, destinationUserId)))
