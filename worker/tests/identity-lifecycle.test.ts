@@ -145,11 +145,11 @@ describe("identity lifecycle", () => {
 		const accountCreatedAt = Date.UTC(1999, 0, 1);
 		await env.DB.batch([
 			env.DB.prepare(
-				"INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-			).bind("legacy-alice", "Legacy Alice", "legacy-alice@example.com", legacyCreatedAt, legacyCreatedAt),
+				"INSERT INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 0, ?, ?)",
+			).bind("legacy-alice", "legacy-alice@example.com", legacyCreatedAt, legacyCreatedAt),
 			env.DB.prepare(
-				"INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-			).bind("account-bob", "Bob", "bob@example.com", accountCreatedAt, accountCreatedAt),
+				"INSERT INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
+			).bind("account-bob", "bob@example.com", accountCreatedAt, accountCreatedAt),
 			env.DB.prepare(
 				"INSERT INTO identity_lifecycles " +
 					"(identity_id, identity_type, owner_user_id, created_at) VALUES (?, 'account', ?, ?)",

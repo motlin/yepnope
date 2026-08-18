@@ -102,7 +102,6 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await firstPage.getByRole("button", {name: "Create an account"}).click();
 		await expect(firstPage).toHaveURL(/\/register$/);
 		await expect(firstPage.locator(".app-header .afk-toggle")).toHaveCount(0);
-		await firstPage.getByRole("textbox", {name: "Name"}).fill("Alice Browser Test");
 		await firstPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await firstPage.getByLabel("Password").fill(originalPassword);
 		await firstPage.getByRole("button", {name: "Create account"}).click();

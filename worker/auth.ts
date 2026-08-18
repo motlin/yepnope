@@ -2,10 +2,20 @@ import {drizzleAdapter} from "@better-auth/drizzle-adapter";
 import {betterAuth} from "better-auth";
 import {and, eq, isNull} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
+import {z} from "zod";
 import {accounts, machineTokens, sessions, users, verifications} from "./db/d1-schema";
 import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountIdentity} from "./identity-lifecycle";
 
 const AUTHENTICATION_PATH = "/api/auth";
+const EMAIL_REGISTRATION_PATH = `${AUTHENTICATION_PATH}/sign-up/email`;
+const emailRegistrationSchema = z
+	.object({
+		callbackURL: z.string().optional(),
+		email: z.email(),
+		password: z.string(),
+		rememberMe: z.boolean().optional(),
+	})
+	.strict();
 
 type AuthenticationEnvironment = Pick<
 	Env,
@@ -16,6 +26,32 @@ type AuthenticationEmail = Parameters<SendEmail["send"]>[0];
 export interface AuthenticationDependencies {
 	runInBackground: ((promise: Promise<unknown>) => void) | undefined;
 	sendEmail: (message: AuthenticationEmail) => Promise<void>;
+}
+
+async function nameFreeAuthenticationHandler(
+	handler: (request: Request) => Promise<Response>,
+	request: Request,
+): Promise<Response> {
+	const url = new URL(request.url);
+	if (request.method !== "POST" || url.pathname !== EMAIL_REGISTRATION_PATH) {
+		return handler(request);
+	}
+	const registration = emailRegistrationSchema.safeParse(await request.json().catch(() => null));
+	if (!registration.success) {
+		return Response.json(
+			{code: "INVALID_REGISTRATION_REQUEST", message: "Registration requires an email and password"},
+			{status: 400},
+		);
+	}
+	const headers = new Headers(request.headers);
+	headers.delete("Content-Length");
+	return handler(
+		new Request(request.url, {
+			method: request.method,
+			headers,
+			body: JSON.stringify({...registration.data, name: ""}),
+		}),
+	);
 }
 
 function escapeHtml(value: string): string {
@@ -48,7 +84,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 	const database = drizzle(environment.DB, {
 		schema: {account: accounts, session: sessions, user: users, verification: verifications},
 	});
-	return betterAuth({
+	const authentication = betterAuth({
 		appName: "YepNope",
 		baseURL: environment.BETTER_AUTH_URL,
 		basePath: AUTHENTICATION_PATH,
@@ -96,6 +132,9 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 				),
 		},
 		user: {
+			additionalFields: {
+				name: {type: "string", required: false, input: false, returned: false},
+			},
 			deleteUser: {
 				enabled: true,
 				beforeDelete: async (user) => {
@@ -109,9 +148,13 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 		databaseHooks: {
 			user: {
 				create: {
+					before: async () => Promise.resolve({data: {name: undefined}}),
 					after: async (user) => {
 						await recordAccountIdentity(environment.DB, user.id, user.createdAt.getTime());
 					},
+				},
+				update: {
+					before: async () => Promise.resolve({data: {name: undefined}}),
 				},
 			},
 		},
@@ -122,6 +165,10 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 				: {backgroundTasks: {handler: dependencies.runInBackground}}),
 		},
 	});
+	return {
+		...authentication,
+		handler: async (request: Request) => nameFreeAuthenticationHandler(authentication.handler, request),
+	};
 }
 
 export function createWorkerAuthentication(

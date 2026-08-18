@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import {CurrentDeckConnectionState, openCurrentDeckStream, type LiveApplicationState} from "../src/api";
+import {
+	CurrentDeckConnectionState,
+	openCurrentDeckStream,
+	registerAccount,
+	type LiveApplicationState,
+} from "../src/api";
 import {APPLICATION_UPDATE_EVENT} from "../src/application-updates";
 
 const sessionUser = {
 	id: "user-alice",
-	name: "Alice",
 	email: "alice@example.com",
 	emailVerified: true,
 };
@@ -91,6 +95,30 @@ beforeEach(() => {
 afterEach(() => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
+});
+
+describe("account registration", () => {
+	it("sends only the email and password authentication fields", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () => Promise.resolve(Response.json({user: sessionUser})));
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect(await registerAccount("alice@example.com", "example-password")).toStrictEqual(sessionUser);
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/auth/sign-up/email",
+				{
+					body: JSON.stringify({
+						email: "alice@example.com",
+						password: "example-password",
+						callbackURL: "/verify-email?verified=1",
+					}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+		]);
+	});
 });
 
 describe("openCurrentDeckStream", () => {

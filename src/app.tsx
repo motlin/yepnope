@@ -282,7 +282,6 @@ interface RegisterProps extends AccountRouteProps {
 type VerificationDelivery = "accepted" | "failed" | "idle";
 
 function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
-	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -293,7 +292,7 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 		setSubmitting(true);
 		setError(null);
 		try {
-			await registerAccount(name, email, password);
+			await registerAccount(email, password);
 			try {
 				await sendVerificationEmail(email);
 				onRegistered(email, "accepted");
@@ -311,19 +310,6 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 		<AccountPanel title="Create an account">
 			<p>Your verified email is how you recover this account on another browser.</p>
 			<form className="account-form" onSubmit={(event) => void submit(event)}>
-				<label>
-					Name
-					<input
-						type="text"
-						name="name"
-						autoComplete="name"
-						required
-						value={name}
-						onChange={(event) => {
-							setName(event.currentTarget.value);
-						}}
-					/>
-				</label>
 				<label>
 					Email
 					<input

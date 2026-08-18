@@ -35,7 +35,6 @@ function jsonRequest(body: Record<string, unknown>): RequestInit {
 
 const authenticationUserSchema = z.object({
 	id: z.string(),
-	name: z.string(),
 	email: z.email(),
 	emailVerified: z.boolean(),
 });
@@ -60,10 +59,10 @@ export async function signIn(email: string, password: string): Promise<Authentic
 	return result.user;
 }
 
-export async function registerAccount(name: string, email: string, password: string): Promise<AuthenticationUser> {
+export async function registerAccount(email: string, password: string): Promise<AuthenticationUser> {
 	const result = await requestJson(
 		"/api/auth/sign-up/email",
-		jsonRequest({name, email, password, callbackURL: "/verify-email?verified=1"}),
+		jsonRequest({email, password, callbackURL: "/verify-email?verified=1"}),
 		authenticatedResponseSchema,
 	);
 	return result.user;

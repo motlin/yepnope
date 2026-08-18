@@ -42,7 +42,6 @@ describe("Better Auth account recovery", () => {
 				postAuthentication("sign-up/email", {
 					callbackURL: "/",
 					email: "concurrent-alice@example.com",
-					name: "Alice",
 					password: "correct-horse-battery-staple",
 				}),
 			),
@@ -57,6 +56,51 @@ describe("Better Auth account recovery", () => {
 					"(SELECT count(*) FROM machine_tokens) AS machine_tokens",
 			).first(),
 		).toStrictEqual({accounts: 1, identities: 1, machine_tokens: 0, users: 1});
+	});
+
+	it("registers with only email and password and never stores or returns a display name", async () => {
+		const authentication = createMailboxAuthentication([]);
+		const email = "alice@example.com";
+		const signUp = await authentication.handler(
+			postAuthentication("sign-up/email", {email, password: "correct-horse-battery-staple"}),
+		);
+
+		expect({body: await signUp.json(), status: signUp.status}).toStrictEqual({
+			body: {
+				token: null,
+				user: {
+					createdAt: expect.any(String),
+					email,
+					emailVerified: false,
+					id: expect.any(String),
+					image: null,
+					updatedAt: expect.any(String),
+				},
+			},
+			status: 200,
+		});
+		expect(await env.DB.prepare("SELECT email, name FROM user WHERE email = ?").bind(email).first()).toStrictEqual({
+			email,
+			name: null,
+		});
+
+		const namedSignUp = await authentication.handler(
+			postAuthentication("sign-up/email", {
+				email: "bob@example.com",
+				name: "Bob",
+				password: "correct-horse-battery-staple",
+			}),
+		);
+		expect({body: await namedSignUp.json(), status: namedSignUp.status}).toStrictEqual({
+			body: {
+				code: "INVALID_REGISTRATION_REQUEST",
+				message: "Registration requires an email and password",
+			},
+			status: 400,
+		});
+		expect(
+			await env.DB.prepare("SELECT count(*) AS users FROM user WHERE email = ?").bind("bob@example.com").first(),
+		).toStrictEqual({users: 0});
 	});
 
 	it("links only provider identities that resolve to the same verified email account", () => {
@@ -79,7 +123,6 @@ describe("Better Auth account recovery", () => {
 			postAuthentication("sign-up/email", {
 				callbackURL: "/",
 				email,
-				name: "Alice",
 				password: originalPassword,
 			}),
 		);
@@ -92,7 +135,6 @@ describe("Better Auth account recovery", () => {
 					emailVerified: false,
 					id: expect.any(String),
 					image: null,
-					name: "Alice",
 					updatedAt: expect.any(String),
 				},
 			},
@@ -227,7 +269,6 @@ describe("Better Auth account recovery", () => {
 				emailVerified: true,
 				id: signedInBody.user.id,
 				image: null,
-				name: "Alice",
 				updatedAt: expect.any(String),
 			},
 		});

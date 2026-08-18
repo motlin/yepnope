@@ -24,7 +24,6 @@ async function routeAuthenticatedApplication(page: Page): Promise<void> {
 		fulfillJson(route, {
 			user: {
 				id: "user-alice",
-				name: "Alice",
 				email: "alice@example.com",
 				emailVerified: true,
 			},

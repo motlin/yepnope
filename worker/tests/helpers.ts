@@ -52,7 +52,6 @@ export async function createVerifiedBrowserSession(
 		authenticationRequest("sign-up/email", {
 			callbackURL: "/",
 			email,
-			name: "Alice",
 			password: AUTHENTICATION_PASSWORD,
 		}),
 	);
@@ -91,9 +90,9 @@ export async function registerMachineToken(userId: string): Promise<string> {
 	const token = `machine-token-${userId}`;
 	const now = Date.now();
 	await env.DB.prepare(
-		"INSERT OR IGNORE INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+		"INSERT OR IGNORE INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
 	)
-		.bind(userId, userId, `${userId}@example.com`, now, now)
+		.bind(userId, `${userId}@example.com`, now, now)
 		.run();
 	await env.DB.prepare("INSERT INTO machine_tokens (token_hash, user_id, label, created_at) VALUES (?, ?, ?, ?)")
 		.bind(await hashToken(token), userId, "test machine", now)

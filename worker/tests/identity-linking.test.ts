@@ -7,10 +7,8 @@ import {API_ORIGIN, createVerifiedBrowserSession, nextMessage, required, worker}
 
 async function seedLegacyIdentity(legacyUserId: string, legacyToken: string, pairingCode: string): Promise<string> {
 	const now = Date.now();
-	await env.DB.prepare(
-		"INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-	)
-		.bind(legacyUserId, "Legacy browser", `${legacyUserId}@example.com`, now, now)
+	await env.DB.prepare("INSERT INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 0, ?, ?)")
+		.bind(legacyUserId, `${legacyUserId}@example.com`, now, now)
 		.run();
 	await env.DB.batch([
 		env.DB.prepare(

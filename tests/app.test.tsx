@@ -26,7 +26,6 @@ const streamedQuestions: DeckQuestion[] = [
 
 const alice: AuthenticationUser = {
 	id: "user-alice",
-	name: "Alice",
 	email: "alice@example.com",
 	emailVerified: true,
 };
@@ -501,15 +500,12 @@ describe("Better Auth account routes", () => {
 		window.history.replaceState({}, "", "/register");
 		render(<App />);
 
-		fireEvent.change(screen.getByRole("textbox", {name: "Name"}), {target: {value: "Alice"}});
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
 		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
 
 		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
-		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
-			["Alice", "alice@example.com", "example-password"],
-		]);
+		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
 		expect(screen.getByRole("status").textContent).toBe("Email sent. Check your inbox.");
 		let finishResend: () => void = () => undefined;
@@ -540,16 +536,13 @@ describe("Better Auth account routes", () => {
 		window.history.replaceState({}, "", "/register");
 		render(<App />);
 
-		fireEvent.change(screen.getByRole("textbox", {name: "Name"}), {target: {value: "Alice"}});
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
 		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
 
 		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
 		expect(screen.getByRole("alert").textContent).toBe("We couldn't send the email. Try again.");
-		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
-			["Alice", "alice@example.com", "example-password"],
-		]);
+		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
 	});
 

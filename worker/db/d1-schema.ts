@@ -5,7 +5,8 @@ import {index, integer, sqliteTable, text, uniqueIndex} from "drizzle-orm/sqlite
 
 export const users = sqliteTable("user", {
 	id: text("id").primaryKey(),
-	name: text("name").notNull(),
+	// Better Auth 1.7 still resolves this core field through its adapter. It remains null and is never returned.
+	name: text("name"),
 	email: text("email").notNull().unique(),
 	emailVerified: integer("email_verified", {mode: "boolean"}).default(false).notNull(),
 	image: text("image"),
