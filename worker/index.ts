@@ -104,8 +104,7 @@ export default {
 				return managePushDevice(request, accountStub, pushDeviceManagementMatch?.[1]);
 			}
 
-			const authenticatedRequest = withBrowserSocketAuthorization(request, url);
-			const userId = await authenticateRequest(authenticatedRequest, env, executionContext);
+			const userId = await authenticateRequest(request, env, executionContext);
 			if (userId === null) {
 				return new Response(null, {status: 401});
 			}
@@ -120,9 +119,9 @@ export default {
 			) {
 				if (url.pathname === CURRENT_DECK_STREAM_PATH) {
 					const machineCount = await getPairedMachineCount(env.DB, userId);
-					return stub.fetch(withMachineCount(authenticatedRequest, machineCount));
+					return stub.fetch(withMachineCount(request, machineCount));
 				}
-				return stub.fetch(authenticatedRequest);
+				return stub.fetch(request);
 			}
 			if (url.pathname === "/api/v1/hook" && request.method === "POST") {
 				const machineCount = await getPairedMachineCount(env.DB, userId);
@@ -172,26 +171,6 @@ export default {
 		);
 	},
 } satisfies ExportedHandler<Env>;
-
-function withBrowserSocketAuthorization(request: Request, url: URL): Request {
-	if (
-		url.pathname !== CURRENT_DECK_STREAM_PATH ||
-		request.headers.has("Authorization") ||
-		request.headers.get("Upgrade") !== "websocket"
-	) {
-		return request;
-	}
-	const protocols = request.headers
-		.get("Sec-WebSocket-Protocol")
-		?.split(",")
-		.map((protocol) => protocol.trim());
-	if (protocols?.length !== 2 || protocols[0] !== "yepnope" || protocols[1] === undefined) {
-		return request;
-	}
-	const headers = new Headers(request.headers);
-	headers.set("Authorization", `Bearer ${protocols[1]}`);
-	return new Request(request, {headers});
-}
 
 function withMachineCount(request: Request, machineCount: number): Request {
 	const headers = new Headers(request.headers);

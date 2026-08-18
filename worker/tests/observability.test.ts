@@ -81,7 +81,7 @@ describe("yepnope.io.v1 event encoding", () => {
 		expect(decoded.references[0] === decoded.references[1]).toBe(true);
 	});
 
-	it("chunks and reconstructs a UTF-8 event without losing bytes", () => {
+	it("redacts payloads before chunking and encoding", () => {
 		const captured = capture();
 		const context = createObservationContext("test.chunking", "chunk-correlation", captured.sink);
 		const input = {binary: Uint8Array.of(0, 128, 255), text: "🧪".repeat(20_000)};
@@ -97,10 +97,10 @@ describe("yepnope.io.v1 event encoding", () => {
 			phase: event.phase,
 			schema: event.schema,
 		}).toStrictEqual({
-			chunks: 4,
+			chunks: 1,
 			component: "test.chunking",
 			correlationId: "chunk-correlation",
-			data: input,
+			data: {kind: "object"},
 			operation: "test.large",
 			phase: "output",
 			schema: "yepnope.io.v1",
@@ -178,7 +178,7 @@ describe("D1 binding observation", () => {
 					severity,
 					operation,
 					phase,
-					errorName: data instanceof Error ? data.name : (data as {error: Error}).error.name,
+					errorName: (data as {name: string}).name,
 				})),
 		).toStrictEqual([
 			{severity: "error", operation: "d1.dump", phase: "failure", errorName: "Error"},
@@ -298,20 +298,32 @@ describe("Durable Object and transport observation", () => {
 	it("does not consume HTTP bodies and captures RPC, email, and WebSocket boundaries", async () => {
 		const captured = capture();
 		const context = createObservationContext("test.transport", "transport-correlation", captured.sink);
-		const request = new Request("https://example.com/api/v1/resource", {
-			method: "POST",
-			headers: {Authorization: "Bearer test-secret", "Content-Type": "application/octet-stream"},
-			body: Uint8Array.of(0, 128, 255),
+		const requestBody = JSON.stringify({
+			cookie: "fake-session-cookie",
+			pairing_code: "ABC234",
+			password: "not-a-real-password",
+			question: {body: "Private question context", title: "Private question?"},
+			reset_link: "https://example.com/reset-password?token=fake-reset-token",
 		});
-		let handledBody: ArrayBuffer | undefined;
+		const request = new Request("https://example.com/api/v1/resource?token=fake-reset-token", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer fake-machine-credential",
+				"Cf-Connecting-IP": "192.0.2.1",
+				Cookie: "session=fake-session-cookie",
+				"Sec-WebSocket-Protocol": "yepnope, fake-machine-credential",
+			},
+			body: requestBody,
+		});
+		let handledBody: string | undefined;
 		const response = await observeHttpExchange(context, request, async () => {
-			handledBody = await request.arrayBuffer();
-			return new Response(Uint8Array.of(255, 128, 0), {
+			handledBody = await request.text();
+			return new Response("Private response body", {
 				status: 201,
-				headers: {"X-Test-Response": "alice"},
+				headers: {"Set-Cookie": "session=fake-response-cookie; Secure; HttpOnly"},
 			});
 		});
-		const responseBody = await response.arrayBuffer();
+		const responseBody = await response.text();
 
 		const observedEnvironment = observeEnvironment(env, context);
 		const object = observedEnvironment.USER_DO.getByName("observability-rpc-alice");
@@ -319,22 +331,26 @@ describe("Durable Object and transport observation", () => {
 		const emailResult = await observedEnvironment.EMAIL.send({
 			to: "alice@example.com",
 			from: {email: "accounts@yepnope.app", name: "Example Sender"},
-			subject: "Observability test",
-			text: "Test message body",
+			subject: "Reset your password",
+			text: "https://example.com/reset-password?token=fake-reset-token",
 		});
-		observeWebSocketFrame(context, "outbound", "beat");
+		observeWebSocketFrame(
+			context,
+			"outbound",
+			JSON.stringify({body: "Private question context", title: "Private question?"}),
+		);
 		observeWebSocketFrame(context, "inbound", Uint8Array.of(0, 128, 255).buffer);
 
 		expect({
 			emailMessageIdType: typeof emailResult.messageId,
-			handledBody: handledBody === undefined ? undefined : new Uint8Array(handledBody),
-			responseBody: new Uint8Array(responseBody),
+			handledBody,
+			responseBody,
 			responseStatus: response.status,
 			rpcResult,
 		}).toStrictEqual({
 			emailMessageIdType: "string",
-			handledBody: Uint8Array.of(0, 128, 255),
-			responseBody: Uint8Array.of(255, 128, 0),
+			handledBody: requestBody,
+			responseBody: "Private response body",
 			responseStatus: 201,
 			rpcResult: {status: "updated", afk: false},
 		});
@@ -351,18 +367,18 @@ describe("Durable Object and transport observation", () => {
 						"websocket.frame",
 					].includes(operation),
 				)
-				.map(({severity, operation, phase}) => ({severity, operation, phase})),
+				.map(({severity, operation, phase, data}) => ({severity, operation, phase, data})),
 		).toStrictEqual([
-			{severity: "log", operation: "http.request", phase: "input"},
-			{severity: "log", operation: "http.response", phase: "output"},
-			{severity: "log", operation: "do.namespace.getByName", phase: "input"},
-			{severity: "log", operation: "do.namespace.getByName", phase: "output"},
-			{severity: "log", operation: "do.rpc.setAfk", phase: "input"},
-			{severity: "log", operation: "do.rpc.setAfk", phase: "output"},
-			{severity: "log", operation: "email.send", phase: "input"},
-			{severity: "log", operation: "email.send", phase: "output"},
-			{severity: "log", operation: "websocket.frame", phase: "outbound"},
-			{severity: "log", operation: "websocket.frame", phase: "inbound"},
+			{severity: "log", operation: "http.request", phase: "input", data: {kind: "object"}},
+			{severity: "log", operation: "http.response", phase: "output", data: {kind: "object"}},
+			{severity: "log", operation: "do.namespace.getByName", phase: "input", data: {kind: "object"}},
+			{severity: "log", operation: "do.namespace.getByName", phase: "output", data: {kind: "object"}},
+			{severity: "log", operation: "do.rpc.setAfk", phase: "input", data: {kind: "object"}},
+			{severity: "log", operation: "do.rpc.setAfk", phase: "output", data: {kind: "object"}},
+			{severity: "log", operation: "email.send", phase: "input", data: {kind: "object"}},
+			{severity: "log", operation: "email.send", phase: "output", data: {kind: "object"}},
+			{severity: "log", operation: "websocket.frame", phase: "outbound", data: {kind: "string"}},
+			{severity: "log", operation: "websocket.frame", phase: "inbound", data: {kind: "array_buffer"}},
 		]);
 	});
 });

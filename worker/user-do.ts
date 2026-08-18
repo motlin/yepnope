@@ -570,14 +570,7 @@ export class UserDurableObject extends DurableObject<Env> {
 				this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
 				pair[1].serializeAttachment({machineCount} satisfies CurrentDeckSocketAttachment);
 				await this.sendCurrentDeckState(pair[1], machineCount);
-				const selectedProtocol = request.headers.get("Sec-WebSocket-Protocol")?.startsWith("yepnope,") === true;
-				return selectedProtocol
-					? new Response(null, {
-							status: 101,
-							webSocket: pair[0],
-							headers: {"Sec-WebSocket-Protocol": "yepnope"},
-						})
-					: new Response(null, {status: 101, webSocket: pair[0]});
+				return new Response(null, {status: 101, webSocket: pair[0]});
 			}
 			const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
 			if (match === null) {

@@ -64,6 +64,92 @@ type EncodedObservedValue =
 	| {kind: "array_buffer_view"; id: number; view: string; value: string}
 	| {kind: "reference"; id: number};
 
+type RedactedObservedValue =
+	| {kind: "null"}
+	| {kind: "undefined"}
+	| {kind: "boolean"}
+	| {kind: "string"}
+	| {kind: "number"}
+	| {kind: "bigint"}
+	| {kind: "array"}
+	| {kind: "object"}
+	| {kind: "map"}
+	| {kind: "set"}
+	| {kind: "date"}
+	| {kind: "error"; name: string}
+	| {kind: "array_buffer"}
+	| {kind: "array_buffer_view"; view: string};
+
+const SAFE_ERROR_NAMES = new Set([
+	"AggregateError",
+	"Error",
+	"EvalError",
+	"RangeError",
+	"ReferenceError",
+	"SyntaxError",
+	"TypeError",
+	"URIError",
+]);
+
+function errorSummary(value: unknown): RedactedObservedValue | null {
+	const error =
+		value instanceof Error
+			? value
+			: typeof value === "object" && value !== null && Reflect.get(value, "error") instanceof Error
+				? (Reflect.get(value, "error") as Error)
+				: null;
+	if (error === null) {
+		return null;
+	}
+	return {kind: "error", name: SAFE_ERROR_NAMES.has(error.name) ? error.name : "Error"};
+}
+
+function redactObservedValue(value: unknown): RedactedObservedValue {
+	const error = errorSummary(value);
+	if (error !== null) {
+		return error;
+	}
+	if (value === null) {
+		return {kind: "null"};
+	}
+	switch (typeof value) {
+		case "undefined":
+			return {kind: "undefined"};
+		case "boolean":
+			return {kind: "boolean"};
+		case "string":
+			return {kind: "string"};
+		case "number":
+			return {kind: "number"};
+		case "bigint":
+			return {kind: "bigint"};
+		case "function":
+		case "symbol":
+			return {kind: "object"};
+		case "object":
+			break;
+	}
+	if (value instanceof ArrayBuffer) {
+		return {kind: "array_buffer"};
+	}
+	if (ArrayBuffer.isView(value)) {
+		return {kind: "array_buffer_view", view: value.constructor.name};
+	}
+	if (value instanceof Date) {
+		return {kind: "date"};
+	}
+	if (Array.isArray(value)) {
+		return {kind: "array"};
+	}
+	if (value instanceof Map) {
+		return {kind: "map"};
+	}
+	if (value instanceof Set) {
+		return {kind: "set"};
+	}
+	return {kind: "object"};
+}
+
 function defaultObservationSink(severity: ObservationSeverity, line: string): void {
 	if (severity === "error") {
 		console.error(line);
@@ -349,7 +435,7 @@ export function emitObservation(
 		operation,
 		phase,
 		timestamp: Date.now(),
-		data: encodeObservedValue(data),
+		data: encodeObservedValue(redactObservedValue(data)),
 	};
 	const bytes = new TextEncoder().encode(JSON.stringify(event));
 	const chunkCount = Math.max(1, Math.ceil(bytes.length / OBSERVATION_CHUNK_BYTES));
@@ -658,49 +744,15 @@ export function observeD1Database(database: D1Database, context: ObservationCont
 	return new ObservedD1Database(database, context);
 }
 
-async function observedBody(message: Request | Response): Promise<ArrayBuffer | null> {
-	if (message.body === null) {
-		return null;
-	}
-	return message.clone().arrayBuffer();
-}
-
-async function requestObservation(request: Request): Promise<unknown> {
-	return {
-		method: request.method,
-		url: request.url,
-		headers: Array.from(request.headers.entries()),
-		body: await observedBody(request),
-	};
-}
-
-async function responseObservation(response: Response): Promise<unknown> {
-	return {
-		status: response.status,
-		statusText: response.statusText,
-		headers: Array.from(response.headers.entries()),
-		body: await observedBody(response),
-		webSocket: response.webSocket !== null,
-	};
-}
-
 export async function observeHttpExchange(
 	context: ObservationContext,
 	request: Request,
 	handle: () => Promise<Response>,
 ): Promise<Response> {
-	try {
-		emitObservation(context, "http.request", "input", await requestObservation(request));
-	} catch (error) {
-		emitObservation(context, "http.request.capture", "failure", error, "error");
-	}
+	emitObservation(context, "http.request", "input", request);
 	try {
 		const response = await handle();
-		try {
-			emitObservation(context, "http.response", "output", await responseObservation(response));
-		} catch (error) {
-			emitObservation(context, "http.response.capture", "failure", error, "error");
-		}
+		emitObservation(context, "http.response", "output", response);
 		return response;
 	} catch (error) {
 		emitObservation(context, "http.exchange", "failure", error, "error");

@@ -1,7 +1,15 @@
 import {runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
-import {API_ORIGIN, createBatchOverHttp, nextMessage, registerMachineToken, required, worker} from "./helpers";
+import {
+	API_ORIGIN,
+	createBatchOverHttp,
+	createVerifiedBrowserSession,
+	nextMessage,
+	registerMachineToken,
+	required,
+	worker,
+} from "./helpers";
 
 describe("POST /api/v1/questions", () => {
 	it("rejects requests without a machine token", async () => {
@@ -250,17 +258,30 @@ describe("GET /api/v1/current-deck", () => {
 });
 
 describe("GET /api/v1/current-deck/stream", () => {
+	it("rejects obsolete bearer credentials in WebSocket subprotocols", async () => {
+		const token = await registerMachineToken("user-obsolete-websocket-subprotocol");
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
+			headers: {"Sec-WebSocket-Protocol": `yepnope, ${token}`, Upgrade: "websocket"},
+		});
+
+		expect({protocol: response.headers.get("Sec-WebSocket-Protocol"), status: response.status}).toStrictEqual({
+			protocol: null,
+			status: 401,
+		});
+	});
+
 	it("starts with the complete outstanding card state and broadcasts each replacement", async () => {
-		const token = await registerMachineToken("user-live-questions");
+		const session = await createVerifiedBrowserSession();
+		const token = await registerMachineToken(session.userId);
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: "one"},
 			{title: "Second?", body: "two"},
 		]);
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
-			headers: {"Sec-WebSocket-Protocol": `yepnope, ${token}`, Upgrade: "websocket"},
+			headers: {Cookie: session.cookie, Upgrade: "websocket"},
 		});
 		expect(response.status).toBe(101);
-		expect(response.headers.get("Sec-WebSocket-Protocol")).toBe("yepnope");
+		expect(response.headers.get("Sec-WebSocket-Protocol")).toBeNull();
 		const socket = required(response.webSocket ?? undefined, "websocket on the upgrade response");
 		const initialMessage = nextMessage(socket);
 		socket.accept();
