@@ -27,7 +27,7 @@ describe("POST /api/v1/questions", () => {
 			{title: "Squash the branch?", body: ""},
 		]);
 		expect(created.batch_id).toMatch(/^[0-9a-f-]{36}$/);
-		expect(created.question_ids).toEqual([`${created.batch_id}:0`, `${created.batch_id}:1`]);
+		expect(created.question_ids).toStrictEqual([`${created.batch_id}:0`, `${created.batch_id}:1`]);
 	});
 
 	it("rolls back the batch and questions when counter bookkeeping fails", async () => {
@@ -120,7 +120,7 @@ describe("GET /api/v1/questions", () => {
 			}>;
 		}>();
 		expect(listed.questions).toHaveLength(2);
-		expect(listed.questions.map((question) => question.question_id)).toEqual(created.question_ids);
+		expect(listed.questions.map((question) => question.question_id)).toStrictEqual(created.question_ids);
 		expect(listed.questions[0]).toMatchObject({
 			batch_id: created.batch_id,
 			project: "demo",
@@ -144,7 +144,7 @@ describe("GET /api/v1/questions", () => {
 		});
 		expect(response.status).toBe(200);
 		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toEqual([
+		expect(listed.questions).toStrictEqual([
 			{
 				batch_id: created.batch_id,
 				project: "demo",
@@ -172,7 +172,7 @@ describe("GET /api/v1/questions", () => {
 			headers: {Authorization: `Bearer ${token}`},
 		});
 		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toEqual([
+		expect(listed.questions).toStrictEqual([
 			{
 				batch_id: created.batch_id,
 				project: "demo",
@@ -197,7 +197,7 @@ describe("GET /api/v1/questions", () => {
 			headers: {Authorization: `Bearer ${token}`},
 		});
 		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toEqual([
+		expect(listed.questions).toStrictEqual([
 			{
 				batch_id: created.batch_id,
 				project: "demo",
@@ -223,7 +223,7 @@ describe("GET /api/v1/questions", () => {
 			headers: {Authorization: `Bearer ${tokenB}`},
 		});
 		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toEqual([]);
+		expect(listed.questions).toStrictEqual([]);
 	});
 });
 
@@ -245,6 +245,9 @@ describe("GET /api/v1/questions/stream", () => {
 
 		expect(JSON.parse(await initialMessage)).toStrictEqual({
 			type: "questions",
+			afk: true,
+			paired: true,
+			machine_count: 1,
 			questions: [
 				{
 					batch_id: created.batch_id,
@@ -283,6 +286,9 @@ describe("GET /api/v1/questions/stream", () => {
 		});
 		expect(JSON.parse(await replacementMessage)).toStrictEqual({
 			type: "questions",
+			afk: true,
+			paired: true,
+			machine_count: 1,
 			questions: [
 				{
 					batch_id: created.batch_id,

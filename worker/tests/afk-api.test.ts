@@ -1,5 +1,18 @@
+import {env} from "cloudflare:workers";
+import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
-import {API_ORIGIN, createBatchOverHttp, postAnswers, registerMachineToken, required, worker} from "./helpers";
+import {hashToken} from "../auth";
+import {revokeMachineToken} from "../pairing";
+import {
+	API_ORIGIN,
+	createBatchOverHttp,
+	createVerifiedBrowserSession,
+	nextMessage,
+	postAnswers,
+	registerMachineToken,
+	required,
+	worker,
+} from "./helpers";
 
 async function getAfk(token: string): Promise<{status: number; afk?: boolean}> {
 	const response = await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {
@@ -21,9 +34,50 @@ async function putAfk(token: string, afk: boolean): Promise<Response> {
 }
 
 describe("AFK mode", () => {
-	it("defaults to on", async () => {
-		const token = await registerMachineToken("afk-default");
-		expect(await getAfk(token)).toEqual({status: 200, afk: true});
+	it("defaults signed-in accounts and newly paired machines to off", async () => {
+		const session = await createVerifiedBrowserSession();
+		const unpaired = await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {headers: {Cookie: session.cookie}});
+		expect({body: await unpaired.json(), status: unpaired.status}).toStrictEqual({
+			body: {afk: false},
+			status: 200,
+		});
+		await runInDurableObject(env.USER_DO.getByName(session.userId), (_instance, state) => {
+			expect(state.storage.sql.exec("SELECT afk FROM state").one()).toStrictEqual({afk: 0});
+		});
+		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+			headers: {Cookie: session.cookie, Upgrade: "websocket"},
+		});
+		const socket = required(streamResponse.webSocket ?? undefined, "question websocket");
+		const unpairedState = nextMessage(socket);
+		socket.accept();
+		expect(JSON.parse(await unpairedState)).toStrictEqual({
+			type: "questions",
+			afk: false,
+			paired: false,
+			machine_count: 0,
+			questions: [],
+		});
+		const issued = await worker.fetch(`${API_ORIGIN}/api/v1/pair/code`, {
+			method: "POST",
+			headers: {Cookie: session.cookie},
+		});
+		const {code} = await issued.json<{code: string}>();
+		const pairedState = nextMessage(socket);
+		const claimed = await worker.fetch(`${API_ORIGIN}/api/v1/pair/claim`, {
+			method: "POST",
+			body: JSON.stringify({code, label: "Alice's laptop"}),
+		});
+		const {token} = await claimed.json<{token: string}>();
+
+		expect(JSON.parse(await pairedState)).toStrictEqual({
+			type: "questions",
+			afk: false,
+			paired: true,
+			machine_count: 1,
+			questions: [],
+		});
+		expect(await getAfk(token)).toStrictEqual({status: 200, afk: false});
+		socket.close();
 	});
 
 	it("requires auth", async () => {
@@ -31,16 +85,29 @@ describe("AFK mode", () => {
 		expect(response.status).toBe(401);
 	});
 
+	it("returns a typed conflict when an unpaired account tries to turn AFK on", async () => {
+		const session = await createVerifiedBrowserSession();
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {
+			method: "PUT",
+			headers: {Cookie: session.cookie},
+			body: JSON.stringify({afk: true}),
+		});
+		expect({body: await response.json(), status: response.status}).toStrictEqual({
+			body: {error: "pairing_required", message: "Pair a machine before turning AFK on."},
+			status: 409,
+		});
+	});
+
 	it("flips off and back on", async () => {
 		const token = await registerMachineToken("afk-flip");
 		const offResponse = await putAfk(token, false);
 		expect(offResponse.status).toBe(200);
-		expect(await offResponse.json()).toEqual({afk: false});
-		expect(await getAfk(token)).toEqual({status: 200, afk: false});
+		expect(await offResponse.json()).toStrictEqual({afk: false});
+		expect(await getAfk(token)).toStrictEqual({status: 200, afk: false});
 
 		const onResponse = await putAfk(token, true);
 		expect(onResponse.status).toBe(200);
-		expect(await getAfk(token)).toEqual({status: 200, afk: true});
+		expect(await getAfk(token)).toStrictEqual({status: 200, afk: true});
 	});
 
 	it("rejects a malformed body", async () => {
@@ -77,9 +144,41 @@ describe("AFK mode", () => {
 			headers: {Authorization: `Bearer ${token}`},
 		});
 		const listed = await listResponse.json<{questions: Array<{question_id: string}>}>();
-		expect(listed.questions.map((question) => question.question_id)).toEqual([questionId]);
+		expect(listed.questions.map((question) => question.question_id)).toStrictEqual([questionId]);
 
 		const answered = await postAnswers(token, [{question_id: questionId, disposition: "yep"}]);
 		expect(answered.status).toBe(200);
+	});
+
+	it("forces AFK off and broadcasts state after the last machine is revoked", async () => {
+		const userId = "afk-last-machine-revoked";
+		const token = await registerMachineToken(userId);
+		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+			headers: {Authorization: `Bearer ${token}`, Upgrade: "websocket"},
+		});
+		const socket = required(streamResponse.webSocket ?? undefined, "question websocket");
+		const initial = nextMessage(socket);
+		socket.accept();
+		expect(JSON.parse(await initial)).toStrictEqual({
+			type: "questions",
+			afk: true,
+			paired: true,
+			machine_count: 1,
+			questions: [],
+		});
+
+		const refreshed = nextMessage(socket);
+		expect(
+			await revokeMachineToken(env.DB, env.USER_DO, userId, await hashToken(token), Date.UTC(2000, 0, 1)),
+		).toBe(true);
+		expect(JSON.parse(await refreshed)).toStrictEqual({
+			type: "questions",
+			afk: false,
+			paired: false,
+			machine_count: 0,
+			questions: [],
+		});
+		expect(await env.USER_DO.getByName(userId).getAfk(false)).toBe(false);
+		socket.close();
 	});
 });

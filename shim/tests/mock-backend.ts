@@ -35,6 +35,7 @@ export interface MockBackendOptions {
 	afk?: boolean;
 	afkGetStatus?: number;
 	afkPutStatus?: number;
+	afkPutBody?: unknown;
 	onConnection?: (socket: WebSocket, backend: MockBackend) => void;
 }
 
@@ -81,7 +82,7 @@ export async function startMockBackend(options: MockBackendOptions = {}): Promis
 				const status = request.method === "GET" ? (options.afkGetStatus ?? 200) : (options.afkPutStatus ?? 200);
 				response.writeHead(status, {"Content-Type": "application/json"});
 				const afk = request.method === "PUT" ? requireAfk(parsedBody) : (options.afk ?? true);
-				response.end(JSON.stringify({afk}));
+				response.end(JSON.stringify(request.method === "PUT" ? (options.afkPutBody ?? {afk}) : {afk}));
 				return;
 			}
 			if (request.method === "POST" && request.url === "/api/v1/questions") {

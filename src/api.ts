@@ -144,7 +144,13 @@ const questionSchema = z.object({
 	created_at: z.number(),
 });
 
-const questionsStateSchema = z.object({type: z.literal("questions"), questions: z.array(questionSchema)});
+const questionsStateSchema = z.object({
+	type: z.literal("questions"),
+	afk: z.boolean(),
+	paired: z.boolean(),
+	machine_count: z.number().int().nonnegative(),
+	questions: z.array(questionSchema),
+});
 
 function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuestion[] {
 	return questions.map((question) => ({
@@ -164,7 +170,13 @@ export interface QuestionsStream {
 	refresh: () => void;
 }
 
-export function openQuestionsStream(onQuestions: (questions: DeckQuestion[]) => void): QuestionsStream {
+export interface LiveApplicationState {
+	afk: boolean;
+	pairingStatus: PairingStatus;
+	questions: DeckQuestion[];
+}
+
+export function openQuestionsStream(onState: (state: LiveApplicationState) => void): QuestionsStream {
 	let socket: WebSocket | null = null;
 	let reconnectTimer: number | undefined;
 	let stopped = false;
@@ -178,7 +190,11 @@ export function openQuestionsStream(onQuestions: (questions: DeckQuestion[]) => 
 				throw new Error("question stream sent a non-text frame");
 			}
 			const state = questionsStateSchema.parse(JSON.parse(event.data) as unknown);
-			onQuestions(toDeckQuestions(state.questions));
+			onState({
+				afk: state.afk,
+				pairingStatus: {paired: state.paired, machineCount: state.machine_count},
+				questions: toDeckQuestions(state.questions),
+			});
 		});
 		socket.addEventListener("close", () => {
 			if (!stopped) {

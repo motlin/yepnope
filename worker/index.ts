@@ -37,7 +37,7 @@ export default {
 
 		// 🤝 Machine claims and the VAPID key are the only unauthenticated application routes.
 		if (url.pathname === "/api/v1/pair/claim" && request.method === "POST") {
-			return claimPairing(request, env.DB);
+			return claimPairing(request, env);
 		}
 		if (url.pathname === "/api/v1/push/public-key" && request.method === "GET") {
 			return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});
@@ -81,19 +81,27 @@ export default {
 			return subscribePush(request, stub);
 		}
 		if (request.method === "GET" && (url.pathname === QUESTIONS_STREAM_PATH || STREAM_PATH.test(url.pathname))) {
+			if (url.pathname === QUESTIONS_STREAM_PATH) {
+				const machineCount = await getPairedMachineCount(env.DB, userId);
+				return stub.fetch(withMachineCount(authenticatedRequest, machineCount));
+			}
 			return stub.fetch(authenticatedRequest);
 		}
 		if (url.pathname === "/api/v1/hook" && request.method === "POST") {
-			return handleHookEvent(request, stub, executionContext);
+			const machineCount = await getPairedMachineCount(env.DB, userId);
+			return handleHookEvent(request, stub, machineCount > 0, executionContext);
 		}
 		if (url.pathname === "/api/v1/afk" && request.method === "GET") {
-			return Response.json({afk: await stub.getAfk()});
+			const machineCount = await getPairedMachineCount(env.DB, userId);
+			return Response.json({afk: await stub.getAfk(machineCount > 0)});
 		}
 		if (url.pathname === "/api/v1/afk" && request.method === "PUT") {
-			return setAfk(request, stub);
+			const machineCount = await getPairedMachineCount(env.DB, userId);
+			return setAfk(request, stub, machineCount > 0);
 		}
 		if (url.pathname === "/api/v1/questions" && request.method === "POST") {
-			return createQuestions(request, stub, executionContext);
+			const machineCount = await getPairedMachineCount(env.DB, userId);
+			return createQuestions(request, stub, machineCount > 0, executionContext);
 		}
 		if (url.pathname === "/api/v1/questions" && request.method === "GET") {
 			return listQuestions(stub);
@@ -128,25 +136,40 @@ function withBrowserSocketAuthorization(request: Request, url: URL): Request {
 	return new Request(request, {headers});
 }
 
-// 🧍 AFK endpoints (spec §11.1): the DO boolean is the single source of truth, read per request.
-async function setAfk(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
+function withMachineCount(request: Request, machineCount: number): Request {
+	const headers = new Headers(request.headers);
+	headers.set("X-YepNope-Machine-Count", String(machineCount));
+	return new Request(request, {headers});
+}
+
+// 🧍 Pairing gates the stored AFK preference, so an unpaired account can never route questions away.
+async function setAfk(
+	request: Request,
+	stub: DurableObjectStub<UserDurableObject>,
+	paired: boolean,
+): Promise<Response> {
 	const parsed = afkRequestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
 		return new Response(null, {status: 400});
 	}
-	await stub.setAfk(parsed.data.afk);
-	return Response.json({afk: parsed.data.afk});
+	const result = await stub.setAfk(parsed.data.afk, paired);
+	if (result.status === "pairing_required") {
+		return Response.json({error: result.status, message: result.message}, {status: 409});
+	}
+	return Response.json({afk: result.afk});
 }
 
-async function claimPairing(request: Request, database: D1Database): Promise<Response> {
+async function claimPairing(request: Request, environment: Env): Promise<Response> {
 	const parsed = pairClaimRequestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
 		return new Response(null, {status: 400});
 	}
-	const claimed = await claimPairingCode(database, parsed.data.code, parsed.data.label);
+	const claimed = await claimPairingCode(environment.DB, parsed.data.code, parsed.data.label);
 	if (claimed === null) {
 		return new Response(null, {status: 404});
 	}
+	const machineCount = await getPairedMachineCount(environment.DB, claimed.userId);
+	await environment.USER_DO.getByName(claimed.userId).synchronizePairingState(machineCount);
 	return Response.json({token: claimed.token, credential_type: "machine"}, {status: 201});
 }
 
@@ -177,6 +200,7 @@ async function subscribePush(request: Request, stub: DurableObjectStub<UserDurab
 async function createQuestions(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
+	paired: boolean,
 	executionContext: ExecutionContext,
 ): Promise<Response> {
 	const parsed = createBatchRequestSchema.safeParse(await request.json().catch(() => null));
@@ -184,7 +208,7 @@ async function createQuestions(
 		return new Response(null, {status: 400});
 	}
 	// 🧍 Interception point 3 (spec §11.3): with AFK off, ask_yep_nope gets a teaching error instead of a batch.
-	if (!(await stub.getAfk())) {
+	if (!(await stub.getAfk(paired))) {
 		return Response.json(
 			{
 				error: "afk_off",
@@ -202,7 +226,7 @@ async function createQuestions(
 }
 
 async function listQuestions(stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
-	const state = await stub.getOutstandingQuestionState();
+	const state = await stub.getOutstandingQuestionState(0);
 	return Response.json({questions: state.questions});
 }
 

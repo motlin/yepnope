@@ -92,6 +92,10 @@ export async function registerMachineToken(userId: string): Promise<string> {
 	await env.DB.prepare("INSERT INTO machine_tokens (token_hash, user_id, label, created_at) VALUES (?, ?, ?, ?)")
 		.bind(await hashToken(token), userId, "test machine", now)
 		.run();
+	const result = await env.USER_DO.getByName(userId).setAfk(true, true);
+	if (result.status !== "updated") {
+		throw new Error("test machine could not enable AFK");
+	}
 	return token;
 }
 

@@ -2,6 +2,7 @@ import {and, count, eq, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {machineTokens, pairingCodes} from "./db/d1-schema";
+import type {UserDurableObject} from "./user-do";
 import {PAIRING_CODE_TTL_MILLISECONDS} from "./validation";
 import {base64UrlEncode} from "./webcrypto";
 
@@ -93,4 +94,31 @@ export async function claimPairingCode(
 		return null;
 	}
 	return {token, userId: winner.user_id};
+}
+
+export async function revokeMachineToken(
+	database: D1Database,
+	namespace: DurableObjectNamespace<UserDurableObject>,
+	userId: string,
+	tokenHash: string,
+	revokedAt: number,
+): Promise<boolean> {
+	const revoked = await drizzle(database)
+		.update(machineTokens)
+		.set({revokedAt})
+		.where(
+			and(
+				eq(machineTokens.tokenHash, tokenHash),
+				eq(machineTokens.userId, userId),
+				eq(machineTokens.credentialType, "machine"),
+				isNull(machineTokens.revokedAt),
+			),
+		)
+		.returning({tokenHash: machineTokens.tokenHash});
+	if (revoked.length === 0) {
+		return false;
+	}
+	const machineCount = await getPairedMachineCount(database, userId);
+	await namespace.getByName(userId).synchronizePairingState(machineCount);
+	return true;
 }

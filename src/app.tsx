@@ -973,9 +973,11 @@ export function App(): ReactElement {
 		}
 		refreshAfk();
 		refreshPairingStatus();
-		const stream = openQuestionsStream((currentQuestions) => {
-			setQuestions(currentQuestions);
-			updateBadge(currentQuestions.length);
+		const stream = openQuestionsStream((state) => {
+			setAfkState(state.afk);
+			setPairingStatus(state.pairingStatus);
+			setQuestions(state.questions);
+			updateBadge(state.questions.length);
 		});
 		questionsStream.current = stream;
 		function onVisible(): void {

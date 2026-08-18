@@ -4,7 +4,7 @@ import {integer, sqliteTable, text} from "drizzle-orm/sqlite-core";
 
 export const state = sqliteTable("state", {
 	id: integer("id").primaryKey(),
-	afk: integer("afk", {mode: "boolean"}).notNull().default(true),
+	afk: integer("afk", {mode: "boolean"}).notNull().default(false),
 	questionsAsked: integer("questions_asked").notNull().default(0),
 	yepCount: integer("yep_count").notNull().default(0),
 	nopeCount: integer("nope_count").notNull().default(0),

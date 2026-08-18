@@ -3,7 +3,7 @@ import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
 import {hashToken} from "../auth";
 import type {UserDurableObject} from "../user-do";
-import {API_ORIGIN, createVerifiedBrowserSession, worker} from "./helpers";
+import {API_ORIGIN, createVerifiedBrowserSession, nextMessage, required, worker} from "./helpers";
 
 async function seedLegacyIdentity(legacyUserId: string, legacyToken: string, pairingCode: string): Promise<string> {
 	const now = Date.now();
@@ -55,7 +55,7 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		const legacyToken = "legacy-app-token-for-alice-that-is-long-enough";
 		const legacyMachineToken = await seedLegacyIdentity(legacyUserId, legacyToken, "ABC234");
 		const source = env.USER_DO.getByName(legacyUserId);
-		await source.setAfk(true);
+		await source.setAfk(true, true);
 		const sourceBatch = await source.createBatch({
 			project: "legacy-project",
 			questions: [
@@ -115,7 +115,7 @@ describe("POST /api/v1/account/claim-legacy", () => {
 				batches: 2,
 				devices: 1,
 				questions: 3,
-				state: {afk: 1, questions_asked: 3, yep_count: 1, nope_count: 1, skip_count: 0},
+				state: {afk: 0, questions_asked: 3, yep_count: 1, nope_count: 1, skip_count: 0},
 			});
 		});
 		await runInDurableObject(source, async (_instance: UserDurableObject, state) => {
@@ -231,6 +231,38 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		).toStrictEqual({value: 1});
 	});
 
+	it("recovers pairing while resetting AFK off in an already-open browser", async () => {
+		const session = await createVerifiedBrowserSession();
+		const legacyUserId = "legacy-recovered-alice";
+		const legacyToken = "legacy-app-token-for-recovered-alice";
+		await seedLegacyIdentity(legacyUserId, legacyToken, "JKM789");
+		await env.USER_DO.getByName(legacyUserId).setAfk(true, true);
+		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+			headers: {Cookie: session.cookie, Upgrade: "websocket"},
+		});
+		const socket = required(streamResponse.webSocket ?? undefined, "question websocket");
+		const initialState = nextMessage(socket);
+		socket.accept();
+		expect(JSON.parse(await initialState)).toStrictEqual({
+			type: "questions",
+			afk: false,
+			paired: false,
+			machine_count: 0,
+			questions: [],
+		});
+
+		const recoveredState = nextMessage(socket);
+		expect((await claimLegacy(session.cookie, legacyToken)).status).toBe(200);
+		expect(JSON.parse(await recoveredState)).toStrictEqual({
+			type: "questions",
+			afk: false,
+			paired: true,
+			machine_count: 1,
+			questions: [],
+		});
+		socket.close();
+	});
+
 	it("rejects conflicting Durable Object rows without dropping source data", async () => {
 		const session = await createVerifiedBrowserSession();
 		const legacyUserId = "legacy-conflict";
@@ -264,7 +296,7 @@ describe("POST /api/v1/account/claim-legacy", () => {
 				.first(),
 		).toStrictEqual({revoked_at: null, user_id: legacyUserId});
 		const source = env.USER_DO.getByName(legacyUserId);
-		await source.setAfk(false);
+		await source.setAfk(false, true);
 		await runInDurableObject(source, (_instance: UserDurableObject, state) => {
 			expect(state.storage.sql.exec("SELECT count(*) AS value FROM devices").one()).toStrictEqual({value: 1});
 		});

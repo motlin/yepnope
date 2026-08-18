@@ -3,6 +3,7 @@ import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {legacyIdentityClaims} from "./db/d1-schema";
 import {completeDurableObjectCleanup, recordLegacyIdentity} from "./identity-lifecycle";
+import {getPairedMachineCount} from "./pairing";
 import type {UserDurableObject} from "./user-do";
 
 interface LegacyClaimRow {
@@ -162,6 +163,7 @@ export async function claimLegacyIdentity(
 		return {status: "conflict", message: merged.reason};
 	}
 	await completeD1Claim(database, claim, destinationUserId);
+	await destination.synchronizePairingState(await getPairedMachineCount(database, destinationUserId));
 	await source.clearClaimedLegacyIdentity(destinationUserId);
 	await completeDurableObjectCleanup(database, claim.legacyUserId, Date.now());
 	return {status: "claimed", alreadyClaimed: false};

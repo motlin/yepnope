@@ -151,7 +151,7 @@ describe("identity lifecycle", () => {
 				"INSERT INTO pairing_codes (code, user_id, created_at, expires_at) VALUES ('ABC234', ?, ?, ?)",
 			).bind("account-bob", accountCreatedAt, now),
 		]);
-		await env.USER_DO.getByName("legacy-alice").setAfk(true);
+		await env.USER_DO.getByName("legacy-alice").setAfk(true, true);
 
 		expect(await cleanupExpiredIdentityRecords(env.DB, env.USER_DO, now)).toStrictEqual({
 			expiredLegacyIdentities: 1,

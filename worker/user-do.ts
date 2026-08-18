@@ -3,6 +3,7 @@ import {DurableObject} from "cloudflare:workers";
 import {and, asc, eq, inArray, isNull, lte, min, sql} from "drizzle-orm";
 import {drizzle, type DrizzleSqliteDODatabase} from "drizzle-orm/durable-sqlite";
 import {migrate} from "drizzle-orm/durable-sqlite/migrator";
+import {z} from "zod";
 import {answers, batches, devices, identityMergeLock, identityMerges, questions, state} from "./db/do-schema";
 import migrationBundle from "./migrations/do/migrations.js";
 import {hashToken} from "./auth";
@@ -52,8 +53,13 @@ export interface OutstandingQuestionPayload {
 
 export interface OutstandingQuestionState {
 	type: "questions";
+	afk: boolean;
+	paired: boolean;
+	machine_count: number;
 	questions: OutstandingQuestionPayload[];
 }
+
+export type AfkUpdateResult = {status: "updated"; afk: boolean} | {status: "pairing_required"; message: string};
 
 export interface SubmittedAnswer {
 	question_id: string;
@@ -62,7 +68,6 @@ export interface SubmittedAnswer {
 
 export interface LegacyIdentitySnapshot {
 	state: {
-		afk: boolean;
 		questionsAsked: number;
 		yepCount: number;
 		nopeCount: number;
@@ -85,6 +90,12 @@ export type LegacyIdentityMergeResult =
 
 const STATE_ROW_ID = 1;
 const QUESTIONS_SOCKET_TAG = "questions";
+
+interface QuestionsSocketAttachment {
+	machineCount: number;
+}
+
+const questionsSocketAttachmentSchema = z.object({machineCount: z.number().int().nonnegative()});
 
 function findRowConflict<Row extends object>(
 	existingRows: Row[],
@@ -153,14 +164,33 @@ export class UserDurableObject extends DurableObject<Env> {
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
 	}
 
-	async getAfk(): Promise<boolean> {
+	async getAfk(paired: boolean): Promise<boolean> {
+		if (!paired) {
+			return false;
+		}
 		const rows = await this.database.select({afk: state.afk}).from(state).where(eq(state.id, STATE_ROW_ID));
-		return rows[0]?.afk ?? true;
+		return rows[0]?.afk ?? false;
 	}
 
-	async setAfk(afk: boolean): Promise<void> {
+	async setAfk(afk: boolean, paired: boolean): Promise<AfkUpdateResult> {
 		this.assertWritable();
+		if (afk && !paired) {
+			return {status: "pairing_required", message: "Pair a machine before turning AFK on."};
+		}
 		await this.database.update(state).set({afk}).where(eq(state.id, STATE_ROW_ID));
+		await this.broadcastOutstandingQuestionState();
+		return {status: "updated", afk};
+	}
+
+	async synchronizePairingState(machineCount: number): Promise<void> {
+		this.assertWritable();
+		if (machineCount === 0) {
+			await this.database.update(state).set({afk: false}).where(eq(state.id, STATE_ROW_ID));
+		}
+		for (const socket of this.ctx.getWebSockets(QUESTIONS_SOCKET_TAG)) {
+			socket.serializeAttachment({machineCount} satisfies QuestionsSocketAttachment);
+		}
+		await this.broadcastOutstandingQuestionState();
 	}
 
 	async getOutstandingQuestions(): Promise<OutstandingQuestion[]> {
@@ -187,10 +217,13 @@ export class UserDurableObject extends DurableObject<Env> {
 		return rows;
 	}
 
-	async getOutstandingQuestionState(): Promise<OutstandingQuestionState> {
+	async getOutstandingQuestionState(machineCount: number): Promise<OutstandingQuestionState> {
 		const outstanding = await this.getOutstandingQuestions();
 		return {
 			type: "questions",
+			afk: await this.getAfk(machineCount > 0),
+			paired: machineCount > 0,
+			machine_count: machineCount,
 			questions: outstanding.map((question) => ({
 				batch_id: question.batchId,
 				project: question.project,
@@ -356,9 +389,14 @@ export class UserDurableObject extends DurableObject<Env> {
 			if (request.headers.get("Upgrade") !== "websocket") {
 				return new Response(null, {status: 426});
 			}
+			const machineCount = Number(request.headers.get("X-YepNope-Machine-Count"));
+			if (!Number.isSafeInteger(machineCount) || machineCount < 0) {
+				return new Response(null, {status: 400});
+			}
 			const pair = new WebSocketPair();
 			this.ctx.acceptWebSocket(pair[1], [QUESTIONS_SOCKET_TAG]);
-			await this.sendOutstandingQuestionState(pair[1]);
+			pair[1].serializeAttachment({machineCount} satisfies QuestionsSocketAttachment);
+			await this.sendOutstandingQuestionState(pair[1], machineCount);
 			const selectedProtocol = request.headers.get("Sec-WebSocket-Protocol")?.startsWith("yepnope,") === true;
 			return selectedProtocol
 				? new Response(null, {
@@ -390,7 +428,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void> {
 		const batchId = this.ctx.getTags(socket)[0];
 		if (batchId === QUESTIONS_SOCKET_TAG) {
-			await this.sendOutstandingQuestionState(socket);
+			await this.sendOutstandingQuestionState(socket, this.getSocketMachineCount(socket));
 			return;
 		}
 		if (batchId === undefined || !(await this.batchExists(batchId))) {
@@ -453,7 +491,6 @@ export class UserDurableObject extends DurableObject<Env> {
 				status: "ready",
 				snapshot: {
 					state: {
-						afk: sourceState.afk,
 						questionsAsked: sourceState.questionsAsked,
 						yepCount: sourceState.yepCount,
 						nopeCount: sourceState.nopeCount,
@@ -510,7 +547,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			transaction
 				.update(state)
 				.set({
-					afk: sql`${state.afk} OR ${snapshot.state.afk}`,
+					afk: false,
 					questionsAsked: sql`${state.questionsAsked} + ${snapshot.state.questionsAsked}`,
 					yepCount: sql`${state.yepCount} + ${snapshot.state.yepCount}`,
 					nopeCount: sql`${state.nopeCount} + ${snapshot.state.nopeCount}`,
@@ -523,7 +560,6 @@ export class UserDurableObject extends DurableObject<Env> {
 		});
 		if (result.status !== "conflict") {
 			await this.armNextDeadline();
-			await this.broadcastOutstandingQuestionState();
 		}
 		return result;
 	}
@@ -655,8 +691,8 @@ export class UserDurableObject extends DurableObject<Env> {
 		socket.send(stateFrame(batchId, dispositions));
 	}
 
-	private async sendOutstandingQuestionState(socket: WebSocket): Promise<void> {
-		socket.send(JSON.stringify(await this.getOutstandingQuestionState()));
+	private async sendOutstandingQuestionState(socket: WebSocket, machineCount: number): Promise<void> {
+		socket.send(JSON.stringify(await this.getOutstandingQuestionState(machineCount)));
 	}
 
 	private async broadcastOutstandingQuestionState(): Promise<void> {
@@ -664,10 +700,13 @@ export class UserDurableObject extends DurableObject<Env> {
 		if (sockets.length === 0) {
 			return;
 		}
-		const frame = JSON.stringify(await this.getOutstandingQuestionState());
 		for (const socket of sockets) {
-			socket.send(frame);
+			await this.sendOutstandingQuestionState(socket, this.getSocketMachineCount(socket));
 		}
+	}
+
+	private getSocketMachineCount(socket: WebSocket): number {
+		return questionsSocketAttachmentSchema.parse(socket.deserializeAttachment()).machineCount;
 	}
 
 	private async broadcastBatchState(batchId: string): Promise<void> {

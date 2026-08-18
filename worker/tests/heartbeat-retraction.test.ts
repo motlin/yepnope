@@ -94,6 +94,9 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 		socket.accept();
 		expect(JSON.parse(await initialMessage)).toStrictEqual({
 			type: "questions",
+			afk: true,
+			paired: true,
+			machine_count: 1,
 			questions: [
 				{
 					batch_id: created.batch_id,
@@ -115,7 +118,13 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 		await goStale(stub, created.batch_id);
 		const retractedMessage = nextMessage(socket);
 		expect(await runDurableObjectAlarm(stub)).toBe(true);
-		expect(JSON.parse(await retractedMessage)).toStrictEqual({type: "questions", questions: []});
+		expect(JSON.parse(await retractedMessage)).toStrictEqual({
+			type: "questions",
+			afk: true,
+			paired: true,
+			machine_count: 1,
+			questions: [],
+		});
 		socket.close();
 	});
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import type {AuthenticationUser, PairingStatus, QuestionsStream} from "../src/api";
+import type {AuthenticationUser, LiveApplicationState, PairingStatus, QuestionsStream} from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
 const initialQuestions: DeckQuestion[] = [
@@ -32,6 +32,7 @@ const fetchPairingStatus = vi.hoisted(() =>
 );
 
 let publishQuestions: ((questions: DeckQuestion[]) => void) | undefined;
+let publishApplicationState: ((state: LiveApplicationState) => void) | undefined;
 const closeStream = vi.fn<() => void>();
 const refreshStream = vi.fn<() => void>();
 
@@ -41,8 +42,11 @@ vi.mock("../src/api", () => ({
 	fetchPairingStatus,
 	fetchSession,
 	issuePairingCode: vi.fn<() => Promise<{code: string; expiresAt: number}>>(),
-	openQuestionsStream: vi.fn<(onQuestions: (questions: DeckQuestion[]) => void) => QuestionsStream>((onQuestions) => {
-		publishQuestions = onQuestions;
+	openQuestionsStream: vi.fn<(onState: (state: LiveApplicationState) => void) => QuestionsStream>((onState) => {
+		publishApplicationState = onState;
+		publishQuestions = (questions) => {
+			onState({afk: true, pairingStatus: {paired: true, machineCount: 1}, questions});
+		};
 		return {close: closeStream, refresh: refreshStream};
 	}),
 	registerAccount: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
@@ -96,6 +100,7 @@ beforeEach(() => {
 	Object.defineProperty(window, "localStorage", {configurable: true, value: storage});
 	window.history.replaceState({}, "", "/");
 	publishQuestions = undefined;
+	publishApplicationState = undefined;
 	closeStream.mockClear();
 	refreshStream.mockClear();
 	vi.mocked(isIos).mockReturnValue(false);
@@ -140,7 +145,11 @@ describe("App live question synchronization", () => {
 			expect(publishQuestions).toBeTypeOf("function");
 		});
 		act(() => {
-			publishQuestions?.([]);
+			publishApplicationState?.({
+				afk: false,
+				pairingStatus: {paired: false, machineCount: 0},
+				questions: [],
+			});
 		});
 
 		expect((await screen.findByRole("button", {name: "Pair a machine"})).getAttribute("aria-pressed")).toBeNull();
@@ -158,11 +167,42 @@ describe("App live question synchronization", () => {
 			},
 			{timeout: 2_000},
 		);
-		expect(screen.getByRole("button", {name: "AFK on"}).getAttribute("aria-pressed")).toBe("true");
+		act(() => {
+			publishApplicationState?.({
+				afk: false,
+				pairingStatus: {paired: true, machineCount: 1},
+				questions: [],
+			});
+		});
+		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
 
 		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
 		expect(screen.getByText("Approve this sample change?")).toBeDefined();
 		expect(screen.getByText("1 of 3")).toBeDefined();
+	});
+
+	it("shows pairing immediately when the live state reports that the last machine was revoked", async () => {
+		render(<App />);
+		await waitFor(() => {
+			expect(publishApplicationState).toBeTypeOf("function");
+		});
+		act(() => {
+			publishApplicationState?.({
+				afk: true,
+				pairingStatus: {paired: true, machineCount: 1},
+				questions: [],
+			});
+		});
+		expect(screen.getByRole("button", {name: "AFK on"}).getAttribute("aria-pressed")).toBe("true");
+
+		act(() => {
+			publishApplicationState?.({
+				afk: false,
+				pairingStatus: {paired: false, machineCount: 0},
+				questions: [],
+			});
+		});
+		expect(screen.getByRole("button", {name: "Pair a machine"}).getAttribute("aria-pressed")).toBeNull();
 	});
 
 	it("removes the redundant product name from the app header", async () => {
@@ -432,11 +472,16 @@ describe("Better Auth account routes", () => {
 			expect(publishQuestions).toBeTypeOf("function");
 		});
 		act(() => {
-			publishQuestions?.(initialQuestions);
+			publishApplicationState?.({
+				afk: false,
+				pairingStatus: {paired: true, machineCount: 1},
+				questions: initialQuestions,
+			});
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
 
 		expect(screen.getByText("Ship it?")).toBeDefined();
+		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
 		expect(fetchSession.mock.calls).toStrictEqual([[], []]);
 	});
 });

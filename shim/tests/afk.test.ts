@@ -85,6 +85,16 @@ describe("yepnope-mcp afk", () => {
 		);
 	});
 
+	it("explains that pairing is required before AFK can be enabled", async () => {
+		backend = await startMockBackend({
+			afkPutStatus: 409,
+			afkPutBody: {error: "pairing_required", message: "Pair a machine before turning AFK on."},
+		});
+		await expect(runAfkCommand(["on"], {baseUrl: backend.baseUrl, token: "ynp_test_alice_token"})).rejects.toThrow(
+			new Error("Pair a machine before turning AFK on."),
+		);
+	});
+
 	it("prints a visible statusline warning when the server is unavailable", async () => {
 		backend = await startMockBackend({afkGetStatus: 503});
 		expect(await runAfkCommand(["statusline"], {baseUrl: backend.baseUrl, token: "ynp_test_alice_token"})).toBe(

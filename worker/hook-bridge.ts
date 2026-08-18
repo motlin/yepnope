@@ -121,8 +121,12 @@ async function awaitResolution(socket: WebSocket, questionId: string): Promise<D
 }
 
 // 🧍 Interception point 2 (spec §11.3): deny AskUserQuestion with a redirect while AFK, abstain otherwise.
-async function handlePreToolUse(event: HookEvent, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
-	if (event.tool_name !== "AskUserQuestion" || !(await stub.getAfk())) {
+async function handlePreToolUse(
+	event: HookEvent,
+	stub: DurableObjectStub<UserDurableObject>,
+	paired: boolean,
+): Promise<Response> {
+	if (event.tool_name !== "AskUserQuestion" || !(await stub.getAfk(paired))) {
 		return noDecision();
 	}
 	return preToolUseDeny(ASK_USER_QUESTION_REDIRECT);
@@ -133,9 +137,10 @@ async function handlePreToolUse(event: HookEvent, stub: DurableObjectStub<UserDu
 async function handlePermissionRequest(
 	event: HookEvent,
 	stub: DurableObjectStub<UserDurableObject>,
+	paired: boolean,
 	executionContext: ExecutionContext,
 ): Promise<Response> {
-	if (!(await stub.getAfk())) {
+	if (!(await stub.getAfk(paired))) {
 		return noDecision();
 	}
 	const card = buildPermissionCard(event.tool_name ?? "unknown tool", event.tool_input, event.cwd);
@@ -163,6 +168,7 @@ async function handlePermissionRequest(
 export async function handleHookEvent(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
+	paired: boolean,
 	executionContext: ExecutionContext,
 ): Promise<Response> {
 	const parsed = hookEventSchema.safeParse(await request.json().catch(() => null));
@@ -171,9 +177,9 @@ export async function handleHookEvent(
 	}
 	switch (parsed.data.hook_event_name) {
 		case "PreToolUse":
-			return handlePreToolUse(parsed.data, stub);
+			return handlePreToolUse(parsed.data, stub, paired);
 		case "PermissionRequest":
-			return handlePermissionRequest(parsed.data, stub, executionContext);
+			return handlePermissionRequest(parsed.data, stub, paired, executionContext);
 		default:
 			return noDecision();
 	}

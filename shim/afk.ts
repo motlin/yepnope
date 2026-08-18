@@ -6,6 +6,7 @@ const MISSING_TOKEN_MESSAGE =
 	"`npx yepnope-mcp pair <code>` and export the token it prints.";
 
 const afkResponseSchema = z.object({afk: z.boolean()});
+const afkConflictSchema = z.object({error: z.literal("pairing_required"), message: z.string()});
 
 export interface AfkCommandOptions {
 	baseUrl: string;
@@ -36,6 +37,15 @@ async function requestAfk(options: AfkRequestOptions): Promise<Response> {
 async function readAfk(baseUrl: string, token: string, afk?: boolean): Promise<boolean> {
 	const response = await requestAfk({baseUrl, token, ...(afk === undefined ? {} : {afk})});
 	if (!response.ok) {
+		const conflict = afkConflictSchema.safeParse(
+			await response
+				.clone()
+				.json()
+				.catch(() => null),
+		);
+		if (response.status === 409 && conflict.success) {
+			throw new Error(conflict.data.message);
+		}
 		throw new Error(`AFK request failed: the server answered HTTP ${response.status}.`);
 	}
 	return afkResponseSchema.parse(await response.json()).afk;

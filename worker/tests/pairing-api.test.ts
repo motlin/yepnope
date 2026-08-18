@@ -107,6 +107,15 @@ describe("POST /api/v1/pair/claim", () => {
 		expect(claimed.status).toBe(201);
 		const machine = await claimed.json<{token: string; credential_type: string}>();
 		expect(machine.credential_type).toBe("machine");
+		expect(
+			(
+				await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {
+					method: "PUT",
+					headers: {Authorization: `Bearer ${machine.token}`},
+					body: JSON.stringify({afk: true}),
+				})
+			).status,
+		).toBe(200);
 
 		const created = await createBatchOverHttp(machine.token, "example-project", [
 			{title: "Continue?", body: "Proceed with the example operation?"},
