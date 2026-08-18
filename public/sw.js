@@ -38,13 +38,7 @@ function supportsNotificationActions() {
 }
 
 async function fetchBatchQuestion(batchId) {
-	const token = await readToken();
-	if (!token) {
-		return null;
-	}
-	const response = await fetch("/api/v1/questions", {
-		headers: {Authorization: `Bearer ${token}`},
-	});
+	const response = await fetch("/api/v1/questions", {credentials: "same-origin"});
 	if (!response.ok) {
 		throw new Error(`question fetch failed with ${response.status}`);
 	}
@@ -81,30 +75,6 @@ async function showBatchNotification(payload) {
 	await Promise.all([self.registration.showNotification(title, options), setBadge(payload.outstanding || count)]);
 }
 
-function readToken() {
-	return new Promise((resolve) => {
-		const open = indexedDB.open("yepnope", 1);
-		open.onupgradeneeded = () => {
-			open.result.createObjectStore("kv");
-		};
-		open.onerror = () => {
-			resolve(null);
-		};
-		open.onsuccess = () => {
-			const database = open.result;
-			const request = database.transaction("kv").objectStore("kv").get("token");
-			request.onerror = () => {
-				database.close();
-				resolve(null);
-			};
-			request.onsuccess = () => {
-				database.close();
-				resolve(typeof request.result === "string" ? request.result : null);
-			};
-		};
-	});
-}
-
 async function refreshOpenClients() {
 	const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true});
 	for (const client of windows) {
@@ -123,14 +93,10 @@ async function focusOrOpen() {
 }
 
 async function answerFromNotification(payload, disposition) {
-	const token = await readToken();
-	if (!token) {
-		await focusOrOpen();
-		return;
-	}
 	const response = await fetch("/api/v1/answers", {
 		method: "POST",
-		headers: {Authorization: `Bearer ${token}`, "Content-Type": "application/json"},
+		credentials: "same-origin",
+		headers: {"Content-Type": "application/json"},
 		body: JSON.stringify({answers: [{question_id: payload.question_id, disposition}]}),
 	});
 	if (!response.ok) {

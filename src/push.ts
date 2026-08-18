@@ -24,7 +24,7 @@ export function isStandalone(): boolean {
 export type PushSetupResult = "subscribed" | "denied" | "unsupported";
 
 // Call from a click handler: iOS refuses permission prompts outside a user gesture.
-export async function enablePush(token: string): Promise<PushSetupResult> {
+export async function enablePush(): Promise<PushSetupResult> {
 	if (!pushSupported()) {
 		return "unsupported";
 	}
@@ -40,7 +40,7 @@ export async function enablePush(token: string): Promise<PushSetupResult> {
 			userVisibleOnly: true,
 			applicationServerKey: base64UrlToBytes(await fetchVapidPublicKey()),
 		}));
-	await registerPushSubscription(token, subscription.toJSON());
+	await registerPushSubscription(subscription.toJSON());
 	return "subscribed";
 }
 

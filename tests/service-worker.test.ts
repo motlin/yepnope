@@ -10,6 +10,8 @@ interface PushPayload {
 }
 
 interface ServiceWorkerHarness {
+	clearAppBadge: ReturnType<typeof vi.fn>;
+	dispatchNotificationClick(payload: Record<string, unknown>, action: string): Promise<void>;
 	dispatchPush(payload: PushPayload): Promise<void>;
 	fetchMock: ReturnType<typeof vi.fn>;
 	showNotification: ReturnType<typeof vi.fn>;
@@ -32,6 +34,7 @@ function createHarness(options: {
 		Promise.resolve(),
 	);
 	const setAppBadge = vi.fn<(outstanding: number) => Promise<void>>(async () => Promise.resolve());
+	const clearAppBadge = vi.fn<() => Promise<void>>(async () => Promise.resolve());
 	const fetchMock = vi.fn<() => Promise<unknown>>(options.fetchQuestions);
 	const self = {
 		Notification: {maxActions: options.maxActions},
@@ -46,44 +49,33 @@ function createHarness(options: {
 		registration: {showNotification},
 		skipWaiting: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	};
-	const tokenRequest: {result?: string; onerror?: () => void; onsuccess?: () => void} = {};
-	const database = {
-		close: vi.fn<() => void>(),
-		transaction: vi.fn<() => {objectStore: () => {get: () => typeof tokenRequest}}>(() => ({
-			objectStore: () => ({get: () => tokenRequest}),
-		})),
-	};
-	const openRequest: {
-		result: typeof database;
-		onerror?: () => void;
-		onsuccess?: () => void;
-		onupgradeneeded?: () => void;
-	} = {
-		result: database,
-	};
-	const indexedDB = {
-		open: vi.fn<(name: string, version: number) => typeof openRequest>(() => {
-			queueMicrotask(() => {
-				openRequest.onsuccess?.();
-				queueMicrotask(() => {
-					tokenRequest.result = "app-token-alice";
-					tokenRequest.onsuccess?.();
-				});
-			});
-			return openRequest;
-		}),
-	};
 	const navigator = {
 		userAgent: options.userAgent,
 		setAppBadge,
-		clearAppBadge: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+		clearAppBadge,
 	};
-	runInNewContext(serviceWorkerSource, {fetch: fetchMock, indexedDB, navigator, queueMicrotask, self});
+	runInNewContext(serviceWorkerSource, {fetch: fetchMock, navigator, self});
 
 	return {
+		clearAppBadge,
 		fetchMock,
 		showNotification,
 		setAppBadge,
+		async dispatchNotificationClick(payload, action) {
+			let completion = Promise.resolve();
+			const listener = listeners.get("notificationclick");
+			if (listener === undefined) {
+				throw new Error("notification click listener was not registered");
+			}
+			listener({
+				action,
+				notification: {close: vi.fn<() => void>(), data: payload},
+				waitUntil(promise: Promise<unknown>) {
+					completion = promise.then(() => undefined);
+				},
+			});
+			await completion;
+		},
 		async dispatchPush(payload) {
 			let completion = Promise.resolve();
 			const listener = listeners.get("push");
@@ -147,9 +139,7 @@ describe("service worker push notifications", () => {
 
 		await harness.dispatchPush(singlePayload);
 
-		expect(callsFrom(harness.fetchMock)).toStrictEqual([
-			["/api/v1/questions", {headers: {Authorization: "Bearer app-token-alice"}}],
-		]);
+		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/questions", {credentials: "same-origin"}]]);
 		expect(callsFrom(harness.showNotification)).toStrictEqual([
 			[
 				"Ship the release?",
@@ -178,9 +168,7 @@ describe("service worker push notifications", () => {
 
 		await harness.dispatchPush(singlePayload);
 
-		expect(callsFrom(harness.fetchMock)).toStrictEqual([
-			["/api/v1/questions", {headers: {Authorization: "Bearer app-token-alice"}}],
-		]);
+		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/questions", {credentials: "same-origin"}]]);
 		expect(callsFrom(harness.showNotification)).toStrictEqual([
 			[
 				"1 question from demo",
@@ -264,5 +252,32 @@ describe("service worker push notifications", () => {
 			],
 		]);
 		expect(callsFrom(harness.setAppBadge)).toStrictEqual([[1]]);
+	});
+
+	it("answers notification actions with the Better Auth session cookie", async () => {
+		const harness = createHarness({
+			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+			maxActions: 2,
+			fetchQuestions: async () => Promise.resolve({ok: true}),
+		});
+
+		await harness.dispatchNotificationClick(
+			{batch_id: "batch-100", outstanding: 1, question_id: "question-100"},
+			"yep",
+		);
+
+		expect(callsFrom(harness.fetchMock)).toStrictEqual([
+			[
+				"/api/v1/answers",
+				{
+					body: JSON.stringify({answers: [{question_id: "question-100", disposition: "yep"}]}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+		]);
+		expect(callsFrom(harness.setAppBadge)).toStrictEqual([]);
+		expect(callsFrom(harness.clearAppBadge)).toStrictEqual([[]]);
 	});
 });

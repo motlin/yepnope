@@ -8,23 +8,90 @@ async function requestJson<Schema extends z.ZodType>(
 	init: RequestInit,
 	schema: Schema,
 ): Promise<z.infer<Schema>> {
-	const response = await fetch(path, init);
+	const response = await fetch(path, {credentials: "same-origin", ...init});
 	if (!response.ok) {
-		throw new Error(`${init.method ?? "GET"} ${path} failed with ${response.status}`);
+		const error = z.object({message: z.string()}).safeParse(
+			await response
+				.clone()
+				.json()
+				.catch(() => null),
+		);
+		throw new Error(
+			error.success ? error.data.message : `${init.method ?? "GET"} ${path} failed with ${response.status}`,
+		);
 	}
 	const body: unknown = await response.json();
 	return schema.parse(body);
 }
 
-function authHeaders(token: string): Record<string, string> {
-	return {Authorization: `Bearer ${token}`};
+function jsonRequest(body: Record<string, unknown>): RequestInit {
+	return {
+		method: "POST",
+		headers: {"Content-Type": "application/json"},
+		body: JSON.stringify(body),
+	};
 }
 
-const pairNewResponseSchema = z.object({token: z.string()});
+const authenticationUserSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	email: z.email(),
+	emailVerified: z.boolean(),
+});
 
-export async function pairNew(): Promise<string> {
-	const body = await requestJson("/api/v1/pair/new", {method: "POST"}, pairNewResponseSchema);
-	return body.token;
+export type AuthenticationUser = z.infer<typeof authenticationUserSchema>;
+
+const sessionResponseSchema = z.object({user: authenticationUserSchema}).nullable();
+
+export async function fetchSession(): Promise<AuthenticationUser | null> {
+	const session = await requestJson("/api/auth/get-session", {}, sessionResponseSchema);
+	return session?.user ?? null;
+}
+
+const authenticatedResponseSchema = z.object({user: authenticationUserSchema});
+
+export async function signIn(email: string, password: string): Promise<AuthenticationUser> {
+	const result = await requestJson(
+		"/api/auth/sign-in/email",
+		jsonRequest({email, password}),
+		authenticatedResponseSchema,
+	);
+	return result.user;
+}
+
+export async function registerAccount(name: string, email: string, password: string): Promise<AuthenticationUser> {
+	const result = await requestJson(
+		"/api/auth/sign-up/email",
+		jsonRequest({name, email, password, callbackURL: "/verify-email?verified=1"}),
+		authenticatedResponseSchema,
+	);
+	return result.user;
+}
+
+const successResponseSchema = z.object({status: z.literal(true)});
+
+export async function sendVerificationEmail(email: string): Promise<void> {
+	await requestJson(
+		"/api/auth/send-verification-email",
+		jsonRequest({email, callbackURL: "/verify-email?verified=1"}),
+		successResponseSchema,
+	);
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+	await requestJson(
+		"/api/auth/request-password-reset",
+		jsonRequest({email, redirectTo: "/reset-password"}),
+		z.object({status: z.literal(true), message: z.string()}),
+	);
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+	await requestJson("/api/auth/reset-password", jsonRequest({token, newPassword}), successResponseSchema);
+}
+
+export async function signOut(): Promise<void> {
+	await requestJson("/api/auth/sign-out", jsonRequest({}), z.object({success: z.literal(true)}));
 }
 
 const pairCodeResponseSchema = z.object({code: z.string(), expires_at: z.number()});
@@ -34,12 +101,8 @@ export interface IssuedPairingCode {
 	expiresAt: number;
 }
 
-export async function issuePairingCode(token: string): Promise<IssuedPairingCode> {
-	const body = await requestJson(
-		"/api/v1/pair/code",
-		{method: "POST", headers: authHeaders(token)},
-		pairCodeResponseSchema,
-	);
+export async function issuePairingCode(): Promise<IssuedPairingCode> {
+	const body = await requestJson("/api/v1/pair/code", {method: "POST"}, pairCodeResponseSchema);
 	return {code: body.code, expiresAt: body.expires_at};
 }
 
@@ -50,8 +113,8 @@ export interface PairingStatus {
 	machineCount: number;
 }
 
-export async function fetchPairingStatus(token: string): Promise<PairingStatus> {
-	const body = await requestJson("/api/v1/pair/status", {headers: authHeaders(token)}, pairingStatusResponseSchema);
+export async function fetchPairingStatus(): Promise<PairingStatus> {
+	const body = await requestJson("/api/v1/pair/status", {}, pairingStatusResponseSchema);
 	return {paired: body.paired, machineCount: body.machine_count};
 }
 
@@ -88,7 +151,7 @@ export interface QuestionsStream {
 	refresh: () => void;
 }
 
-export function openQuestionsStream(token: string, onQuestions: (questions: DeckQuestion[]) => void): QuestionsStream {
+export function openQuestionsStream(onQuestions: (questions: DeckQuestion[]) => void): QuestionsStream {
 	let socket: WebSocket | null = null;
 	let reconnectTimer: number | undefined;
 	let stopped = false;
@@ -96,7 +159,7 @@ export function openQuestionsStream(token: string, onQuestions: (questions: Deck
 	function connect(): void {
 		const url = new URL("/api/v1/questions/stream", window.location.href);
 		url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-		socket = new WebSocket(url, ["yepnope", token]);
+		socket = new WebSocket(url);
 		socket.addEventListener("message", (event) => {
 			if (typeof event.data !== "string") {
 				throw new Error("question stream sent a non-text frame");
@@ -130,12 +193,12 @@ export function openQuestionsStream(token: string, onQuestions: (questions: Deck
 
 const okResponseSchema = z.object({status: z.string()});
 
-export async function submitAnswer(token: string, questionId: string, disposition: Disposition): Promise<void> {
+export async function submitAnswer(questionId: string, disposition: Disposition): Promise<void> {
 	await requestJson(
 		"/api/v1/answers",
 		{
 			method: "POST",
-			headers: authHeaders(token),
+			headers: {"Content-Type": "application/json"},
 			body: JSON.stringify({answers: [{question_id: questionId, disposition}]}),
 		},
 		okResponseSchema,
@@ -144,15 +207,15 @@ export async function submitAnswer(token: string, questionId: string, dispositio
 
 const afkResponseSchema = z.object({afk: z.boolean()});
 
-export async function fetchAfk(token: string): Promise<boolean> {
-	const body = await requestJson("/api/v1/afk", {headers: authHeaders(token)}, afkResponseSchema);
+export async function fetchAfk(): Promise<boolean> {
+	const body = await requestJson("/api/v1/afk", {}, afkResponseSchema);
 	return body.afk;
 }
 
-export async function updateAfk(token: string, afk: boolean): Promise<boolean> {
+export async function updateAfk(afk: boolean): Promise<boolean> {
 	const body = await requestJson(
 		"/api/v1/afk",
-		{method: "PUT", headers: authHeaders(token), body: JSON.stringify({afk})},
+		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({afk})},
 		afkResponseSchema,
 	);
 	return body.afk;
@@ -165,10 +228,10 @@ export async function fetchVapidPublicKey(): Promise<string> {
 	return body.public_key;
 }
 
-export async function registerPushSubscription(token: string, subscription: unknown): Promise<void> {
+export async function registerPushSubscription(subscription: unknown): Promise<void> {
 	await requestJson(
 		"/api/v1/push/subscribe",
-		{method: "POST", headers: authHeaders(token), body: JSON.stringify(subscription)},
+		{method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(subscription)},
 		okResponseSchema,
 	);
 }

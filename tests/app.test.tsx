@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import type {PairingStatus, QuestionsStream} from "../src/api";
+import type {AuthenticationUser, PairingStatus, QuestionsStream} from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
 const initialQuestions: DeckQuestion[] = [
@@ -17,6 +17,15 @@ const initialQuestions: DeckQuestion[] = [
 	},
 ];
 
+const alice: AuthenticationUser = {
+	id: "user-alice",
+	name: "Alice",
+	email: "alice@example.com",
+	emailVerified: true,
+};
+
+const fetchSession = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser | null>>());
+
 const fetchPairingStatus = vi.hoisted(() =>
 	vi.fn<() => Promise<PairingStatus>>(async () => Promise.resolve({paired: true, machineCount: 1})),
 );
@@ -28,23 +37,22 @@ const refreshStream = vi.fn<() => void>();
 vi.mock("../src/api", () => ({
 	fetchAfk: vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)),
 	fetchPairingStatus,
+	fetchSession,
 	issuePairingCode: vi.fn<() => Promise<{code: string; expiresAt: number}>>(),
-	openQuestionsStream: vi.fn<(_token: string, onQuestions: (questions: DeckQuestion[]) => void) => QuestionsStream>(
-		(_token, onQuestions) => {
-			publishQuestions = onQuestions;
-			return {close: closeStream, refresh: refreshStream};
-		},
-	),
-	pairNew: vi.fn<() => Promise<string>>(async () => Promise.resolve("app-token-alice")),
-	submitAnswer: vi.fn<(_token: string, _questionId: string, _disposition: Disposition) => Promise<void>>(async () =>
+	openQuestionsStream: vi.fn<(onQuestions: (questions: DeckQuestion[]) => void) => QuestionsStream>((onQuestions) => {
+		publishQuestions = onQuestions;
+		return {close: closeStream, refresh: refreshStream};
+	}),
+	registerAccount: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
+	requestPasswordReset: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	resetPassword: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	sendVerificationEmail: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	signIn: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
+	signOut: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	submitAnswer: vi.fn<(_questionId: string, _disposition: Disposition) => Promise<void>>(async () =>
 		Promise.resolve(),
 	),
-	updateAfk: vi.fn<(_token: string, afk: boolean) => Promise<boolean>>(async (_token, afk) => Promise.resolve(afk)),
-}));
-
-vi.mock("../src/token-store", () => ({
-	loadToken: vi.fn<() => string>(() => "app-token-alice"),
-	saveToken: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
+	updateAfk: vi.fn<(afk: boolean) => Promise<boolean>>(async (afk) => Promise.resolve(afk)),
 }));
 
 vi.mock("../src/push", () => ({
@@ -55,7 +63,14 @@ vi.mock("../src/push", () => ({
 }));
 
 import {App} from "../src/app";
-import {issuePairingCode} from "../src/api";
+import {
+	issuePairingCode,
+	registerAccount,
+	requestPasswordReset,
+	resetPassword,
+	sendVerificationEmail,
+	signIn,
+} from "../src/api";
 import {isIos, isStandalone} from "../src/push";
 
 beforeEach(() => {
@@ -66,6 +81,7 @@ beforeEach(() => {
 	vi.mocked(isIos).mockReturnValue(false);
 	vi.mocked(isStandalone).mockReturnValue(false);
 	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1});
+	fetchSession.mockResolvedValue(alice);
 });
 
 afterEach(() => {
@@ -271,5 +287,125 @@ describe("App live question synchronization", () => {
 		});
 		rendered.unmount();
 		expect(closeStream.mock.calls).toStrictEqual([[]]);
+	});
+});
+
+describe("Better Auth account routes", () => {
+	it("keeps the demo deck available without creating or storing a browser credential", async () => {
+		fetchSession.mockResolvedValue(null);
+		const storeCredential = vi.spyOn(Storage.prototype, "setItem");
+
+		render(<App />);
+
+		expect(screen.getByText("Approve this sample change?")).toBeDefined();
+		expect(screen.getByText("1 of 3")).toBeDefined();
+		await waitFor(() => {
+			expect(screen.getByRole("button", {name: "Sign in to pair"})).toBeDefined();
+		});
+		expect(storeCredential.mock.calls).toStrictEqual([]);
+		expect(publishQuestions).toBeUndefined();
+	});
+
+	it("requires an account before pairing or enabling notifications", async () => {
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/settings");
+
+		render(<App />);
+
+		expect(await screen.findByText(/pairing belongs to your account/i)).toBeDefined();
+		expect(screen.queryByRole("button", {name: "Generate and copy pairing code"})).toBeNull();
+		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
+		expect(screen.getAllByRole("button", {name: /sign in/i}).map((button) => button.textContent)).toStrictEqual([
+			"Sign in to pair",
+			"Sign in",
+			"Sign in",
+			"Sign in to pair",
+		]);
+	});
+
+	it("registers an account and supports verification email resend", async () => {
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/register");
+		render(<App />);
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Name"}), {target: {value: "Alice"}});
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
+
+		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
+		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
+			["Alice", "alice@example.com", "example-password"],
+		]);
+		fireEvent.click(screen.getByRole("button", {name: "Resend verification email"}));
+		await waitFor(() => {
+			expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
+			expect(screen.getByRole("status").textContent).toBe("Verification email sent.");
+		});
+	});
+
+	it("requests recovery and accepts the token delivered by Better Auth", async () => {
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/forgot-password");
+		const rendered = render(<App />);
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.click(screen.getByRole("button", {name: "Send recovery email"}));
+		await waitFor(() => {
+			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com"]]);
+			expect(screen.getByRole("status").textContent).toBe("Check your email for a recovery link.");
+		});
+
+		rendered.unmount();
+		window.history.replaceState({}, "", "/reset-password?token=test-recovery-token");
+		render(<App />);
+		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+
+		await waitFor(() => {
+			expect(vi.mocked(resetPassword).mock.calls).toStrictEqual([
+				["test-recovery-token", "replacement-password"],
+			]);
+			expect(screen.getByRole("status").textContent).toBe("Your password has been changed.");
+		});
+	});
+
+	it("shows verified session state in account settings", async () => {
+		window.history.replaceState({}, "", "/settings");
+		render(<App />);
+
+		expect(await screen.findByText("alice@example.com")).toBeDefined();
+		expect(screen.getByText("✓ Verified email · Session active")).toBeDefined();
+	});
+
+	it("recovers the same account-owned deck after a second browser signs in", async () => {
+		fetchSession.mockResolvedValue(alice);
+		const firstBrowser = render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => publishQuestions?.(initialQuestions));
+		expect(screen.getByText("Ship it?")).toBeDefined();
+		firstBrowser.unmount();
+
+		publishQuestions = undefined;
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/");
+		render(<App />);
+		fireEvent.click(screen.getByRole("button", {name: "Sign in to pair"}));
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
+		fireEvent.click(screen.getByRole("button", {name: /^Sign in$/}));
+		await waitFor(() => {
+			expect(vi.mocked(signIn).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.(initialQuestions);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
+
+		expect(screen.getByText("Ship it?")).toBeDefined();
+		expect(fetchSession.mock.calls).toStrictEqual([[], []]);
 	});
 });

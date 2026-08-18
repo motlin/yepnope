@@ -325,6 +325,118 @@ body {
 	padding-top: 8px;
 }
 
+.account-route {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
+	padding: 16px 0;
+}
+
+.account-panel {
+	width: 100%;
+	background: #1d1f24;
+	border: 1px solid #2a2d33;
+	border-radius: 18px;
+	padding: 22px;
+}
+
+.account-panel h1 {
+	margin: 0 0 8px;
+	color: #eceef2;
+	font-size: 23px;
+}
+
+.account-panel > p {
+	margin: 0 0 18px;
+	color: #b9bec7;
+	font-size: 14px;
+	line-height: 1.45;
+}
+
+.account-panel > button,
+.account-form > button {
+	width: 100%;
+	border: 0;
+	border-radius: 10px;
+	background: var(--yep);
+	color: #06130c;
+	cursor: pointer;
+	font-size: 14px;
+	font-weight: 650;
+	padding: 11px 14px;
+}
+
+.account-form {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.account-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	color: #d7dae0;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.account-form input {
+	width: 100%;
+	border: 1px solid #41454e;
+	border-radius: 9px;
+	background: #141519;
+	color: #eceef2;
+	font: inherit;
+	font-weight: 400;
+	padding: 11px 12px;
+}
+
+.account-form input:focus {
+	border-color: var(--yep);
+	outline: 2px solid rgb(46 184 114 / 20%);
+}
+
+.account-links {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 6px 14px;
+	margin-top: 16px;
+}
+
+.account-links button {
+	border: 0;
+	background: none;
+	color: #aeb4be;
+	cursor: pointer;
+	font-size: 13px;
+	padding: 4px 0;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.form-error,
+.form-success {
+	margin: 0;
+	border-radius: 8px;
+	font-size: 13px;
+	line-height: 1.4;
+	padding: 9px 10px;
+}
+
+.form-error {
+	background: rgb(229 72 77 / 14%);
+	color: #ffb4b7;
+}
+
+.form-success {
+	background: rgb(46 184 114 / 14%);
+	color: #b6f1d2;
+}
+
 .hint {
 	background: #1d1f24;
 	border: 1px solid #2a2d33;
@@ -354,6 +466,22 @@ body {
 	font-size: 14px;
 	font-weight: 600;
 	cursor: pointer;
+}
+
+.settings-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.hint button.secondary {
+	border: 1px solid #41454e;
+	background: transparent;
+	color: #d7dae0;
+}
+
+.account-email {
+	color: #eceef2 !important;
+	font-weight: 650;
 }
 
 .pairing-code-row {
