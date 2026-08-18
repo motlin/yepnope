@@ -34,11 +34,24 @@ async function routeSettingsData(page: Page): Promise<void> {
 	});
 }
 
+async function routePairingCode(page: Page): Promise<void> {
+	await page.route("**/api/v1/pair/code", async (route) =>
+		fulfillJson(route, {code: "ABC234", expires_at: 2_000_000_000_000}),
+	);
+}
+
 async function openSettings(page: Page): Promise<void> {
 	await routeSettingsData(page);
 	await page.goto("/settings");
 	await expect(page.getByRole("heading", {name: "Privacy and retention"})).toBeVisible();
 	await expect(page.getByRole("button", {name: "Back to the deck"})).toBeVisible();
+}
+
+async function generatePairingCode(page: Page): Promise<void> {
+	await routePairingCode(page);
+	await openSettings(page);
+	await page.getByRole("button", {name: "Generate and copy pairing code"}).click();
+	await expect(page.locator("code.pairing-code")).toHaveText("ABC234");
 }
 
 async function assertViewportScrollsSettings(page: Page): Promise<void> {
@@ -146,6 +159,109 @@ test("settings keeps phone-width padding and full-page scrolling", async ({brows
 			window.scrollTo(0, 0);
 		});
 		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-mobile.png")});
+	} finally {
+		await context.close();
+	}
+});
+
+test("generated pairing code leads the desktop result after copy feedback clears", async ({browser}) => {
+	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
+	const page = await context.newPage();
+	try {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+		await generatePairingCode(page);
+		await expect(page.getByRole("status")).toHaveText("Copied to clipboard.");
+		await expect(page.getByRole("status")).toBeEmpty();
+		await expect(page.getByText("Pairing code", {exact: true})).toBeVisible();
+		await expect(page.getByText("Paste this code into the CLI on the machine you want to pair.")).toBeVisible();
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "pairing-code-generated.png")});
+	} finally {
+		await context.close();
+	}
+});
+
+test("copied pairing code keeps the repeat-copy control visually neutral", async ({browser}) => {
+	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
+	const page = await context.newPage();
+	try {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+		await generatePairingCode(page);
+		await expect(page.getByRole("status")).toHaveText("Copied to clipboard.");
+		const copyAgain = page.getByRole("button", {name: "Copy pairing code again"});
+		expect(
+			await copyAgain.evaluate((element) => {
+				const style = getComputedStyle(element);
+				return {
+					backgroundColor: style.backgroundColor,
+					borderColor: style.borderColor,
+					color: style.color,
+					fontSize: style.fontSize,
+				};
+			}),
+		).toStrictEqual({
+			backgroundColor: "rgba(0, 0, 0, 0)",
+			borderColor: "rgb(65, 69, 78)",
+			color: "rgb(174, 180, 190)",
+			fontSize: "12px",
+		});
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "pairing-code-copied.png")});
+	} finally {
+		await context.close();
+	}
+});
+
+test("blocked clipboard access leaves a selected manual-copy fallback", async ({browser}) => {
+	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
+	await context.addInitScript(() => {
+		const blockedClipboard = {
+			write: async () => Promise.reject(new DOMException("Clipboard access blocked", "NotAllowedError")),
+			writeText: async () => Promise.reject(new DOMException("Clipboard access blocked", "NotAllowedError")),
+		};
+		Object.defineProperty(navigator, "clipboard", {configurable: true, value: blockedClipboard});
+	});
+	const page = await context.newPage();
+	try {
+		await generatePairingCode(page);
+		await expect(page.getByRole("status")).toHaveText(
+			"Clipboard access is blocked. Copy the selected code manually.",
+		);
+		expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("ABC234");
+		await page.screenshot({
+			fullPage: true,
+			path: resolve(screenshotDirectory, "pairing-code-clipboard-blocked.png"),
+		});
+	} finally {
+		await context.close();
+	}
+});
+
+test("pairing code remains dominant at a narrow mobile width", async ({browser}) => {
+	const context = await browser.newContext({
+		ignoreHTTPSErrors: true,
+		isMobile: true,
+		viewport: {height: 844, width: 390},
+	});
+	const page = await context.newPage();
+	try {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+		await generatePairingCode(page);
+		const codeBounds = await page.locator("code.pairing-code").boundingBox();
+		const resultBounds = await page.locator(".pairing-result").boundingBox();
+		if (codeBounds === null || resultBounds === null) {
+			throw new Error("responsive pairing bounds are missing");
+		}
+		expect({
+			resultLeft: resultBounds.x,
+			resultRight: resultBounds.x + resultBounds.width,
+			viewportWidth: 390,
+		}).toStrictEqual({
+			resultLeft: 33,
+			resultRight: 357,
+			viewportWidth: 390,
+		});
+		expect(codeBounds.x).toBeGreaterThanOrEqual(resultBounds.x);
+		expect(codeBounds.x + codeBounds.width).toBeLessThanOrEqual(resultBounds.x + resultBounds.width);
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "pairing-code-narrow-mobile.png")});
 	} finally {
 		await context.close();
 	}

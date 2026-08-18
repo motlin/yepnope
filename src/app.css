@@ -583,32 +583,80 @@ body {
 	font-weight: 650;
 }
 
+.pairing-result {
+	margin-top: 14px;
+	border: 1px solid #32353d;
+	border-radius: 12px;
+	background: #191a1f;
+	padding: 16px;
+}
+
+.hint .pairing-code-label {
+	margin-bottom: 8px;
+	color: #8f96a1;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
 .pairing-code-row {
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	gap: 12px;
-	margin: 12px 0 8px;
+	justify-content: space-between;
+	gap: 16px;
 }
 
 .pairing-code {
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
-	font-size: 30px;
-	letter-spacing: 6px;
+	font-size: clamp(32px, 7vw, 42px);
+	font-weight: 750;
+	letter-spacing: 0.16em;
+	line-height: 1.1;
 	color: #eceef2 !important;
+	outline-offset: 5px;
 	user-select: text;
 	cursor: text;
 }
 
-.pairing-code-row button {
-	background: rgb(217 119 87 / 18%);
-	color: #d97757;
-	border: 1px solid #d97757;
-	padding: 7px 10px;
+.hint button.pairing-copy-again {
+	flex: 0 0 auto;
+	border: 1px solid #41454e;
+	background: transparent;
+	color: #aeb4be;
+	font-size: 12px;
+	font-weight: 500;
+	padding: 6px 9px;
 }
 
-.copy-status {
+.hint button.pairing-copy-again:hover {
+	border-color: #626873;
+	background: rgb(255 255 255 / 4%);
+	color: #d7dae0;
+}
+
+.hint button.pairing-copy-again:focus-visible,
+.pairing-code:focus-visible {
+	outline: 2px solid #8f96a1;
+}
+
+.hint .pairing-instruction {
+	margin-top: 14px;
+	color: #d7dae0;
+	font-weight: 550;
+}
+
+.hint .copy-status {
 	min-height: 1.4em;
+	margin-bottom: 2px;
+	color: #aeb4be;
+	font-size: 12px;
+}
+
+.hint .pairing-code-note {
+	margin: 0;
+	color: #777e89;
+	font-size: 11px;
 }
 
 .copy-toast {

@@ -131,7 +131,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 
 		await firstContext.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await firstPage.getByRole("button", {name: "Generate and copy pairing code"}).click();
-		await expect(firstPage.getByRole("status")).toHaveText("📋 Copied to clipboard");
+		await expect(firstPage.getByRole("status")).toHaveText("Copied to clipboard.");
 		const pairingCode = await firstPage.locator("code.pairing-code").textContent();
 		if (pairingCode === null) {
 			throw new Error("pairing code was not rendered");

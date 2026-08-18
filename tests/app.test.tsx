@@ -209,6 +209,19 @@ describe("App live question synchronization", () => {
 			},
 			{timeout: 2_000},
 		);
+		expect({
+			code: screen.queryByText("ABC234"),
+			generateButton: screen.getByRole("button", {name: "Generate and copy pairing code"}).textContent,
+			heading: screen.getByRole("heading", {name: "Pair another machine"}).textContent,
+			repeatCopyButton: screen.queryByRole("button", {name: "Copy pairing code again"}),
+			status: screen.getByRole("status").textContent,
+		}).toStrictEqual({
+			code: null,
+			generateButton: "Generate and copy pairing code",
+			heading: "Pair another machine",
+			repeatCopyButton: null,
+			status: "✓ Machine paired",
+		});
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
@@ -307,7 +320,7 @@ describe("App live question synchronization", () => {
 	});
 
 	it("automatically copies and selects a generated pairing code", async () => {
-		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: 1_787_000_000_000});
+		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: 2_000_000_000_000});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
@@ -322,12 +335,144 @@ describe("App live question synchronization", () => {
 		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
 
 		const code = await screen.findByText("ABC234");
-		expect(code.tagName).toBe("CODE");
+		const copyAgain = screen.getByRole("button", {name: "Copy pairing code again"});
 		await waitFor(() => {
-			expect(writeText.mock.calls).toStrictEqual([["ABC234"]]);
-			expect(screen.getByRole("status").textContent).toBe("📋 Copied to clipboard");
-			expect(window.getSelection()?.toString()).toBe("ABC234");
+			expect({
+				code: {
+					ariaLabelledBy: code.getAttribute("aria-labelledby"),
+					className: code.className,
+					tabIndex: code.getAttribute("tabindex"),
+					tagName: code.tagName,
+					text: code.textContent,
+				},
+				copyAgain: {
+					className: copyAgain.className,
+					tabIndex: copyAgain.getAttribute("tabindex"),
+					text: copyAgain.textContent,
+					type: copyAgain.getAttribute("type"),
+				},
+				copyCalls: writeText.mock.calls,
+				instruction: screen.getByText("Paste this code into the CLI on the machine you want to pair.")
+					.textContent,
+				label: screen.getByText("Pairing code").textContent,
+				note: screen.getByText("Expires in ten minutes and works once.").textContent,
+				selection: window.getSelection()?.toString(),
+				status: screen.getByRole("status").textContent,
+			}).toStrictEqual({
+				code: {
+					ariaLabelledBy: "pairing-code-label",
+					className: "pairing-code",
+					tabIndex: "0",
+					tagName: "CODE",
+					text: "ABC234",
+				},
+				copyAgain: {
+					className: "pairing-copy-again",
+					tabIndex: null,
+					text: "Copy again",
+					type: "button",
+				},
+				copyCalls: [["ABC234"]],
+				instruction: "Paste this code into the CLI on the machine you want to pair.",
+				label: "Pairing code",
+				note: "Expires in ten minutes and works once.",
+				selection: "ABC234",
+				status: "Copied to clipboard.",
+			});
 		});
+
+		copyAgain.focus();
+		window.getSelection()?.removeAllRanges();
+		fireEvent.focus(code);
+		expect(window.getSelection()?.toString()).toBe("ABC234");
+		code.focus();
+		expect(document.activeElement).toBe(code);
+		copyAgain.focus();
+		expect(document.activeElement).toBe(copyAgain);
+		fireEvent.click(copyAgain);
+		await waitFor(() => {
+			expect(writeText.mock.calls).toStrictEqual([["ABC234"], ["ABC234"]]);
+		});
+	});
+
+	it("keeps the selected code available when clipboard access is blocked", async () => {
+		vi.mocked(issuePairingCode).mockResolvedValue({code: "DEF456", expiresAt: 2_000_000_000_000});
+		const writeText = vi.fn<(text: string) => Promise<void>>(async () =>
+			Promise.reject(new Error("Clipboard permission denied")),
+		);
+		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
+
+		const code = await screen.findByText("DEF456");
+		await waitFor(() => {
+			expect({
+				copyCalls: writeText.mock.calls,
+				selection: window.getSelection()?.toString(),
+				status: screen.getByRole("status").textContent,
+			}).toStrictEqual({
+				copyCalls: [["DEF456"]],
+				selection: "DEF456",
+				status: "Clipboard access is blocked. Copy the selected code manually.",
+			});
+		});
+
+		window.getSelection()?.removeAllRanges();
+		fireEvent.click(screen.getByRole("button", {name: "Copy pairing code again"}));
+		await waitFor(() => {
+			expect({
+				copyCalls: writeText.mock.calls,
+				selectedCode: window.getSelection()?.toString(),
+				visibleCode: code.textContent,
+			}).toStrictEqual({
+				copyCalls: [["DEF456"], ["DEF456"]],
+				selectedCode: "DEF456",
+				visibleCode: "DEF456",
+			});
+		});
+	});
+
+	it("replaces an expired pairing code with a clear retry state", async () => {
+		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0});
+		vi.mocked(issuePairingCode).mockResolvedValue({code: "GHI678", expiresAt: 0});
+		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
+		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
+		expect((await screen.findByText("GHI678")).textContent).toBe("GHI678");
+
+		await waitFor(
+			() => {
+				expect({
+					code: screen.queryByText("GHI678"),
+					copyAgain: screen.queryByRole("button", {name: "Copy pairing code again"}),
+					message: screen.getByText("That code expired. Generate a new one to try again.").textContent,
+					retry: screen.getByRole("button", {name: "Generate and copy pairing code"}).textContent,
+				}).toStrictEqual({
+					code: null,
+					copyAgain: null,
+					message: "That code expired. Generate a new one to try again.",
+					retry: "Generate and copy pairing code",
+				});
+			},
+			{timeout: 2_000},
+		);
 	});
 
 	it("starts an async clipboard write during the generate-button activation", async () => {
@@ -359,7 +504,7 @@ describe("App live question synchronization", () => {
 		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
 
 		expect(write.mock.calls).toHaveLength(1);
-		resolvePairing?.({code: "XYZ789", expiresAt: 1_787_000_000_000});
+		resolvePairing?.({code: "XYZ789", expiresAt: 2_000_000_000_000});
 		expect(await screen.findByText("XYZ789")).toBeDefined();
 	});
 

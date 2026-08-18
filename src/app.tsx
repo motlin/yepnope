@@ -158,6 +158,7 @@ function unreachableView(view: never): never {
 }
 
 const PAIRING_STATUS_POLL_MILLISECONDS = 1_000;
+const COPY_FEEDBACK_MILLISECONDS = 2_000;
 
 interface AccountRouteProps {
 	onNavigate: (view: AppView) => void;
@@ -700,6 +701,17 @@ function Settings({
 		"Notification" in window && Notification.permission === "granted" ? "subscribed" : "idle",
 	);
 	const pairingCode = useRef<HTMLElement | null>(null);
+	const selectPairingCode = useCallback((): void => {
+		const element = pairingCode.current;
+		const selection = window.getSelection();
+		if (element === null || selection === null) {
+			return;
+		}
+		const range = document.createRange();
+		range.selectNodeContents(element);
+		selection.removeAllRanges();
+		selection.addRange(range);
+	}, []);
 
 	const reloadDevices = useCallback(async (): Promise<void> => {
 		if (session === null) {
@@ -719,19 +731,23 @@ function Settings({
 	}, [reloadDevices]);
 
 	useEffect(() => {
-		const element = pairingCode.current;
-		if (pairing === null || element === null) {
+		if (pairing === null) {
 			return;
 		}
-		const selection = window.getSelection();
-		if (selection === null) {
-			return;
+		selectPairingCode();
+	}, [pairing, selectPairingCode]);
+
+	useEffect(() => {
+		if (copyState !== "copied") {
+			return undefined;
 		}
-		const range = document.createRange();
-		range.selectNodeContents(element);
-		selection.removeAllRanges();
-		selection.addRange(range);
-	}, [pairing]);
+		const timer = window.setTimeout(() => {
+			setCopyState("idle");
+		}, COPY_FEEDBACK_MILLISECONDS);
+		return () => {
+			window.clearTimeout(timer);
+		};
+	}, [copyState]);
 
 	useEffect(() => {
 		if (session === null || pairing === null || pairingBaseline === null) {
@@ -828,6 +844,7 @@ function Settings({
 			setCopyState("copied");
 		} catch {
 			setCopyState("error");
+			selectPairingCode();
 		}
 	}
 
@@ -992,10 +1009,6 @@ function Settings({
 					<div className="copy-toast" role="status">
 						✓ Machine paired
 					</div>
-				) : copyState === "copied" ? (
-					<div className="copy-toast" role="status">
-						📋 Copied to clipboard
-					</div>
 				) : null}
 				{session === null || requiresIosInstall ? null : pairing === null ? (
 					<>
@@ -1011,21 +1024,38 @@ function Settings({
 						</button>
 					</>
 				) : (
-					<>
+					<div className="pairing-result">
+						<p id="pairing-code-label" className="pairing-code-label">
+							Pairing code
+						</p>
 						<div className="pairing-code-row">
-							<code ref={pairingCode} className="pairing-code">
+							<code
+								ref={pairingCode}
+								className="pairing-code"
+								aria-labelledby="pairing-code-label"
+								tabIndex={0}
+								onFocus={selectPairingCode}
+							>
 								{pairing.code}
 							</code>
-							<button type="button" onClick={() => void copyPairingCode()}>
-								📋 Copy again
+							<button
+								type="button"
+								className="pairing-copy-again"
+								aria-label="Copy pairing code again"
+								onClick={() => void copyPairingCode()}
+							>
+								Copy again
 							</button>
 						</div>
-						<p className="copy-status" aria-live="polite">
-							{copyState === "copied" && "Already copied. Paste it into your terminal."}
-							{copyState === "error" && "Automatic copy was blocked. The code is selected for you."}
+						<p className="pairing-instruction">
+							Paste this code into the CLI on the machine you want to pair.
 						</p>
-						<p>The highlighted code expires in ten minutes and works once.</p>
-					</>
+						<p className="copy-status" role="status">
+							{copyState === "copied" && "Copied to clipboard."}
+							{copyState === "error" && "Clipboard access is blocked. Copy the selected code manually."}
+						</p>
+						<p className="pairing-code-note">Expires in ten minutes and works once.</p>
+					</div>
 				)}
 			</div>
 			<div className="hint">
