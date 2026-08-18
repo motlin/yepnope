@@ -1,0 +1,21 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "yepnope-admin",
+	"main": "worker/admin.ts",
+	"compatibility_date": "2026-08-18",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"routes": [{"pattern": "admin.yepnope.app", "custom_domain": true}],
+	"durable_objects": {
+		"bindings": [{"name": "USER_DO", "class_name": "UserDurableObject", "script_name": "yepnope"}],
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "yepnope",
+			"database_id": "063099d0-41c7-4b2b-8f6d-2acf3e9aac2f",
+		},
+	],
+	"observability": {"enabled": true},
+}

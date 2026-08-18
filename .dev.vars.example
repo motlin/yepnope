@@ -2,3 +2,6 @@
 VAPID_PRIVATE_JWK='{"kty":"EC","crv":"P-256","x":"replace-me","y":"replace-me","d":"replace-me"}'
 # Generate with `openssl rand -base64 32`; never copy the production secret here.
 BETTER_AUTH_SECRET='replace-with-a-local-secret'
+# The Access application audience and team origin used by the separate admin Worker.
+ACCESS_AUD='replace-with-the-access-application-audience'
+ACCESS_TEAM_DOMAIN='https://replace-with-your-team.cloudflareaccess.com'

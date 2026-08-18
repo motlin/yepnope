@@ -167,3 +167,29 @@ just verify    # format, lint, typecheck, build, test
 
 Card layout mockups live in `mockups/index.html` — a self-contained page used to
 measure title/body character limits at iPhone dimensions.
+
+### Storage administration
+
+The storage administration Worker is deployed separately on
+`admin.yepnope.app` with `wrangler.admin.jsonc`; the public application has no
+maintenance route. Before deployment, create a Cloudflare Access self-hosted
+application for that exact hostname with a Service Auth policy, then configure
+the Worker's `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN` variables. Deploy with
+`npm run deploy:admin` so dashboard-managed variables are preserved.
+
+The administration CLI requires `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN`, `YEPNOPE_DO_NAMESPACE_ID`, `YEPNOPE_ADMIN_URL`,
+`CF_ACCESS_CLIENT_ID`, and `CF_ACCESS_CLIENT_SECRET`. It emits table counts and
+physical object IDs, never stored credentials or content:
+
+```sh
+npm run admin:storage -- diagnostics
+npm run admin:storage -- cleanup
+npm run admin:storage -- cleanup --confirm --expected-count 3
+```
+
+Cleanup defaults to a dry run. A confirmed cleanup repeats the complete
+cursor-paginated namespace inventory, refuses an inventory or ownership race,
+deletes one orphan at a time, and verifies each object's storage was
+deallocated before continuing. After a partial failure, rerun the dry run and
+confirm its new expected count.

@@ -64,7 +64,7 @@ export async function deleteAccountDurableObject(
 	userId: string,
 	deletedAt: number,
 ): Promise<void> {
-	await namespace.getByName(userId).deleteStorageForCleanup();
+	await namespace.getByName(userId).deleteAll();
 	const connection = drizzle(database);
 	await connection
 		.update(identityLifecycles)
@@ -149,7 +149,7 @@ async function processPendingDurableObjectCleanups(
 				continue;
 			}
 		}
-		await namespace.getByName(job.objectName).deleteStorageForCleanup();
+		await namespace.getByName(job.objectName).deleteAll();
 		await database.batch([
 			database
 				.prepare("UPDATE durable_object_cleanup_jobs SET completed_at = ? WHERE object_name = ?")

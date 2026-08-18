@@ -91,6 +91,11 @@ export interface PushDevice {
 	createdAt: number;
 }
 
+export interface RedactedStorageDiagnostics {
+	alarm_set: boolean;
+	table_counts: Array<{name: string; rows: number}>;
+}
+
 export interface LegacyIdentitySnapshot {
 	devices: Array<typeof devices.$inferSelect>;
 	batches: Array<typeof batches.$inferSelect>;
@@ -663,17 +668,32 @@ export class UserDurableObject extends DurableObject<Env> {
 			)
 			.toArray()[0];
 		if (mergeLockTable === undefined) {
-			await this.deleteStorageForCleanup();
+			await this.deleteAll();
 			return;
 		}
 		const lock = this.database.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
 		if (lock !== undefined && lock.destinationUserId !== destinationUserId) {
 			throw new Error("legacy identity claim lock does not match the destination account");
 		}
-		await this.deleteStorageForCleanup();
+		await this.deleteAll();
 	}
 
-	async deleteStorageForCleanup(): Promise<{deleted: true}> {
+	async getRedactedStorageDiagnostics(): Promise<RedactedStorageDiagnostics> {
+		const tables = this.ctx.storage.sql
+			.exec<{name: string}>("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+			.toArray()
+			.filter(({name}) => !name.startsWith("_cf_"));
+		const tableCounts = tables.map(({name}) => {
+			if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+				throw new Error("Durable Object contains an unsupported table name");
+			}
+			const row = this.ctx.storage.sql.exec<{rows: number}>(`SELECT count(*) AS rows FROM "${name}"`).one();
+			return {name, rows: row.rows};
+		});
+		return {alarm_set: (await this.ctx.storage.getAlarm()) !== null, table_counts: tableCounts};
+	}
+
+	async deleteAll(): Promise<{deleted: true}> {
 		for (const socket of this.ctx.getWebSockets()) {
 			socket.close(1000, "identity deleted");
 		}

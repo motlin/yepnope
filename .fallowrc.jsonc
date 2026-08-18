@@ -10,6 +10,8 @@
 		// The service worker is fetched by URL at runtime; the icon script is run by hand.
 		"public/sw.js",
 		"scripts/generate-icons.mjs",
+		"scripts/admin-storage.ts",
+		"worker/admin.ts",
 		"worker/tests/**/*.test.ts",
 		"worker/tests/apply-migrations.ts",
 		"drizzle-do.config.ts",

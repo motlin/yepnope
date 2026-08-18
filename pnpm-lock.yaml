@@ -33,6 +33,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(kysely@0.29.5)
+      jose:
+        specifier: 6.2.9
+        version: 6.2.9
       react:
         specifier: ^19.2.8
         version: 19.2.8
