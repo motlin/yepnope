@@ -1,5 +1,7 @@
 /* oxlint-disable typescript/no-deprecated, typescript/no-redundant-type-constituents, typescript/no-unnecessary-condition, typescript/no-unnecessary-type-assertion, typescript/no-unnecessary-type-conversion, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/no-unsafe-return, typescript/no-unsafe-type-assertion, typescript/unified-signatures -- Cloudflare runtime bindings require reflective typed proxies. */
 
+import {redactMachineTokens} from "./machine-token";
+
 const OBSERVATION_SCHEMA = "yepnope.io.v1";
 const OBSERVATION_LINE_BYTES = 24 * 1024;
 const OBSERVATION_INVOCATION_BYTES = 256 * 1024;
@@ -217,6 +219,18 @@ function base64ToBytes(value: string): Uint8Array {
 	return bytes;
 }
 
+function redactMachineTokenBytes(bytes: Uint8Array): Uint8Array {
+	let binary = "";
+	for (let offset = 0; offset < bytes.length; offset += 16_384) {
+		binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 16_384, bytes.length)));
+	}
+	const redacted = redactMachineTokens(binary);
+	if (redacted === binary) {
+		return bytes;
+	}
+	return Uint8Array.from(redacted, (character) => character.charCodeAt(0));
+}
+
 function encodeNumber(value: number): string {
 	if (Number.isNaN(value)) {
 		return "NaN";
@@ -278,13 +292,14 @@ function encodeOutboundEmail(
 	message: EmailMessage | EmailMessageBuilder,
 	id: number,
 	references: Map<object, number>,
+	redactMachineTokenSecrets: boolean,
 ): EncodedObservedValue {
 	if (!("subject" in message)) {
 		return {
 			kind: "email_message",
 			id,
-			from: message.from,
-			to: message.to,
+			from: redactMachineTokenSecrets ? redactMachineTokens(message.from) : message.from,
+			to: redactMachineTokenSecrets ? redactMachineTokens(message.to) : message.to,
 			content: {available: false, reason: "raw_mime_not_exposed_by_send_binding"},
 		};
 	}
@@ -292,21 +307,25 @@ function encodeOutboundEmail(
 		kind: "email_message_builder",
 		id,
 		value: [
-			["attachments", encodeValue(message.attachments, references)],
-			["bcc", encodeValue(message.bcc, references)],
-			["cc", encodeValue(message.cc, references)],
-			["from", encodeValue(message.from, references)],
-			["headers", encodeValue(message.headers, references)],
-			["html", encodeValue(message.html, references)],
-			["replyTo", encodeValue(message.replyTo, references)],
-			["subject", encodeValue(message.subject, references)],
-			["text", encodeValue(message.text, references)],
-			["to", encodeValue(message.to, references)],
+			["attachments", encodeValue(message.attachments, references, redactMachineTokenSecrets)],
+			["bcc", encodeValue(message.bcc, references, redactMachineTokenSecrets)],
+			["cc", encodeValue(message.cc, references, redactMachineTokenSecrets)],
+			["from", encodeValue(message.from, references, redactMachineTokenSecrets)],
+			["headers", encodeValue(message.headers, references, redactMachineTokenSecrets)],
+			["html", encodeValue(message.html, references, redactMachineTokenSecrets)],
+			["replyTo", encodeValue(message.replyTo, references, redactMachineTokenSecrets)],
+			["subject", encodeValue(message.subject, references, redactMachineTokenSecrets)],
+			["text", encodeValue(message.text, references, redactMachineTokenSecrets)],
+			["to", encodeValue(message.to, references, redactMachineTokenSecrets)],
 		],
 	};
 }
 
-function encodeValue(value: unknown, references: Map<object, number>): EncodedObservedValue {
+function encodeValue(
+	value: unknown,
+	references: Map<object, number>,
+	redactMachineTokenSecrets: boolean,
+): EncodedObservedValue {
 	if (value === null) {
 		return {kind: "null"};
 	}
@@ -316,7 +335,7 @@ function encodeValue(value: unknown, references: Map<object, number>): EncodedOb
 		case "boolean":
 			return {kind: "boolean", value};
 		case "string":
-			return {kind: "string", value};
+			return {kind: "string", value: redactMachineTokenSecrets ? redactMachineTokens(value) : value};
 		case "number":
 			return {kind: "number", value: encodeNumber(value)};
 		case "bigint":
@@ -336,17 +355,23 @@ function encodeValue(value: unknown, references: Map<object, number>): EncodedOb
 	references.set(value, id);
 
 	if (value instanceof OutboundEmailObservation) {
-		return encodeOutboundEmail(value.message, id, references);
+		return encodeOutboundEmail(value.message, id, references, redactMachineTokenSecrets);
 	}
 	if (value instanceof ArrayBuffer) {
-		return {kind: "array_buffer", id, value: bytesToBase64(new Uint8Array(value))};
+		const bytes = new Uint8Array(value);
+		return {
+			kind: "array_buffer",
+			id,
+			value: bytesToBase64(redactMachineTokenSecrets ? redactMachineTokenBytes(bytes) : bytes),
+		};
 	}
 	if (ArrayBuffer.isView(value)) {
+		const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
 		return {
 			kind: "array_buffer_view",
 			id,
 			view: value.constructor.name,
-			value: bytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)),
+			value: bytesToBase64(redactMachineTokenSecrets ? redactMachineTokenBytes(bytes) : bytes),
 		};
 	}
 	if (value instanceof Date) {
@@ -356,35 +381,58 @@ function encodeValue(value: unknown, references: Map<object, number>): EncodedOb
 		const properties = Object.keys(value)
 			.filter((key) => key !== "cause")
 			.sort()
-			.map((key): [string, EncodedObservedValue] => [key, encodeValue(Reflect.get(value, key), references)]);
+			.map((key): [string, EncodedObservedValue] => [
+				redactMachineTokenSecrets ? redactMachineTokens(key) : key,
+				encodeValue(Reflect.get(value, key), references, redactMachineTokenSecrets),
+			]);
 		return {
 			kind: "error",
 			id,
-			name: value.name,
-			message: value.message,
-			...(value.stack === undefined ? {} : {stack: value.stack}),
-			cause: encodeValue(value.cause, references),
+			name: redactMachineTokenSecrets ? redactMachineTokens(value.name) : value.name,
+			message: redactMachineTokenSecrets ? redactMachineTokens(value.message) : value.message,
+			...(value.stack === undefined
+				? {}
+				: {stack: redactMachineTokenSecrets ? redactMachineTokens(value.stack) : value.stack}),
+			cause: encodeValue(value.cause, references, redactMachineTokenSecrets),
 			properties,
 		};
 	}
 	if (Array.isArray(value)) {
-		return {kind: "array", id, value: value.map((item) => encodeValue(item, references))};
+		return {
+			kind: "array",
+			id,
+			value: value.map((item) => encodeValue(item, references, redactMachineTokenSecrets)),
+		};
 	}
 	if (value instanceof Map) {
 		return {
 			kind: "map",
 			id,
-			value: Array.from(value, ([key, item]) => [encodeValue(key, references), encodeValue(item, references)]),
+			value: Array.from(value, ([key, item]) => [
+				encodeValue(key, references, redactMachineTokenSecrets),
+				encodeValue(item, references, redactMachineTokenSecrets),
+			]),
 		};
 	}
 	if (value instanceof Set) {
-		return {kind: "set", id, value: Array.from(value, (item) => encodeValue(item, references))};
+		return {
+			kind: "set",
+			id,
+			value: Array.from(value, (item) => encodeValue(item, references, redactMachineTokenSecrets)),
+		};
 	}
 	if (value instanceof Headers) {
-		return {kind: "headers", id, value: Array.from(value.entries())};
+		return {
+			kind: "headers",
+			id,
+			value: Array.from(value.entries(), ([name, headerValue]) => [
+				name,
+				redactMachineTokenSecrets ? redactMachineTokens(headerValue) : headerValue,
+			]),
+		};
 	}
 	if (value instanceof URL) {
-		return {kind: "url", id, value: value.href};
+		return {kind: "url", id, value: redactMachineTokenSecrets ? redactMachineTokens(value.href) : value.href};
 	}
 	if (isDurableObjectId(value)) {
 		return {kind: "durable_object_id", id, value: value.toString()};
@@ -397,12 +445,15 @@ function encodeValue(value: unknown, references: Map<object, number>): EncodedOb
 		id,
 		value: Object.keys(value)
 			.sort()
-			.map((key): [string, EncodedObservedValue] => [key, encodeValue(Reflect.get(value, key), references)]),
+			.map((key): [string, EncodedObservedValue] => [
+				redactMachineTokenSecrets ? redactMachineTokens(key) : key,
+				encodeValue(Reflect.get(value, key), references, redactMachineTokenSecrets),
+			]),
 	};
 }
 
 export function encodeObservedValue(value: unknown): EncodedObservedValue {
-	return encodeValue(value, new Map());
+	return encodeValue(value, new Map(), false);
 }
 
 function decodeArrayBufferView(view: string, bytes: Uint8Array): ArrayBufferView {
@@ -593,7 +644,7 @@ function emitDebugObservation(
 	data: unknown,
 	severity: ObservationSeverity = "log",
 ): string[] {
-	return emitEncodedObservation(context, operation, phase, encodeObservedValue(data), severity);
+	return emitEncodedObservation(context, operation, phase, encodeValue(data, new Map(), true), severity);
 }
 
 function emitEncodedObservation(

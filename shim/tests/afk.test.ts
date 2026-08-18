@@ -65,8 +65,8 @@ describe("yepnope-mcp afk", () => {
 	it("rejects commands without a token before making a request", async () => {
 		await expect(runAfkCommand(["status"], {baseUrl: "https://example.com"})).rejects.toThrow(
 			new Error(
-				"YEPNOPE_TOKEN is not set. Generate a pairing code in the app, then run " +
-					"`npx yepnope-mcp pair <code>` and export the token it prints.",
+				"Neither YEPNOPE_TOKEN nor YEPNOPE_TOKEN_FILE is set. Generate a pairing code in the app, then run " +
+					"`npx yepnope-mcp pair <code>` or use its --token-file option.",
 			),
 		);
 	});

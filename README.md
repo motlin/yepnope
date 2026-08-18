@@ -23,14 +23,35 @@ npx yepnope-mcp pair ABC234 --label craig-mbp
 ```
 
 The label names the machine's token in the app so it can be revoked later; it
-defaults to the hostname. The command prints the machine token as an
-`export YEPNOPE_TOKEN=...` line ready for your shell profile.
+defaults to the hostname. New machine credentials have one canonical form:
+`ynp_live_` followed by 43 unpadded base64url characters encoding 32 random
+bytes (256 bits). Without another option, the command shows the credential once
+as an `export YEPNOPE_TOKEN=...` line.
+
+For an operator-safe MCP setup, capture the one-time credential in an exclusive
+owner-readable file instead of printing it to a terminal or shared command log:
+
+```sh
+npx yepnope-mcp pair ABC234 --label craig-mbp \
+  --token-file "$HOME/.config/yepnope/machine-token"
+claude mcp add yepnope --scope local \
+  --env YEPNOPE_TOKEN_FILE="$HOME/.config/yepnope/machine-token" -- \
+  npx yepnope-mcp
+```
+
+The pairing command creates the token file with mode `0600` and refuses to
+overwrite an existing file. The MCP shim reads either `YEPNOPE_TOKEN` or
+`YEPNOPE_TOKEN_FILE`, never both. An existing machine credential remains valid;
+the server stores only its SHA-256 hash and does not need a plaintext migration.
+If a successful claim leaves an unusable or orphaned machine, open `/settings`
+in the app and revoke its machine entry before pairing again.
 
 ## Hook install (Claude Code)
 
 The Worker itself is the permission hook: no npm package, no local process.
 Pair a machine to get a token, export it as `YEPNOPE_TOKEN`, and add this to
-`settings.json`:
+`settings.json`. The HTTP hook requires an environment value; do not put the
+credential in the hook URL or commit it to the settings file:
 
 ```json
 {
@@ -75,7 +96,8 @@ abandoned card falls through to the terminal prompt.
 The stdio MCP shim gives any harness the `ask_yep_nope` tool: stack any number
 of yes/no questions, they land on the phone as one notification, and the call
 blocks until every card is swiped. Pair a machine to get a token, then register
-the shim. For Claude Code:
+the shim. The token-file pairing path above is preferred because neither command
+prints or embeds the credential. For an environment-based Claude Code setup:
 
 ```sh
 claude mcp add yepnope --scope local --env YEPNOPE_TOKEN=ynp_live_... -- \
@@ -93,7 +115,7 @@ args = ["/absolute/path/to/yepnope/shim/dist/yepnope-mcp.cjs"]
 tool_timeout_sec = 43200
 
 [mcp_servers.yepnope.env]
-YEPNOPE_TOKEN = "ynp_live_..."
+YEPNOPE_TOKEN_FILE = "/absolute/path/to/.config/yepnope/machine-token"
 ```
 
 The call may block for hours by design. The shim emits an MCP progress

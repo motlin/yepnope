@@ -1,6 +1,16 @@
 import {env} from "cloudflare:workers";
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
+import {hashToken} from "../auth";
+import {
+	MACHINE_TOKEN_ENCODED_CHARACTERS,
+	MACHINE_TOKEN_PATTERN,
+	MACHINE_TOKEN_PREFIX,
+	MACHINE_TOKEN_RANDOM_BYTES,
+	MACHINE_TOKEN_REDACTION,
+} from "../machine-token";
+import {decodedObservationData, reconstructObservation} from "../observability";
 import {PAIRING_CODE_TTL_MILLISECONDS} from "../validation";
+import {base64UrlDecode} from "../webcrypto";
 import {API_ORIGIN, createBatchOverHttp, createVerifiedBrowserSession, registerMachineToken, worker} from "./helpers";
 
 interface PairingStatusBody {
@@ -127,14 +137,120 @@ describe("GET /api/v1/pair/status", () => {
 });
 
 describe("POST /api/v1/pair/claim", () => {
+	it("keeps previously hashed unprefixed machine credentials valid", async () => {
+		const existingToken = await registerMachineToken("alice-existing-machine");
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {
+			headers: {Authorization: `Bearer ${existingToken}`},
+		});
+		expect({body: await response.json(), status: response.status}).toStrictEqual({
+			body: {afk: true},
+			status: 200,
+		});
+	});
+
 	it("exchanges a code for a revocable machine token bound to the account", async () => {
 		const session = await createVerifiedBrowserSession();
 		const issued = await requestPairingCode(session.cookie);
 
-		const claimed = await claimPairingCode(issued.code, "Alice's laptop");
-		expect(claimed.status).toBe(201);
-		const machine = await claimed.json<{token: string; credential_type: string}>();
-		expect(machine.credential_type).toBe("machine");
+		const observationLines: string[] = [];
+		const consoleLog = vi.spyOn(console, "log").mockImplementation((line: unknown) => {
+			if (typeof line === "string") {
+				observationLines.push(line);
+			}
+		});
+		const claimStartedAt = Date.now();
+		const {claimed, machine} = await (async () => {
+			try {
+				const claimed = await claimPairingCode(issued.code, "Alice's laptop");
+				const machine = await claimed.json<{token: string; credential_type: string}>();
+				return {claimed, machine};
+			} finally {
+				consoleLog.mockRestore();
+			}
+		})();
+		const encodedToken = machine.token.slice(MACHINE_TOKEN_PREFIX.length);
+		const claimResponseObservations = observationLines
+			.filter((line) => {
+				const event = JSON.parse(line) as {operation: string};
+				return event.operation === "http.response";
+			})
+			.map((line) => decodedObservationData(reconstructObservation([line]))) as Array<{
+			body: ArrayBuffer;
+			status: number;
+		}>;
+		expect({
+			claim: {body: machine.credential_type, status: claimed.status},
+			format: {
+				decodedBytes: base64UrlDecode(encodedToken).byteLength,
+				encodedCharacters: encodedToken.length,
+				matchesContract: MACHINE_TOKEN_PATTERN.test(machine.token),
+				prefix: machine.token.slice(0, MACHINE_TOKEN_PREFIX.length),
+			},
+			observedResponses: claimResponseObservations.map(({body, status}) => ({
+				body: new TextDecoder().decode(body),
+				status,
+			})),
+		}).toStrictEqual({
+			claim: {body: "machine", status: 201},
+			format: {
+				decodedBytes: MACHINE_TOKEN_RANDOM_BYTES,
+				encodedCharacters: MACHINE_TOKEN_ENCODED_CHARACTERS,
+				matchesContract: true,
+				prefix: MACHINE_TOKEN_PREFIX,
+			},
+			observedResponses: [
+				{
+					body: JSON.stringify({token: MACHINE_TOKEN_REDACTION, credential_type: "machine"}),
+					status: 201,
+				},
+			],
+		});
+
+		const stored = await env.DB.prepare(
+			"SELECT token_hash, user_id, label, credential_type, created_at, last_used_at, revoked_at " +
+				"FROM machine_tokens WHERE user_id = ?",
+		)
+			.bind(session.userId)
+			.first<{
+				token_hash: string;
+				user_id: string;
+				label: string;
+				credential_type: string;
+				created_at: number;
+				last_used_at: number | null;
+				revoked_at: number | null;
+			}>();
+		const columns = await env.DB.prepare("PRAGMA table_info(machine_tokens)").all<{name: string}>();
+		const {created_at: createdAt, ...storedCredential} = stored ?? {created_at: undefined};
+		expect(createdAt).toBeGreaterThanOrEqual(claimStartedAt);
+		expect(createdAt).toBeLessThanOrEqual(Date.now());
+		expect({
+			columnNames: columns.results.map(({name}) => name),
+			hashMatches: stored?.token_hash === (await hashToken(machine.token)),
+			plaintextStored: Object.values(stored ?? {}).includes(machine.token),
+			storedCredential,
+		}).toStrictEqual({
+			columnNames: [
+				"id",
+				"token_hash",
+				"user_id",
+				"label",
+				"credential_type",
+				"created_at",
+				"last_used_at",
+				"revoked_at",
+			],
+			hashMatches: true,
+			plaintextStored: false,
+			storedCredential: {
+				credential_type: "machine",
+				label: "Alice's laptop",
+				last_used_at: null,
+				revoked_at: null,
+				token_hash: await hashToken(machine.token),
+				user_id: session.userId,
+			},
+		});
 		expect(
 			(
 				await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {

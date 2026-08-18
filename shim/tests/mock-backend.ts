@@ -2,6 +2,8 @@ import {createServer, type Server} from "node:http";
 import {text} from "node:stream/consumers";
 import {WebSocketServer, type WebSocket} from "ws";
 
+const MOCK_MACHINE_TOKEN = `ynp_live_${"A".repeat(43)}`;
+
 function requireAfk(body: unknown): boolean {
 	if (typeof body !== "object" || body === null || !("afk" in body) || typeof body.afk !== "boolean") {
 		throw new Error("mock backend received an invalid AFK request body");
@@ -98,7 +100,7 @@ export async function startMockBackend(options: MockBackendOptions = {}): Promis
 				backend.claimBodies.push(JSON.parse(body));
 				response.writeHead(options.claimStatus ?? 201, {"Content-Type": "application/json"});
 				response.end(
-					JSON.stringify(options.claimBody ?? {token: "ynp_mock_machine_token", credential_type: "machine"}),
+					JSON.stringify(options.claimBody ?? {token: MOCK_MACHINE_TOKEN, credential_type: "machine"}),
 				);
 				return;
 			}

@@ -2,8 +2,8 @@ import {z} from "zod";
 
 const USAGE = "usage: yepnope-mcp afk [status|on|off|statusline]";
 const MISSING_TOKEN_MESSAGE =
-	"YEPNOPE_TOKEN is not set. Generate a pairing code in the app, then run " +
-	"`npx yepnope-mcp pair <code>` and export the token it prints.";
+	"Neither YEPNOPE_TOKEN nor YEPNOPE_TOKEN_FILE is set. Generate a pairing code in the app, then run " +
+	"`npx yepnope-mcp pair <code>` or use its --token-file option.";
 
 const afkResponseSchema = z.object({afk: z.boolean()});
 const afkConflictSchema = z.object({error: z.literal("pairing_required"), message: z.string()});

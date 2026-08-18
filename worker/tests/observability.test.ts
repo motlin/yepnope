@@ -2,6 +2,7 @@ import {env} from "cloudflare:workers";
 import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
 import workerHandler from "../index";
+import {MACHINE_TOKEN_REDACTION} from "../machine-token";
 import {
 	createObservationContext,
 	decodedObservationData,
@@ -41,6 +42,8 @@ interface StoredObservation {
 	};
 	data: unknown;
 }
+
+const MACHINE_TOKEN_FIXTURE = `ynp_live_${"A".repeat(43)}`;
 
 function encodedByteLength(value: string): number {
 	return new TextEncoder().encode(value).length;
@@ -258,6 +261,60 @@ describe("D1 binding observation", () => {
 });
 
 describe("Durable Object and transport observation", () => {
+	it("redacts machine credentials from HTTP headers, URLs, and bodies", async () => {
+		const captured = capture();
+		const context = createObservationContext("test.machine-token", "machine-token-correlation", captured.sink);
+		const request = new Request(`https://example.com/api/v1/resource?credential=${MACHINE_TOKEN_FIXTURE}`, {
+			method: "POST",
+			headers: {Authorization: `Bearer ${MACHINE_TOKEN_FIXTURE}`},
+			body: JSON.stringify({token: MACHINE_TOKEN_FIXTURE}),
+		});
+		const response = await observeHttpExchange(context, request, async (observedRequest) => {
+			await observedRequest.text();
+			return Response.json(
+				{token: MACHINE_TOKEN_FIXTURE},
+				{status: 201, headers: {"X-Machine-Credential": MACHINE_TOKEN_FIXTURE}},
+			);
+		});
+		await response.text();
+
+		expect(
+			capturedEvents(captured.lines)
+				.filter(({operation}) => operation === "http.request" || operation === "http.response")
+				.map(({operation, phase, data}) => ({operation, phase, data})),
+		).toStrictEqual([
+			{
+				operation: "http.request",
+				phase: "input",
+				data: {
+					body: new TextEncoder().encode(JSON.stringify({token: MACHINE_TOKEN_REDACTION})).buffer,
+					bodyTruncated: false,
+					headers: [
+						["authorization", `Bearer ${MACHINE_TOKEN_REDACTION}`],
+						["content-type", "text/plain;charset=UTF-8"],
+					],
+					method: "POST",
+					url: `https://example.com/api/v1/resource?credential=${MACHINE_TOKEN_REDACTION}`,
+				},
+			},
+			{
+				operation: "http.response",
+				phase: "output",
+				data: {
+					body: new TextEncoder().encode(JSON.stringify({token: MACHINE_TOKEN_REDACTION})).buffer,
+					bodyTruncated: false,
+					headers: [
+						["content-type", "application/json"],
+						["x-machine-credential", MACHINE_TOKEN_REDACTION],
+					],
+					status: 201,
+					statusText: "Created",
+					webSocket: false,
+				},
+			},
+		]);
+	});
+
 	it("bounds 256 KiB request bodies, records drops, and preserves later responses", async () => {
 		const captured = capture();
 		const context = createObservationContext("test.ordinary-body", "ordinary-body-correlation", captured.sink);

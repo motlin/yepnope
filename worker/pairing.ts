@@ -2,6 +2,7 @@ import {and, asc, count, eq, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {machineTokens, pairingCodes} from "./db/d1-schema";
+import {MACHINE_TOKEN_PREFIX, MACHINE_TOKEN_RANDOM_BYTES} from "./machine-token";
 import type {PairingStatus, UserDurableObject} from "./user-do";
 import {PAIRING_CODE_TTL_MILLISECONDS} from "./validation";
 import {base64UrlEncode} from "./webcrypto";
@@ -26,7 +27,7 @@ function generatePairingCode(): string {
 }
 
 function mintToken(): string {
-	return base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
+	return `${MACHINE_TOKEN_PREFIX}${base64UrlEncode(crypto.getRandomValues(new Uint8Array(MACHINE_TOKEN_RANDOM_BYTES)))}`;
 }
 
 export interface MintedMachineCredential {
