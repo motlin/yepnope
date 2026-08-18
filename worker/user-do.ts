@@ -1,10 +1,19 @@
 // fallow-ignore-file unused-class-member -- RPC methods are invoked through DurableObjectStub, which fallow cannot trace
 import {DurableObject} from "cloudflare:workers";
-import {and, asc, eq, inArray, isNull, lte, min, sql} from "drizzle-orm";
+import {and, asc, count, eq, inArray, isNull, lte, min, sql} from "drizzle-orm";
 import {drizzle, type DrizzleSqliteDODatabase} from "drizzle-orm/durable-sqlite";
 import {migrate} from "drizzle-orm/durable-sqlite/migrator";
 import {z} from "zod";
-import {answers, batches, devices, identityMergeLock, identityMerges, questions, state} from "./db/do-schema";
+import {
+	answers,
+	batches,
+	devices,
+	identityMergeLock,
+	identityMerges,
+	questionActivity,
+	questions,
+	state,
+} from "./db/do-schema";
 import migrationBundle from "./migrations/do/migrations.js";
 import {hashToken} from "./auth";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
@@ -23,7 +32,7 @@ export interface CreatedBatch {
 	questionIds: string[];
 }
 
-export interface OutstandingQuestion {
+export interface CurrentQuestion {
 	batchId: string;
 	project: string;
 	repo: string | null;
@@ -37,7 +46,7 @@ export interface OutstandingQuestion {
 	createdAt: number;
 }
 
-export interface OutstandingQuestionPayload {
+export interface CurrentQuestionPayload {
 	batch_id: string;
 	project: string;
 	repo: string | null;
@@ -51,12 +60,22 @@ export interface OutstandingQuestionPayload {
 	created_at: number;
 }
 
-export interface OutstandingQuestionState {
-	type: "questions";
+export interface CurrentDeckState {
+	type: "current_deck";
 	afk: boolean;
 	paired: boolean;
 	machine_count: number;
-	questions: OutstandingQuestionPayload[];
+	current_deck: CurrentQuestionPayload[];
+}
+
+export interface ActivitySummary {
+	total_questions: number;
+	outstanding: number;
+	yep: number;
+	nope: number;
+	skip: number;
+	retracted: number;
+	expired: number;
 }
 
 export type AfkUpdateResult = {status: "updated"; afk: boolean} | {status: "pairing_required"; message: string};
@@ -73,16 +92,11 @@ export interface PushDevice {
 }
 
 export interface LegacyIdentitySnapshot {
-	state: {
-		questionsAsked: number;
-		yepCount: number;
-		nopeCount: number;
-		skipCount: number;
-	};
 	devices: Array<typeof devices.$inferSelect>;
 	batches: Array<typeof batches.$inferSelect>;
 	questions: Array<typeof questions.$inferSelect>;
 	answers: Array<typeof answers.$inferSelect>;
+	questionActivity: Array<typeof questionActivity.$inferSelect>;
 }
 
 export type LegacyIdentityPreparation =
@@ -95,13 +109,18 @@ export type LegacyIdentityMergeResult =
 	| {status: "conflict"; reason: string};
 
 const STATE_ROW_ID = 1;
-const QUESTIONS_SOCKET_TAG = "questions";
+const CURRENT_DECK_SOCKET_TAG = "current-deck";
 
-interface QuestionsSocketAttachment {
+enum TerminalActivityOutcome {
+	Retracted = "retracted",
+	Expired = "expired",
+}
+
+interface CurrentDeckSocketAttachment {
 	machineCount: number;
 }
 
-const questionsSocketAttachmentSchema = z.object({machineCount: z.number().int().nonnegative()});
+const currentDeckSocketAttachmentSchema = z.object({machineCount: z.number().int().nonnegative()});
 
 function findRowConflict<Row extends object>(
 	existingRows: Row[],
@@ -142,6 +161,13 @@ export class UserDurableObject extends DurableObject<Env> {
 			title: question.title,
 			body: question.body,
 		}));
+		const activityRows: Array<typeof questionActivity.$inferInsert> = questionRows.map((question) => ({
+			questionId: question.id,
+			batchId,
+			outcome: "outstanding",
+			createdAt: now,
+			outcomeAt: null,
+		}));
 		this.database.transaction((transaction) => {
 			transaction
 				.insert(batches)
@@ -157,16 +183,11 @@ export class UserDurableObject extends DurableObject<Env> {
 				})
 				.run();
 			transaction.insert(questions).values(questionRows).run();
-			// 📊 Quota bookkeeping only: enforcement is cut from the MVP (spec §17).
-			transaction
-				.update(state)
-				.set({questionsAsked: sql`${state.questionsAsked} + ${questionRows.length}`})
-				.where(eq(state.id, STATE_ROW_ID))
-				.run();
+			transaction.insert(questionActivity).values(activityRows).run();
 		});
 		// 💓 The heartbeat grace deadline always precedes retention; the alarm handler re-arms for both.
 		await this.armAlarm(now + HEARTBEAT_GRACE_MILLISECONDS);
-		await this.broadcastOutstandingQuestionState();
+		await this.broadcastCurrentDeckState();
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
 	}
 
@@ -184,7 +205,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			return {status: "pairing_required", message: "Pair a machine before turning AFK on."};
 		}
 		await this.database.update(state).set({afk}).where(eq(state.id, STATE_ROW_ID));
-		await this.broadcastOutstandingQuestionState();
+		await this.broadcastCurrentDeckState();
 		return {status: "updated", afk};
 	}
 
@@ -193,13 +214,13 @@ export class UserDurableObject extends DurableObject<Env> {
 		if (machineCount === 0) {
 			await this.database.update(state).set({afk: false}).where(eq(state.id, STATE_ROW_ID));
 		}
-		for (const socket of this.ctx.getWebSockets(QUESTIONS_SOCKET_TAG)) {
-			socket.serializeAttachment({machineCount} satisfies QuestionsSocketAttachment);
+		for (const socket of this.ctx.getWebSockets(CURRENT_DECK_SOCKET_TAG)) {
+			socket.serializeAttachment({machineCount} satisfies CurrentDeckSocketAttachment);
 		}
-		await this.broadcastOutstandingQuestionState();
+		await this.broadcastCurrentDeckState();
 	}
 
-	async getOutstandingQuestions(): Promise<OutstandingQuestion[]> {
+	async getCurrentQuestions(): Promise<CurrentQuestion[]> {
 		const oldestLiveCreation = Date.now() - RETENTION_MILLISECONDS;
 		const rows = await this.database
 			.select({
@@ -223,14 +244,14 @@ export class UserDurableObject extends DurableObject<Env> {
 		return rows;
 	}
 
-	async getOutstandingQuestionState(machineCount: number): Promise<OutstandingQuestionState> {
-		const outstanding = await this.getOutstandingQuestions();
+	async getCurrentDeckState(machineCount: number): Promise<CurrentDeckState> {
+		const outstanding = await this.getCurrentQuestions();
 		return {
-			type: "questions",
+			type: "current_deck",
 			afk: await this.getAfk(machineCount > 0),
 			paired: machineCount > 0,
 			machine_count: machineCount,
-			questions: outstanding.map((question) => ({
+			current_deck: outstanding.map((question) => ({
 				batch_id: question.batchId,
 				project: question.project,
 				repo: question.repo,
@@ -244,6 +265,48 @@ export class UserDurableObject extends DurableObject<Env> {
 				created_at: question.createdAt,
 			})),
 		};
+	}
+
+	async getActivitySummary(): Promise<ActivitySummary> {
+		const summary: ActivitySummary = {
+			total_questions: 0,
+			outstanding: 0,
+			yep: 0,
+			nope: 0,
+			skip: 0,
+			retracted: 0,
+			expired: 0,
+		};
+		const rows = await this.database
+			.select({outcome: questionActivity.outcome, total: count()})
+			.from(questionActivity)
+			.groupBy(questionActivity.outcome);
+		for (const row of rows) {
+			switch (row.outcome) {
+				case "outstanding":
+					summary.outstanding = row.total;
+					break;
+				case "yep":
+					summary.yep = row.total;
+					break;
+				case "nope":
+					summary.nope = row.total;
+					break;
+				case "skip":
+					summary.skip = row.total;
+					break;
+				case "retracted":
+					summary.retracted = row.total;
+					break;
+				case "expired":
+					summary.expired = row.total;
+					break;
+				default:
+					throw new Error(`unknown activity outcome: ${row.outcome}`);
+			}
+			summary.total_questions += row.total;
+		}
+		return summary;
 	}
 
 	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {
@@ -284,26 +347,20 @@ export class UserDurableObject extends DurableObject<Env> {
 					})),
 				)
 				.run();
-			const counts = {yep: 0, nope: 0, skip: 0};
-			for (const answer of submitted) {
-				counts[answer.disposition] += 1;
+			for (const submittedAnswer of submitted) {
+				transaction
+					.update(questionActivity)
+					.set({outcome: submittedAnswer.disposition, outcomeAt: now})
+					.where(eq(questionActivity.questionId, submittedAnswer.question_id))
+					.run();
 			}
-			transaction
-				.update(state)
-				.set({
-					yepCount: sql`${state.yepCount} + ${counts.yep}`,
-					nopeCount: sql`${state.nopeCount} + ${counts.nope}`,
-					skipCount: sql`${state.skipCount} + ${counts.skip}`,
-				})
-				.where(eq(state.id, STATE_ROW_ID))
-				.run();
 			return new Set(found.map((row) => row.batchId));
 		});
 
 		for (const batchId of affectedBatchIds) {
 			await this.broadcastBatchState(batchId);
 		}
-		await this.broadcastOutstandingQuestionState();
+		await this.broadcastCurrentDeckState();
 	}
 
 	// 🧪 Delivery seam: tests replace this to observe pushes without a live push service.
@@ -371,7 +428,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			.from(questions)
 			.where(eq(questions.batchId, batchId))
 			.orderBy(asc(questions.position));
-		const outstanding = (await this.getOutstandingQuestions()).length;
+		const outstanding = (await this.getCurrentQuestions()).length;
 		const payload = JSON.stringify({
 			batch_id: batchId,
 			project: batch.project,
@@ -419,7 +476,7 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	override async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
-		if (url.pathname === "/api/v1/questions/stream") {
+		if (url.pathname === "/api/v1/current-deck/stream") {
 			if (request.headers.get("Upgrade") !== "websocket") {
 				return new Response(null, {status: 426});
 			}
@@ -428,9 +485,9 @@ export class UserDurableObject extends DurableObject<Env> {
 				return new Response(null, {status: 400});
 			}
 			const pair = new WebSocketPair();
-			this.ctx.acceptWebSocket(pair[1], [QUESTIONS_SOCKET_TAG]);
-			pair[1].serializeAttachment({machineCount} satisfies QuestionsSocketAttachment);
-			await this.sendOutstandingQuestionState(pair[1], machineCount);
+			this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
+			pair[1].serializeAttachment({machineCount} satisfies CurrentDeckSocketAttachment);
+			await this.sendCurrentDeckState(pair[1], machineCount);
 			const selectedProtocol = request.headers.get("Sec-WebSocket-Protocol")?.startsWith("yepnope,") === true;
 			return selectedProtocol
 				? new Response(null, {
@@ -461,8 +518,8 @@ export class UserDurableObject extends DurableObject<Env> {
 	// 💓 Any inbound frame is a heartbeat (batch identifier option C in .llm/decisions.md).
 	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void> {
 		const batchId = this.ctx.getTags(socket)[0];
-		if (batchId === QUESTIONS_SOCKET_TAG) {
-			await this.sendOutstandingQuestionState(socket, this.getSocketMachineCount(socket));
+		if (batchId === CURRENT_DECK_SOCKET_TAG) {
+			await this.sendCurrentDeckState(socket, this.getSocketMachineCount(socket));
 			return;
 		}
 		if (batchId === undefined || !(await this.batchExists(batchId))) {
@@ -488,6 +545,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
 		await this.deleteBatches(
 			expired.map((row) => row.id),
+			TerminalActivityOutcome.Expired,
 			"batch_expired",
 			"this batch passed the 7 day retention limit",
 			"batch expired",
@@ -503,6 +561,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			.where(and(isNull(answers.questionId), lte(batches.lastHeartbeatAt, now - HEARTBEAT_GRACE_MILLISECONDS)));
 		await this.deleteBatches(
 			stale.map((row) => row.id),
+			TerminalActivityOutcome.Retracted,
 			"batch_retracted",
 			"the agent asking these questions stopped heartbeating",
 			"batch retracted",
@@ -524,16 +583,11 @@ export class UserDurableObject extends DurableObject<Env> {
 			return {
 				status: "ready",
 				snapshot: {
-					state: {
-						questionsAsked: sourceState.questionsAsked,
-						yepCount: sourceState.yepCount,
-						nopeCount: sourceState.nopeCount,
-						skipCount: sourceState.skipCount,
-					},
 					devices: transaction.select().from(devices).all(),
 					batches: transaction.select().from(batches).all(),
 					questions: transaction.select().from(questions).all(),
 					answers: transaction.select().from(answers).all(),
+					questionActivity: transaction.select().from(questionActivity).all(),
 				},
 			};
 		});
@@ -561,6 +615,11 @@ export class UserDurableObject extends DurableObject<Env> {
 				findRowConflict(transaction.select().from(batches).all(), snapshot.batches, (row) => row.id),
 				findRowConflict(transaction.select().from(questions).all(), snapshot.questions, (row) => row.id),
 				findRowConflict(transaction.select().from(answers).all(), snapshot.answers, (row) => row.questionId),
+				findRowConflict(
+					transaction.select().from(questionActivity).all(),
+					snapshot.questionActivity,
+					(row) => row.questionId,
+				),
 			].filter((conflict) => conflict !== null);
 			if (conflicts[0] !== undefined) {
 				return {status: "conflict", reason: conflicts[0]};
@@ -578,14 +637,13 @@ export class UserDurableObject extends DurableObject<Env> {
 			if (snapshot.answers.length > 0) {
 				transaction.insert(answers).values(snapshot.answers).onConflictDoNothing().run();
 			}
+			if (snapshot.questionActivity.length > 0) {
+				transaction.insert(questionActivity).values(snapshot.questionActivity).onConflictDoNothing().run();
+			}
 			transaction
 				.update(state)
 				.set({
 					afk: false,
-					questionsAsked: sql`${state.questionsAsked} + ${snapshot.state.questionsAsked}`,
-					yepCount: sql`${state.yepCount} + ${snapshot.state.yepCount}`,
-					nopeCount: sql`${state.nopeCount} + ${snapshot.state.nopeCount}`,
-					skipCount: sql`${state.skipCount} + ${snapshot.state.skipCount}`,
 				})
 				.where(eq(state.id, STATE_ROW_ID))
 				.run();
@@ -630,29 +688,53 @@ export class UserDurableObject extends DurableObject<Env> {
 			.run();
 	}
 
-	private async deleteBatches(batchIds: string[], code: string, message: string, closeReason: string): Promise<void> {
+	private async deleteBatches(
+		batchIds: string[],
+		activityOutcome: TerminalActivityOutcome,
+		code: string,
+		message: string,
+		closeReason: string,
+	): Promise<void> {
 		if (batchIds.length === 0) {
 			return;
 		}
+		const socketClosures: Array<{sockets: WebSocket[]; frame: string}> = [];
 		for (const batchId of batchIds) {
 			const dispositions = await this.batchDispositions(batchId);
-			const closeFrame = errorFrame(batchId, dispositions, code, message);
-			for (const socket of this.ctx.getWebSockets(batchId)) {
-				socket.send(closeFrame);
-				socket.close(1000, closeReason);
-			}
+			socketClosures.push({
+				sockets: this.ctx.getWebSockets(batchId),
+				frame: errorFrame(batchId, dispositions, code, message),
+			});
 		}
 		const doomedQuestions = await this.database
 			.select({id: questions.id})
 			.from(questions)
 			.where(inArray(questions.batchId, batchIds));
 		const doomedQuestionIds = doomedQuestions.map((row) => row.id);
-		if (doomedQuestionIds.length > 0) {
-			await this.database.delete(answers).where(inArray(answers.questionId, doomedQuestionIds));
+		this.database.transaction((transaction) => {
+			if (doomedQuestionIds.length > 0) {
+				transaction
+					.update(questionActivity)
+					.set({outcome: activityOutcome, outcomeAt: Date.now()})
+					.where(
+						and(
+							inArray(questionActivity.questionId, doomedQuestionIds),
+							eq(questionActivity.outcome, "outstanding"),
+						),
+					)
+					.run();
+				transaction.delete(answers).where(inArray(answers.questionId, doomedQuestionIds)).run();
+			}
+			transaction.delete(questions).where(inArray(questions.batchId, batchIds)).run();
+			transaction.delete(batches).where(inArray(batches.id, batchIds)).run();
+		});
+		for (const closure of socketClosures) {
+			for (const socket of closure.sockets) {
+				socket.send(closure.frame);
+				socket.close(1000, closeReason);
+			}
 		}
-		await this.database.delete(questions).where(inArray(questions.batchId, batchIds));
-		await this.database.delete(batches).where(inArray(batches.id, batchIds));
-		await this.broadcastOutstandingQuestionState();
+		await this.broadcastCurrentDeckState();
 	}
 
 	private isMergeLocked(): boolean {
@@ -725,22 +807,22 @@ export class UserDurableObject extends DurableObject<Env> {
 		socket.send(stateFrame(batchId, dispositions));
 	}
 
-	private async sendOutstandingQuestionState(socket: WebSocket, machineCount: number): Promise<void> {
-		socket.send(JSON.stringify(await this.getOutstandingQuestionState(machineCount)));
+	private async sendCurrentDeckState(socket: WebSocket, machineCount: number): Promise<void> {
+		socket.send(JSON.stringify(await this.getCurrentDeckState(machineCount)));
 	}
 
-	private async broadcastOutstandingQuestionState(): Promise<void> {
-		const sockets = this.ctx.getWebSockets(QUESTIONS_SOCKET_TAG);
+	private async broadcastCurrentDeckState(): Promise<void> {
+		const sockets = this.ctx.getWebSockets(CURRENT_DECK_SOCKET_TAG);
 		if (sockets.length === 0) {
 			return;
 		}
 		for (const socket of sockets) {
-			await this.sendOutstandingQuestionState(socket, this.getSocketMachineCount(socket));
+			await this.sendCurrentDeckState(socket, this.getSocketMachineCount(socket));
 		}
 	}
 
 	private getSocketMachineCount(socket: WebSocket): number {
-		return questionsSocketAttachmentSchema.parse(socket.deserializeAttachment()).machineCount;
+		return currentDeckSocketAttachmentSchema.parse(socket.deserializeAttachment()).machineCount;
 	}
 
 	private async broadcastBatchState(batchId: string): Promise<void> {

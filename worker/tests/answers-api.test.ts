@@ -19,14 +19,14 @@ describe("POST /api/v1/answers", () => {
 		]);
 		expect(response.status).toBe(200);
 
-		const outstanding = await worker.fetch("https://yepnope.app/api/v1/questions", {
+		const outstanding = await worker.fetch("https://yepnope.app/api/v1/current-deck", {
 			headers: {Authorization: `Bearer ${token}`},
 		});
-		const listed = await outstanding.json<{questions: unknown[]}>();
-		expect(listed.questions).toEqual([]);
+		const listed = await outstanding.json<{current_deck: unknown[]}>();
+		expect(listed.current_deck).toStrictEqual([]);
 	});
 
-	it("rolls back answers when disposition counter bookkeeping fails", async () => {
+	it("rolls back answers when activity bookkeeping fails", async () => {
 		const userId = "user-atomic-answers";
 		const token = await registerMachineToken(userId);
 		const created = await createBatchOverHttp(token, "atomic-test", [{title: "Ship it?", body: ""}]);
@@ -35,23 +35,21 @@ describe("POST /api/v1/answers", () => {
 
 		await runInDurableObject(stub, async (instance, state) => {
 			state.storage.sql.exec(`
-				CREATE TRIGGER reject_disposition_counters
-				BEFORE UPDATE OF yep_count ON state
+				CREATE TRIGGER reject_answer_activity
+				BEFORE UPDATE OF outcome ON question_activity
 				BEGIN
-					SELECT RAISE(ABORT, 'test counter failure');
+					SELECT RAISE(ABORT, 'test activity failure');
 				END
 			`);
 
 			await expect(instance.submitAnswers([{question_id: questionId, disposition: "yep"}])).rejects.toThrow(
-				"test counter failure",
+				"test activity failure",
 			);
 
 			expect({
 				answers: state.storage.sql.exec("SELECT COUNT(*) AS total FROM answers").one()["total"],
-				yep: state.storage.sql.exec("SELECT yep_count FROM state").one()["yep_count"],
-				nope: state.storage.sql.exec("SELECT nope_count FROM state").one()["nope_count"],
-				skip: state.storage.sql.exec("SELECT skip_count FROM state").one()["skip_count"],
-			}).toStrictEqual({answers: 0, yep: 0, nope: 0, skip: 0});
+				activity: state.storage.sql.exec("SELECT outcome FROM question_activity").one()["outcome"],
+			}).toStrictEqual({answers: 0, activity: "outstanding"});
 		});
 	});
 

@@ -38,15 +38,15 @@ function supportsNotificationActions() {
 }
 
 async function fetchBatchQuestion(batchId) {
-	const response = await fetch("/api/v1/questions", {credentials: "same-origin"});
+	const response = await fetch("/api/v1/current-deck", {credentials: "same-origin"});
 	if (!response.ok) {
 		throw new Error(`question fetch failed with ${response.status}`);
 	}
 	const body = await response.json();
-	if (!body || !Array.isArray(body.questions)) {
+	if (!body || !Array.isArray(body.current_deck)) {
 		throw new Error("question fetch returned an invalid response");
 	}
-	const matches = body.questions.filter((question) => question.batch_id === batchId);
+	const matches = body.current_deck.filter((question) => question.batch_id === batchId);
 	if (matches.length !== 1 || typeof matches[0].question_id !== "string" || typeof matches[0].title !== "string") {
 		return null;
 	}

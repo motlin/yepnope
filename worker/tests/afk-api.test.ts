@@ -43,18 +43,18 @@ describe("AFK mode", () => {
 		await runInDurableObject(env.USER_DO.getByName(session.userId), (_instance, state) => {
 			expect(state.storage.sql.exec("SELECT afk FROM state").one()).toStrictEqual({afk: 0});
 		});
-		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 			headers: {Cookie: session.cookie, Upgrade: "websocket"},
 		});
 		const socket = required(streamResponse.webSocket ?? undefined, "question websocket");
 		const unpairedState = nextMessage(socket);
 		socket.accept();
 		expect(JSON.parse(await unpairedState)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: false,
 			paired: false,
 			machine_count: 0,
-			questions: [],
+			current_deck: [],
 		});
 		const issued = await worker.fetch(`${API_ORIGIN}/api/v1/pair/code`, {
 			method: "POST",
@@ -69,11 +69,11 @@ describe("AFK mode", () => {
 		const {token} = await claimed.json<{token: string}>();
 
 		expect(JSON.parse(await pairedState)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: false,
 			paired: true,
 			machine_count: 1,
-			questions: [],
+			current_deck: [],
 		});
 		expect(await getAfk(token)).toStrictEqual({status: 200, afk: false});
 		socket.close();
@@ -139,11 +139,11 @@ describe("AFK mode", () => {
 		const questionId = required(created.question_ids[0], "question id");
 		await putAfk(token, false);
 
-		const listResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const listResponse = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${token}`},
 		});
-		const listed = await listResponse.json<{questions: Array<{question_id: string}>}>();
-		expect(listed.questions.map((question) => question.question_id)).toStrictEqual([questionId]);
+		const listed = await listResponse.json<{current_deck: Array<{question_id: string}>}>();
+		expect(listed.current_deck.map((question) => question.question_id)).toStrictEqual([questionId]);
 
 		const answered = await postAnswers(token, [{question_id: questionId, disposition: "yep"}]);
 		expect(answered.status).toBe(200);
@@ -152,18 +152,18 @@ describe("AFK mode", () => {
 	it("forces AFK off and broadcasts state after the last machine is revoked", async () => {
 		const userId = "afk-last-machine-revoked";
 		const token = await registerMachineToken(userId);
-		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 			headers: {Authorization: `Bearer ${token}`, Upgrade: "websocket"},
 		});
 		const socket = required(streamResponse.webSocket ?? undefined, "question websocket");
 		const initial = nextMessage(socket);
 		socket.accept();
 		expect(JSON.parse(await initial)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: true,
 			paired: true,
 			machine_count: 1,
-			questions: [],
+			current_deck: [],
 		});
 
 		const refreshed = nextMessage(socket);
@@ -180,11 +180,11 @@ describe("AFK mode", () => {
 			),
 		).toBe(true);
 		expect(JSON.parse(await refreshed)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: false,
 			paired: false,
 			machine_count: 0,
-			questions: [],
+			current_deck: [],
 		});
 		expect(await env.USER_DO.getByName(userId).getAfk(false)).toBe(false);
 		socket.close();

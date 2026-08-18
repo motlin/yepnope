@@ -30,29 +30,29 @@ describe("POST /api/v1/questions", () => {
 		expect(created.question_ids).toStrictEqual([`${created.batch_id}:0`, `${created.batch_id}:1`]);
 	});
 
-	it("rolls back the batch and questions when counter bookkeeping fails", async () => {
+	it("rolls back the batch and current questions when activity bookkeeping fails", async () => {
 		const userId = "user-atomic-batch";
 		const stub = env.USER_DO.getByName(userId);
 
 		await runInDurableObject(stub, async (instance, state) => {
 			state.storage.sql.exec(`
-				CREATE TRIGGER reject_question_counter
-				BEFORE UPDATE OF questions_asked ON state
+				CREATE TRIGGER reject_question_activity
+				BEFORE INSERT ON question_activity
 				BEGIN
-					SELECT RAISE(ABORT, 'test counter failure');
+					SELECT RAISE(ABORT, 'test activity failure');
 				END
 			`);
 
 			await expect(
 				instance.createBatch({project: "atomic-test", questions: [{title: "Ship it?", body: ""}]}),
-			).rejects.toThrow("test counter failure");
+			).rejects.toThrow("test activity failure");
 
 			expect({
 				batches: state.storage.sql.exec("SELECT COUNT(*) AS total FROM batches").one()["total"],
 				questions: state.storage.sql.exec("SELECT COUNT(*) AS total FROM questions").one()["total"],
-				questionsAsked: state.storage.sql.exec("SELECT questions_asked FROM state").one()["questions_asked"],
+				activity: state.storage.sql.exec("SELECT COUNT(*) AS total FROM question_activity").one()["total"],
 				alarm: await state.storage.getAlarm(),
-			}).toStrictEqual({batches: 0, questions: 0, questionsAsked: 0, alarm: null});
+			}).toStrictEqual({batches: 0, questions: 0, activity: 0, alarm: null});
 		});
 	});
 
@@ -96,7 +96,7 @@ describe("POST /api/v1/questions", () => {
 	});
 });
 
-describe("GET /api/v1/questions", () => {
+describe("GET /api/v1/current-deck", () => {
 	it("returns outstanding cards until they are answered", async () => {
 		const token = await registerMachineToken("user-outstanding");
 		const created = await createBatchOverHttp(token, "demo", [
@@ -104,12 +104,12 @@ describe("GET /api/v1/questions", () => {
 			{title: "Second?", body: "two"},
 		]);
 
-		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${token}`},
 		});
 		expect(response.status).toBe(200);
 		const listed = await response.json<{
-			questions: Array<{
+			current_deck: Array<{
 				batch_id: string;
 				project: string;
 				question_id: string;
@@ -119,14 +119,35 @@ describe("GET /api/v1/questions", () => {
 				created_at: number;
 			}>;
 		}>();
-		expect(listed.questions).toHaveLength(2);
-		expect(listed.questions.map((question) => question.question_id)).toStrictEqual(created.question_ids);
-		expect(listed.questions[0]).toMatchObject({
-			batch_id: created.batch_id,
-			project: "demo",
-			position: 0,
-			title: "First?",
-			body: "one",
+		expect(listed).toStrictEqual({
+			current_deck: [
+				{
+					batch_id: created.batch_id,
+					body: "one",
+					branch: null,
+					created_at: expect.any(Number) as number,
+					directory: null,
+					position: 0,
+					project: "demo",
+					question_id: created.question_ids[0],
+					repo: null,
+					title: "First?",
+					worktree: null,
+				},
+				{
+					batch_id: created.batch_id,
+					body: "two",
+					branch: null,
+					created_at: expect.any(Number) as number,
+					directory: null,
+					position: 1,
+					project: "demo",
+					question_id: created.question_ids[1],
+					repo: null,
+					title: "Second?",
+					worktree: null,
+				},
+			],
 		});
 	});
 
@@ -139,12 +160,12 @@ describe("GET /api/v1/questions", () => {
 			directory: "/w/rocket/core",
 		});
 
-		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${token}`},
 		});
 		expect(response.status).toBe(200);
-		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toStrictEqual([
+		const listed = await response.json<{current_deck: unknown[]}>();
+		expect(listed.current_deck).toStrictEqual([
 			{
 				batch_id: created.batch_id,
 				project: "demo",
@@ -168,11 +189,11 @@ describe("GET /api/v1/questions", () => {
 			directory: "/deep".repeat(60),
 		});
 
-		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${token}`},
 		});
-		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toStrictEqual([
+		const listed = await response.json<{current_deck: unknown[]}>();
+		expect(listed.current_deck).toStrictEqual([
 			{
 				batch_id: created.batch_id,
 				project: "demo",
@@ -193,11 +214,11 @@ describe("GET /api/v1/questions", () => {
 		const token = await registerMachineToken("user-no-git-context");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}]);
 
-		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${token}`},
 		});
-		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toStrictEqual([
+		const listed = await response.json<{current_deck: unknown[]}>();
+		expect(listed.current_deck).toStrictEqual([
 			{
 				batch_id: created.batch_id,
 				project: "demo",
@@ -219,22 +240,22 @@ describe("GET /api/v1/questions", () => {
 		const tokenB = await registerMachineToken("user-b");
 		await createBatchOverHttp(tokenA, "demo", [{title: "Only for A?", body: ""}]);
 
-		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${tokenB}`},
 		});
-		const listed = await response.json<{questions: unknown[]}>();
-		expect(listed.questions).toStrictEqual([]);
+		const listed = await response.json<{current_deck: unknown[]}>();
+		expect(listed.current_deck).toStrictEqual([]);
 	});
 });
 
-describe("GET /api/v1/questions/stream", () => {
+describe("GET /api/v1/current-deck/stream", () => {
 	it("starts with the complete outstanding card state and broadcasts each replacement", async () => {
 		const token = await registerMachineToken("user-live-questions");
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: "one"},
 			{title: "Second?", body: "two"},
 		]);
-		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 			headers: {"Sec-WebSocket-Protocol": `yepnope, ${token}`, Upgrade: "websocket"},
 		});
 		expect(response.status).toBe(101);
@@ -244,11 +265,11 @@ describe("GET /api/v1/questions/stream", () => {
 		socket.accept();
 
 		expect(JSON.parse(await initialMessage)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: true,
 			paired: true,
 			machine_count: 1,
-			questions: [
+			current_deck: [
 				{
 					batch_id: created.batch_id,
 					project: "demo",
@@ -285,11 +306,11 @@ describe("GET /api/v1/questions/stream", () => {
 			body: JSON.stringify({answers: [{question_id: created.question_ids[0], disposition: "yep"}]}),
 		});
 		expect(JSON.parse(await replacementMessage)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: true,
 			paired: true,
 			machine_count: 1,
-			questions: [
+			current_deck: [
 				{
 					batch_id: created.batch_id,
 					project: "demo",

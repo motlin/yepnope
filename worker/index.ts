@@ -26,7 +26,7 @@ import {parseVapidJwk, vapidPublicKeyFromJwk} from "./webpush";
 export {UserDurableObject} from "./user-do";
 
 const STREAM_PATH = /^\/api\/v1\/questions\/[^/]+\/stream$/;
-const QUESTIONS_STREAM_PATH = "/api/v1/questions/stream";
+const CURRENT_DECK_STREAM_PATH = "/api/v1/current-deck/stream";
 const MACHINE_MANAGEMENT_PATH = /^\/api\/v1\/account\/machines\/([0-9a-f]{32})$/;
 const PUSH_DEVICE_MANAGEMENT_PATH = /^\/api\/v1\/account\/push-devices\/([0-9a-f]{64})$/;
 
@@ -110,8 +110,8 @@ export default {
 		if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST") {
 			return subscribePush(request, stub);
 		}
-		if (request.method === "GET" && (url.pathname === QUESTIONS_STREAM_PATH || STREAM_PATH.test(url.pathname))) {
-			if (url.pathname === QUESTIONS_STREAM_PATH) {
+		if (request.method === "GET" && (url.pathname === CURRENT_DECK_STREAM_PATH || STREAM_PATH.test(url.pathname))) {
+			if (url.pathname === CURRENT_DECK_STREAM_PATH) {
 				const machineCount = await getPairedMachineCount(env.DB, userId);
 				return stub.fetch(withMachineCount(authenticatedRequest, machineCount));
 			}
@@ -133,8 +133,11 @@ export default {
 			const machineCount = await getPairedMachineCount(env.DB, userId);
 			return createQuestions(request, stub, machineCount > 0, executionContext);
 		}
-		if (url.pathname === "/api/v1/questions" && request.method === "GET") {
-			return listQuestions(stub);
+		if (url.pathname === "/api/v1/current-deck" && request.method === "GET") {
+			return currentDeck(stub);
+		}
+		if (url.pathname === "/api/v1/activity-summary" && request.method === "GET") {
+			return Response.json({activity_summary: await stub.getActivitySummary()});
 		}
 		if (url.pathname === "/api/v1/answers" && request.method === "POST") {
 			return submitAnswers(request, stub);
@@ -148,7 +151,7 @@ export default {
 
 function withBrowserSocketAuthorization(request: Request, url: URL): Request {
 	if (
-		url.pathname !== QUESTIONS_STREAM_PATH ||
+		url.pathname !== CURRENT_DECK_STREAM_PATH ||
 		request.headers.has("Authorization") ||
 		request.headers.get("Upgrade") !== "websocket"
 	) {
@@ -322,9 +325,9 @@ async function createQuestions(
 	return Response.json({batch_id: created.batchId, question_ids: created.questionIds}, {status: 201});
 }
 
-async function listQuestions(stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
-	const state = await stub.getOutstandingQuestionState(0);
-	return Response.json({questions: state.questions});
+async function currentDeck(stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
+	const state = await stub.getCurrentDeckState(0);
+	return Response.json({current_deck: state.current_deck});
 }
 
 async function submitAnswers(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {

@@ -231,12 +231,12 @@ const questionSchema = z.object({
 	created_at: z.number(),
 });
 
-const questionsStateSchema = z.object({
-	type: z.literal("questions"),
+const currentDeckStateSchema = z.object({
+	type: z.literal("current_deck"),
 	afk: z.boolean(),
 	paired: z.boolean(),
 	machine_count: z.number().int().nonnegative(),
-	questions: z.array(questionSchema),
+	current_deck: z.array(questionSchema),
 });
 
 function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuestion[] {
@@ -252,7 +252,7 @@ function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuest
 	}));
 }
 
-export interface QuestionsStream {
+export interface CurrentDeckStream {
 	close: () => void;
 	refresh: () => void;
 }
@@ -260,27 +260,27 @@ export interface QuestionsStream {
 export interface LiveApplicationState {
 	afk: boolean;
 	pairingStatus: PairingStatus;
-	questions: DeckQuestion[];
+	currentDeck: DeckQuestion[];
 }
 
-export function openQuestionsStream(onState: (state: LiveApplicationState) => void): QuestionsStream {
+export function openCurrentDeckStream(onState: (state: LiveApplicationState) => void): CurrentDeckStream {
 	let socket: WebSocket | null = null;
 	let reconnectTimer: number | undefined;
 	let stopped = false;
 
 	function connect(): void {
-		const url = new URL("/api/v1/questions/stream", window.location.href);
+		const url = new URL("/api/v1/current-deck/stream", window.location.href);
 		url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 		socket = new WebSocket(url);
 		socket.addEventListener("message", (event) => {
 			if (typeof event.data !== "string") {
 				throw new Error("question stream sent a non-text frame");
 			}
-			const state = questionsStateSchema.parse(JSON.parse(event.data) as unknown);
+			const state = currentDeckStateSchema.parse(JSON.parse(event.data) as unknown);
 			onState({
 				afk: state.afk,
 				pairingStatus: {paired: state.paired, machineCount: state.machine_count},
-				questions: toDeckQuestions(state.questions),
+				currentDeck: toDeckQuestions(state.current_deck),
 			});
 		});
 		socket.addEventListener("close", () => {

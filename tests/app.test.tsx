@@ -6,7 +6,7 @@ import type {
 	AuthenticationUser,
 	LiveApplicationState,
 	PairingStatus,
-	QuestionsStream,
+	CurrentDeckStream,
 } from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
@@ -58,10 +58,10 @@ vi.mock("../src/api", () => ({
 	fetchPairingStatus,
 	fetchSession,
 	issuePairingCode: vi.fn<() => Promise<{code: string; expiresAt: number}>>(),
-	openQuestionsStream: vi.fn<(onState: (state: LiveApplicationState) => void) => QuestionsStream>((onState) => {
+	openCurrentDeckStream: vi.fn<(onState: (state: LiveApplicationState) => void) => CurrentDeckStream>((onState) => {
 		publishApplicationState = onState;
 		publishQuestions = (questions) => {
-			onState({afk: true, pairingStatus: {paired: true, machineCount: 1}, questions});
+			onState({afk: true, pairingStatus: {paired: true, machineCount: 1}, currentDeck: questions});
 		};
 		return {close: closeStream, refresh: refreshStream};
 	}),
@@ -173,7 +173,7 @@ describe("App live question synchronization", () => {
 			publishApplicationState?.({
 				afk: false,
 				pairingStatus: {paired: false, machineCount: 0},
-				questions: [],
+				currentDeck: [],
 			});
 		});
 
@@ -196,7 +196,7 @@ describe("App live question synchronization", () => {
 			publishApplicationState?.({
 				afk: false,
 				pairingStatus: {paired: true, machineCount: 1},
-				questions: [],
+				currentDeck: [],
 			});
 		});
 		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
@@ -215,7 +215,7 @@ describe("App live question synchronization", () => {
 			publishApplicationState?.({
 				afk: true,
 				pairingStatus: {paired: true, machineCount: 1},
-				questions: [],
+				currentDeck: [],
 			});
 		});
 		expect(screen.getByRole("button", {name: "AFK on"}).getAttribute("aria-pressed")).toBe("true");
@@ -224,7 +224,7 @@ describe("App live question synchronization", () => {
 			publishApplicationState?.({
 				afk: false,
 				pairingStatus: {paired: false, machineCount: 0},
-				questions: [],
+				currentDeck: [],
 			});
 		});
 		expect(screen.getByRole("button", {name: "Pair a machine"}).getAttribute("aria-pressed")).toBeNull();
@@ -344,7 +344,7 @@ describe("App live question synchronization", () => {
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
 
 		expect(screen.getByRole("heading", {name: "Privacy and retention"}).parentElement?.textContent).toBe(
-			"Privacy and retentionYepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies and answers are deleted seven days after each batch is created.",
+			"Privacy and retentionYepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies and current answers are deleted seven days after each batch is created. Activity outcomes are kept so your history totals remain explainable.",
 		);
 	});
 
@@ -562,7 +562,7 @@ describe("Better Auth account routes", () => {
 			publishApplicationState?.({
 				afk: false,
 				pairingStatus: {paired: true, machineCount: 1},
-				questions: initialQuestions,
+				currentDeck: initialQuestions,
 			});
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));

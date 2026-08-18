@@ -108,7 +108,7 @@ const singleQuestionResponse = {
 	ok: true,
 	json: async () =>
 		Promise.resolve({
-			questions: [
+			current_deck: [
 				{
 					batch_id: "batch-100",
 					project: "demo",
@@ -139,7 +139,7 @@ describe("service worker push notifications", () => {
 
 		await harness.dispatchPush(singlePayload);
 
-		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/questions", {credentials: "same-origin"}]]);
+		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/current-deck", {credentials: "same-origin"}]]);
 		expect(callsFrom(harness.showNotification)).toStrictEqual([
 			[
 				"Ship the release?",
@@ -168,7 +168,7 @@ describe("service worker push notifications", () => {
 
 		await harness.dispatchPush(singlePayload);
 
-		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/questions", {credentials: "same-origin"}]]);
+		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/current-deck", {credentials: "same-origin"}]]);
 		expect(callsFrom(harness.showNotification)).toStrictEqual([
 			[
 				"1 question from demo",
@@ -211,7 +211,8 @@ describe("service worker push notifications", () => {
 		const harness = createHarness({
 			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
 			maxActions: 2,
-			fetchQuestions: async () => Promise.resolve({ok: true, json: async () => Promise.resolve({questions: []})}),
+			fetchQuestions: async () =>
+				Promise.resolve({ok: true, json: async () => Promise.resolve({current_deck: []})}),
 		});
 
 		await harness.dispatchPush(payload);

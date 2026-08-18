@@ -120,11 +120,11 @@ describe("POST /api/v1/pair/claim", () => {
 		const created = await createBatchOverHttp(machine.token, "example-project", [
 			{title: "Continue?", body: "Proceed with the example operation?"},
 		]);
-		const listed = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const listed = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Cookie: session.cookie},
 		});
-		const body = await listed.json<{questions: Array<{batch_id: string}>}>();
-		expect(body.questions.map((question) => question.batch_id)).toStrictEqual([created.batch_id]);
+		const body = await listed.json<{current_deck: Array<{batch_id: string}>}>();
+		expect(body.current_deck.map((question) => question.batch_id)).toStrictEqual([created.batch_id]);
 		expect(
 			await env.DB.prepare(
 				"SELECT user_id, label, last_used_at IS NOT NULL AS was_used, revoked_at FROM machine_tokens WHERE user_id = ?",
@@ -136,7 +136,7 @@ describe("POST /api/v1/pair/claim", () => {
 		await env.DB.prepare("UPDATE machine_tokens SET revoked_at = ? WHERE user_id = ?")
 			.bind(Date.now(), session.userId)
 			.run();
-		const revoked = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const revoked = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${machine.token}`},
 		});
 		expect(revoked.status).toBe(401);

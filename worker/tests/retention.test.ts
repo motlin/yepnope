@@ -102,7 +102,7 @@ describe("7 day retention alarm", () => {
 		});
 	});
 
-	it("purges answers with their batch and leaves counters alone", async () => {
+	it("purges current answers while retaining their durable activity outcome", async () => {
 		const userId = "retention-counters";
 		const token = await registerMachineToken(userId);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Old?", body: ""}]);
@@ -117,7 +117,7 @@ describe("7 day retention alarm", () => {
 
 		await runInDurableObject(stub, async (_instance, state) => {
 			expect(state.storage.sql.exec("SELECT COUNT(*) AS total FROM answers").one()["total"]).toBe(0);
-			expect(state.storage.sql.exec("SELECT yep_count FROM state").one()["yep_count"]).toBe(1);
+			expect(state.storage.sql.exec("SELECT outcome FROM question_activity").one()["outcome"]).toBe("yep");
 			expect(await state.storage.getAlarm()).toBeNull();
 		});
 	});

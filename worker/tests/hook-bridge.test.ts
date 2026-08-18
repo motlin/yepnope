@@ -28,11 +28,11 @@ interface ListedQuestion {
 }
 
 async function listQuestions(token: string): Promise<ListedQuestion[]> {
-	const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+	const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 		headers: {Authorization: `Bearer ${token}`},
 	});
-	const body = await response.json<{questions: ListedQuestion[]}>();
-	return body.questions;
+	const body = await response.json<{current_deck: ListedQuestion[]}>();
+	return body.current_deck;
 }
 
 async function waitForQuestion(token: string): Promise<ListedQuestion> {

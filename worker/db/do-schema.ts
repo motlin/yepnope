@@ -5,10 +5,6 @@ import {integer, sqliteTable, text} from "drizzle-orm/sqlite-core";
 export const state = sqliteTable("state", {
 	id: integer("id").primaryKey(),
 	afk: integer("afk", {mode: "boolean"}).notNull().default(false),
-	questionsAsked: integer("questions_asked").notNull().default(0),
-	yepCount: integer("yep_count").notNull().default(0),
-	nopeCount: integer("nope_count").notNull().default(0),
-	skipCount: integer("skip_count").notNull().default(0),
 });
 
 export const devices = sqliteTable("devices", {
@@ -47,6 +43,14 @@ export const answers = sqliteTable("answers", {
 		.references(() => questions.id),
 	disposition: text("disposition").notNull(),
 	answeredAt: integer("answered_at").notNull(),
+});
+
+export const questionActivity = sqliteTable("question_activity", {
+	questionId: text("question_id").primaryKey(),
+	batchId: text("batch_id").notNull(),
+	outcome: text("outcome", {enum: ["outstanding", "yep", "nope", "skip", "retracted", "expired"]}).notNull(),
+	createdAt: integer("created_at").notNull(),
+	outcomeAt: integer("outcome_at"),
 });
 
 export const identityMerges = sqliteTable("identity_merges", {

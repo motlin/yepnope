@@ -21,7 +21,7 @@ async function openStream(token: string, batchId: string): Promise<WebSocket> {
 }
 
 async function openQuestionStream(token: string): Promise<WebSocket> {
-	const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+	const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 		headers: {Authorization: `Bearer ${token}`, Upgrade: "websocket"},
 	});
 	return required(response.webSocket ?? undefined, "question websocket on the upgrade response");
@@ -93,11 +93,11 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 		const initialMessage = nextMessage(socket);
 		socket.accept();
 		expect(JSON.parse(await initialMessage)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: true,
 			paired: true,
 			machine_count: 1,
-			questions: [
+			current_deck: [
 				{
 					batch_id: created.batch_id,
 					project: "demo",
@@ -119,11 +119,11 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 		const retractedMessage = nextMessage(socket);
 		expect(await runDurableObjectAlarm(stub)).toBe(true);
 		expect(JSON.parse(await retractedMessage)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: true,
 			paired: true,
 			machine_count: 1,
-			questions: [],
+			current_deck: [],
 		});
 		socket.close();
 	});
@@ -192,7 +192,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 		expect(response.status).toBe(404);
 	});
 
-	it("discards partial answers with the retracted batch and leaves counters alone", async () => {
+	it("keeps partial answers and records the remaining questions as retracted activity", async () => {
 		const userId = "heartbeat-partial";
 		const token = await registerMachineToken(userId);
 		const created = await createBatchOverHttp(token, "demo", [
@@ -209,7 +209,9 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 		await runInDurableObject(stub, (_instance, state) => {
 			expect(state.storage.sql.exec("SELECT COUNT(*) AS total FROM batches").one()["total"]).toBe(0);
 			expect(state.storage.sql.exec("SELECT COUNT(*) AS total FROM answers").one()["total"]).toBe(0);
-			expect(state.storage.sql.exec("SELECT yep_count FROM state").one()["yep_count"]).toBe(1);
+			expect(
+				state.storage.sql.exec("SELECT outcome FROM question_activity ORDER BY question_id").toArray(),
+			).toStrictEqual([{outcome: "yep"}, {outcome: "retracted"}]);
 		});
 	});
 });

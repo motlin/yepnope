@@ -6,7 +6,7 @@ import {
 	fetchPairingStatus,
 	fetchSession,
 	issuePairingCode,
-	openQuestionsStream,
+	openCurrentDeckStream,
 	registerAccount,
 	requestPasswordReset,
 	resetPassword,
@@ -21,7 +21,7 @@ import {
 	updateAfk,
 	type AuthenticationUser,
 	type AccountDevices,
-	type QuestionsStream,
+	type CurrentDeckStream,
 	type IssuedPairingCode,
 	type PairingStatus,
 } from "./api";
@@ -1051,7 +1051,8 @@ function Settings({
 				<h3>Privacy and retention</h3>
 				<p>
 					YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP.{" "}
-					Question bodies and answers are deleted seven days after each batch is created.
+					Question bodies and current answers are deleted seven days after each batch is created. Activity
+					outcomes are kept so your history totals remain explainable.
 				</p>
 			</div>
 			<button type="button" className="back" onClick={onBack}>
@@ -1064,13 +1065,13 @@ function Settings({
 export function App(): ReactElement {
 	const [session, setSession] = useState<AuthenticationUser | null>(null);
 	const [sessionReady, setSessionReady] = useState(false);
-	const [questions, setQuestions] = useState<DeckQuestion[]>([]);
+	const [currentQuestions, setCurrentQuestions] = useState<DeckQuestion[]>([]);
 	const [afk, setAfkState] = useState<boolean | null>(null);
 	const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
 	const [demoQuestions, setDemoQuestions] = useState<DeckQuestion[]>(() => [...DEMO_QUESTIONS]);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const [registrationEmail, setRegistrationEmail] = useState("");
-	const questionsStream = useRef<QuestionsStream | null>(null);
+	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
 
 	useEffect(() => {
 		function onPopState(): void {
@@ -1153,7 +1154,7 @@ export function App(): ReactElement {
 				}
 				refreshAfk();
 				refreshPairingStatus();
-				questionsStream.current?.refresh();
+				currentDeckStream.current?.refresh();
 			},
 			() => {
 				// Keep the credential so the signed-in user can retry the explicit claim.
@@ -1163,7 +1164,7 @@ export function App(): ReactElement {
 
 	useEffect(() => {
 		if (session === null) {
-			setQuestions([]);
+			setCurrentQuestions([]);
 			setAfkState(null);
 			setPairingStatus(null);
 			updateBadge(0);
@@ -1171,13 +1172,13 @@ export function App(): ReactElement {
 		}
 		refreshAfk();
 		refreshPairingStatus();
-		const stream = openQuestionsStream((state) => {
+		const stream = openCurrentDeckStream((state) => {
 			setAfkState(state.afk);
 			setPairingStatus(state.pairingStatus);
-			setQuestions(state.questions);
-			updateBadge(state.questions.length);
+			setCurrentQuestions(state.currentDeck);
+			updateBadge(state.currentDeck.length);
 		});
-		questionsStream.current = stream;
+		currentDeckStream.current = stream;
 		function onVisible(): void {
 			if (document.visibilityState === "visible") {
 				stream.refresh();
@@ -1195,8 +1196,8 @@ export function App(): ReactElement {
 		workerContainer?.addEventListener("message", onServiceWorkerMessage);
 		return () => {
 			stream.close();
-			if (questionsStream.current === stream) {
-				questionsStream.current = null;
+			if (currentDeckStream.current === stream) {
+				currentDeckStream.current = null;
 			}
 			document.removeEventListener("visibilitychange", onVisible);
 			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
@@ -1211,13 +1212,13 @@ export function App(): ReactElement {
 		if (session === null) {
 			return;
 		}
-		setQuestions((current) => {
+		setCurrentQuestions((current) => {
 			const remaining = current.filter((question) => question.questionId !== questionId);
 			updateBadge(remaining.length);
 			return remaining;
 		});
 		submitAnswer(questionId, disposition).catch(() => {
-			questionsStream.current?.refresh();
+			currentDeckStream.current?.refresh();
 		});
 	}
 
@@ -1286,7 +1287,12 @@ export function App(): ReactElement {
 			case "reset-password":
 				return <ResetPassword onNavigate={navigate} />;
 			case "deck":
-				return <Deck questions={questions.length === 0 ? demoQuestions : questions} onAnswer={onAnswer} />;
+				return (
+					<Deck
+						questions={currentQuestions.length === 0 ? demoQuestions : currentQuestions}
+						onAnswer={onAnswer}
+					/>
+				);
 		}
 		return unreachableView(view);
 	}

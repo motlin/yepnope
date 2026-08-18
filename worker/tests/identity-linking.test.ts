@@ -109,16 +109,16 @@ describe("POST /api/v1/account/claim-legacy", () => {
 				answers: state.storage.sql.exec("SELECT count(*) AS value FROM answers").one()["value"],
 				batches: state.storage.sql.exec("SELECT count(*) AS value FROM batches").one()["value"],
 				devices: state.storage.sql.exec("SELECT count(*) AS value FROM devices").one()["value"],
+				activity: state.storage.sql.exec("SELECT count(*) AS value FROM question_activity").one()["value"],
 				questions: state.storage.sql.exec("SELECT count(*) AS value FROM questions").one()["value"],
-				state: state.storage.sql
-					.exec("SELECT afk, questions_asked, yep_count, nope_count, skip_count FROM state")
-					.one(),
+				state: state.storage.sql.exec("SELECT afk FROM state").one(),
 			}).toStrictEqual({
 				answers: 2,
 				batches: 2,
 				devices: 1,
+				activity: 3,
 				questions: 3,
-				state: {afk: 0, questions_asked: 3, yep_count: 1, nope_count: 1, skip_count: 0},
+				state: {afk: 0},
 			});
 		});
 		await runInDurableObject(source, async (_instance: UserDurableObject, state) => {
@@ -163,17 +163,17 @@ describe("POST /api/v1/account/claim-legacy", () => {
 			body: {already_claimed: true, status: "claimed"},
 			status: 200,
 		});
-		const legacyRejected = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const legacyRejected = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${legacyToken}`},
 		});
 		expect(legacyRejected.status).toBe(401);
-		const movedMachine = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
+		const movedMachine = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
 			headers: {Authorization: `Bearer ${legacyMachineToken}`},
 		});
 		const movedMachineBody = await movedMachine.json<{
-			questions: Array<{created_at: number; [key: string]: unknown}>;
+			current_deck: Array<{created_at: number; [key: string]: unknown}>;
 		}>();
-		const movedQuestion = movedMachineBody.questions[0];
+		const movedQuestion = movedMachineBody.current_deck[0];
 		if (movedQuestion === undefined) {
 			throw new Error("moved machine did not receive the legacy question");
 		}
@@ -240,28 +240,28 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		const legacyToken = "legacy-app-token-for-recovered-alice";
 		await seedLegacyIdentity(legacyUserId, legacyToken, "JKM789");
 		await env.USER_DO.getByName(legacyUserId).setAfk(true, true);
-		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/questions/stream`, {
+		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 			headers: {Cookie: session.cookie, Upgrade: "websocket"},
 		});
 		const socket = required(streamResponse.webSocket ?? undefined, "question websocket");
 		const initialState = nextMessage(socket);
 		socket.accept();
 		expect(JSON.parse(await initialState)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: false,
 			paired: false,
 			machine_count: 0,
-			questions: [],
+			current_deck: [],
 		});
 
 		const recoveredState = nextMessage(socket);
 		expect((await claimLegacy(session.cookie, legacyToken)).status).toBe(200);
 		expect(JSON.parse(await recoveredState)).toStrictEqual({
-			type: "questions",
+			type: "current_deck",
 			afk: false,
 			paired: true,
 			machine_count: 1,
-			questions: [],
+			current_deck: [],
 		});
 		socket.close();
 	});
