@@ -17,6 +17,8 @@ export const SKIP_INSTRUCTION =
 const DEFAULT_HEARTBEAT_MILLISECONDS = 30_000;
 const DEFAULT_PROGRESS_MILLISECONDS = 15_000;
 const DEFAULT_RECONNECT_DELAY_MILLISECONDS = 2_000;
+const DEFAULT_MAXIMUM_RECONNECT_DELAY_MILLISECONDS = 30_000;
+const DEFAULT_MAXIMUM_CONSECUTIVE_FAILURES = 5;
 
 export interface AskQuestion {
 	title: string;
@@ -32,7 +34,10 @@ export interface AskOptions {
 	baseUrl: string;
 	token: string;
 	heartbeatMilliseconds?: number;
+	maximumConsecutiveFailures?: number;
+	maximumReconnectDelayMilliseconds?: number;
 	progressMilliseconds?: number;
+	random?: () => number;
 	reconnectDelayMilliseconds?: number;
 	onProgress?: (message: string) => void;
 	signal?: AbortSignal;
@@ -53,7 +58,7 @@ const afkErrorSchema = z.looseObject({message: z.string()});
 type SocketResult =
 	| {kind: "resolved"; dispositions: DispositionMap}
 	| {kind: "error"; code: string; message: string}
-	| {kind: "closed"};
+	| {kind: "closed"; receivedState: boolean};
 
 function errorOutcome(text: string): AskOutcome {
 	return {isError: true, text, dispositions: []};
@@ -114,6 +119,7 @@ export async function askYepNope(batch: AskBatch, context: GitContext, options: 
 async function waitForResolution(batch: AskBatch, created: CreatedBatch, options: AskOptions): Promise<AskOutcome> {
 	const url = streamUrl(options.baseUrl, created.batch_id);
 	let latest: DispositionMap = {};
+	let consecutiveFailures = 0;
 	const total = created.question_ids.length;
 	// 🫀 Progress spans reconnects: the harness resets its tool timeout on each notification.
 	const progressTimer = setInterval(() => {
@@ -136,11 +142,39 @@ async function waitForResolution(batch: AskBatch, created: CreatedBatch, options
 				// 🛑 Spec §8.3: quota exhaustion blocks; the friction is the product.
 				return errorOutcome(result.code === "quota_exhausted" ? QUOTA_EXHAUSTED_TEXT : result.message);
 			}
-			await sleep(options.reconnectDelayMilliseconds ?? DEFAULT_RECONNECT_DELAY_MILLISECONDS);
+			consecutiveFailures = result.receivedState ? 1 : consecutiveFailures + 1;
+			const maximumConsecutiveFailures =
+				options.maximumConsecutiveFailures ?? DEFAULT_MAXIMUM_CONSECUTIVE_FAILURES;
+			if (consecutiveFailures >= maximumConsecutiveFailures) {
+				return errorOutcome(
+					`The yepnope answer stream stopped after ${maximumConsecutiveFailures} consecutive connection failures.`,
+				);
+			}
+			await sleep(
+				reconnectDelay(
+					consecutiveFailures,
+					options.reconnectDelayMilliseconds ?? DEFAULT_RECONNECT_DELAY_MILLISECONDS,
+					options.maximumReconnectDelayMilliseconds ?? DEFAULT_MAXIMUM_RECONNECT_DELAY_MILLISECONDS,
+					options.random ?? Math.random,
+				),
+			);
 		}
 	} finally {
 		clearInterval(progressTimer);
 	}
+}
+
+function reconnectDelay(
+	consecutiveFailures: number,
+	initialDelayMilliseconds: number,
+	maximumDelayMilliseconds: number,
+	random: () => number,
+): number {
+	const exponentialDelay = Math.min(
+		maximumDelayMilliseconds,
+		initialDelayMilliseconds * 2 ** (consecutiveFailures - 1),
+	);
+	return Math.round(Math.min(maximumDelayMilliseconds, exponentialDelay * (0.75 + random() * 0.5)));
 }
 
 function resolvedOutcome(batch: AskBatch, created: CreatedBatch, dispositions: DispositionMap): AskOutcome {
@@ -166,6 +200,7 @@ async function openStreamOnce(
 	return new Promise<SocketResult>((resolve) => {
 		const socket = new WebSocket(url, {headers: {Authorization: `Bearer ${options.token}`}});
 		let heartbeatTimer: NodeJS.Timeout | undefined;
+		let receivedState = false;
 		let settled = false;
 
 		const settle = (result: SocketResult): void => {
@@ -181,7 +216,7 @@ async function openStreamOnce(
 			resolve(result);
 		};
 		const onAbort = (): void => {
-			settle({kind: "closed"});
+			settle({kind: "closed", receivedState});
 		};
 		options.signal?.addEventListener("abort", onAbort);
 
@@ -198,6 +233,7 @@ async function openStreamOnce(
 				return;
 			}
 			if (frame.type === "state") {
+				receivedState = true;
 				onState(frame.dispositions);
 				return;
 			}
@@ -208,10 +244,10 @@ async function openStreamOnce(
 			settle({kind: "error", code: frame.code, message: frame.message});
 		});
 		socket.on("close", () => {
-			settle({kind: "closed"});
+			settle({kind: "closed", receivedState});
 		});
 		socket.on("error", () => {
-			settle({kind: "closed"});
+			settle({kind: "closed", receivedState});
 		});
 	});
 }

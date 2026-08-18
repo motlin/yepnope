@@ -1,4 +1,11 @@
-import {expect, test, type APIRequestContext, type BrowserContext, type Page} from "playwright/test";
+import {
+	expect,
+	test,
+	type APIRequestContext,
+	type BrowserContext,
+	type Page,
+	type WebSocketRoute,
+} from "playwright/test";
 
 const email = "alice-browser-test@example.com";
 const originalPassword = "browser-test-original-password";
@@ -58,6 +65,19 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		const firstContext = await browser.newContext({ignoreHTTPSErrors: true});
 		contexts.push(firstContext);
 		const firstPage = await firstContext.newPage();
+		let transientFailuresRemaining = 2;
+		let transientRecoveryConnections = 0;
+		let firstHealthyConnectionAttempt: number | null = null;
+		await firstPage.routeWebSocket("**/api/v1/current-deck/stream", async (socket: WebSocketRoute) => {
+			transientRecoveryConnections += 1;
+			if (transientFailuresRemaining > 0) {
+				transientFailuresRemaining -= 1;
+				await socket.close({code: 1012, reason: "browser test transient failure"});
+				return;
+			}
+			firstHealthyConnectionAttempt ??= transientRecoveryConnections;
+			socket.connectToServer();
+		});
 
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
 			authentication_url: "https://127.0.0.1:4173",
@@ -95,6 +115,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await firstPage.getByLabel("Password").fill(originalPassword);
 		await firstPage.getByRole("button", {name: "Sign in", exact: true}).click();
 		await expect(firstPage.getByText(email)).toBeVisible();
+		await expect.poll(() => firstHealthyConnectionAttempt).toBe(3);
 		await expect(firstPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		const userId = await sessionUserId(firstPage);
 
@@ -153,6 +174,21 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 			},
 			status: 200,
 		});
+
+		const failureContext = await browser.newContext({ignoreHTTPSErrors: true});
+		contexts.push(failureContext);
+		const failurePage = await failureContext.newPage();
+		let boundedFailureConnections = 0;
+		await failurePage.routeWebSocket("**/api/v1/current-deck/stream", async (socket: WebSocketRoute) => {
+			boundedFailureConnections += 1;
+			await socket.close({code: 1012, reason: "browser test persistent failure"});
+		});
+		await signIn(failurePage, originalPassword);
+		await expect.poll(() => boundedFailureConnections, {timeout: 15_000}).toBe(5);
+		await failurePage.waitForTimeout(3_000);
+		expect(boundedFailureConnections).toBe(5);
+		await failureContext.close();
+		contexts.splice(contexts.indexOf(failureContext), 1);
 
 		const secondContext = await browser.newContext({ignoreHTTPSErrors: true});
 		contexts.push(secondContext);

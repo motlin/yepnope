@@ -1184,12 +1184,19 @@ export function App(): ReactElement {
 		}
 		refreshAfk();
 		refreshPairingStatus();
-		const stream = openCurrentDeckStream((state) => {
-			setAfkState(state.afk);
-			setPairingStatus(state.pairingStatus);
-			setCurrentQuestions(state.currentDeck);
-			updateBadge(state.currentDeck.length);
-		});
+		const stream = openCurrentDeckStream(
+			(state) => {
+				setAfkState(state.afk);
+				setPairingStatus(state.pairingStatus);
+				setCurrentQuestions(state.currentDeck);
+				updateBadge(state.currentDeck.length);
+			},
+			{
+				onSignedOut: () => {
+					setSession(null);
+				},
+			},
+		);
 		currentDeckStream.current = stream;
 		function onVisible(): void {
 			if (document.visibilityState === "visible") {
@@ -1214,7 +1221,7 @@ export function App(): ReactElement {
 			document.removeEventListener("visibilitychange", onVisible);
 			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
 		};
-	}, [refreshAfk, refreshPairingStatus, session]);
+	}, [refreshAfk, refreshPairingStatus, session, view]);
 
 	function onAnswer(questionId: string, disposition: Disposition): void {
 		if (session === null) {
@@ -1261,6 +1268,7 @@ export function App(): ReactElement {
 							navigate("register");
 						}}
 						onSignedOut={() => {
+							currentDeckStream.current?.close();
 							setSession(null);
 							navigate("deck");
 						}}

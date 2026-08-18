@@ -255,6 +255,25 @@ function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuest
 export interface CurrentDeckStream {
 	close: () => void;
 	refresh: () => void;
+	state: () => CurrentDeckConnectionState;
+}
+
+export enum CurrentDeckConnectionState {
+	CircuitOpen = "circuit-open",
+	Connecting = "connecting",
+	Open = "open",
+	Paused = "paused",
+	Stopped = "stopped",
+	Waiting = "waiting",
+}
+
+export interface CurrentDeckStreamOptions {
+	initialReconnectDelayMilliseconds?: number;
+	maximumConsecutiveFailures?: number;
+	maximumReconnectDelayMilliseconds?: number;
+	onSignedOut?: () => void;
+	random?: () => number;
+	sessionRevalidationFailureCount?: number;
 }
 
 export interface LiveApplicationState {
@@ -263,47 +282,259 @@ export interface LiveApplicationState {
 	currentDeck: DeckQuestion[];
 }
 
-export function openCurrentDeckStream(onState: (state: LiveApplicationState) => void): CurrentDeckStream {
+const INITIAL_RECONNECT_DELAY_MILLISECONDS = 250;
+const MAXIMUM_RECONNECT_DELAY_MILLISECONDS = 2_000;
+const MAXIMUM_CONSECUTIVE_FAILURES = 5;
+const SESSION_REVALIDATION_FAILURE_COUNT = 3;
+
+enum StreamAccess {
+	Available,
+	SignedOut,
+	Unknown,
+	Unsupported,
+}
+
+async function revalidateCurrentDeckStreamAccess(): Promise<StreamAccess> {
+	const user = await fetchSession();
+	if (user === null) {
+		return StreamAccess.SignedOut;
+	}
+	const response = await fetch("/api/v1/current-deck/stream", {credentials: "same-origin"});
+	if (response.status === 401) {
+		return StreamAccess.SignedOut;
+	}
+	if ([404, 405, 410, 501].includes(response.status)) {
+		return StreamAccess.Unsupported;
+	}
+	return response.ok || response.status === 426 ? StreamAccess.Available : StreamAccess.Unknown;
+}
+
+function reconnectDelay(
+	consecutiveFailures: number,
+	initialDelayMilliseconds: number,
+	maximumDelayMilliseconds: number,
+	random: () => number,
+): number {
+	const exponentialDelay = Math.min(
+		maximumDelayMilliseconds,
+		initialDelayMilliseconds * 2 ** (consecutiveFailures - 1),
+	);
+	const jitteredDelay = exponentialDelay * (0.75 + random() * 0.5);
+	return Math.round(Math.min(maximumDelayMilliseconds, jitteredDelay));
+}
+
+export function openCurrentDeckStream(
+	onState: (state: LiveApplicationState) => void,
+	options: CurrentDeckStreamOptions = {},
+): CurrentDeckStream {
 	let socket: WebSocket | null = null;
 	let reconnectTimer: number | undefined;
 	let stopped = false;
+	let circuitOpen = false;
+	let consecutiveFailures = 0;
+	let accessRevalidated = false;
+	let connectionState = CurrentDeckConnectionState.Connecting;
+	let failureSequence = 0;
+	const initialDelayMilliseconds = options.initialReconnectDelayMilliseconds ?? INITIAL_RECONNECT_DELAY_MILLISECONDS;
+	const maximumDelayMilliseconds = options.maximumReconnectDelayMilliseconds ?? MAXIMUM_RECONNECT_DELAY_MILLISECONDS;
+	const maximumConsecutiveFailures = options.maximumConsecutiveFailures ?? MAXIMUM_CONSECUTIVE_FAILURES;
+	const sessionRevalidationFailureCount =
+		options.sessionRevalidationFailureCount ?? SESSION_REVALIDATION_FAILURE_COUNT;
+	const random = options.random ?? Math.random;
+	const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
+
+	function shouldPause(): boolean {
+		return !navigator.onLine || document.visibilityState !== "visible";
+	}
+
+	function clearReconnectTimer(): void {
+		if (reconnectTimer !== undefined) {
+			window.clearTimeout(reconnectTimer);
+			reconnectTimer = undefined;
+		}
+	}
+
+	function stop(nextState: CurrentDeckConnectionState): void {
+		stopped = true;
+		connectionState = nextState;
+		failureSequence += 1;
+		clearReconnectTimer();
+		const activeSocket = socket;
+		socket = null;
+		activeSocket?.close();
+		window.removeEventListener("online", onOnline);
+		window.removeEventListener("offline", onOffline);
+		window.removeEventListener("pagehide", onPageHide);
+		document.removeEventListener("visibilitychange", onVisibilityChange);
+		workerContainer?.removeEventListener("controllerchange", onApplicationUpdate);
+	}
+
+	function openCircuit(): void {
+		circuitOpen = true;
+		connectionState = CurrentDeckConnectionState.CircuitOpen;
+		clearReconnectTimer();
+	}
+
+	function scheduleReconnect(): void {
+		if (stopped || circuitOpen || socket !== null || reconnectTimer !== undefined) {
+			return;
+		}
+		if (shouldPause()) {
+			connectionState = CurrentDeckConnectionState.Paused;
+			return;
+		}
+		connectionState = CurrentDeckConnectionState.Waiting;
+		reconnectTimer = window.setTimeout(
+			() => {
+				reconnectTimer = undefined;
+				connect();
+			},
+			reconnectDelay(consecutiveFailures, initialDelayMilliseconds, maximumDelayMilliseconds, random),
+		);
+	}
+
+	async function handleConnectionFailure(): Promise<void> {
+		consecutiveFailures += 1;
+		const sequence = ++failureSequence;
+		if (consecutiveFailures >= sessionRevalidationFailureCount && !accessRevalidated) {
+			let access = StreamAccess.Unknown;
+			try {
+				access = await revalidateCurrentDeckStreamAccess();
+			} catch {
+				access = StreamAccess.Unknown;
+			}
+			if (stopped || sequence !== failureSequence) {
+				return;
+			}
+			if (access === StreamAccess.SignedOut) {
+				stop(CurrentDeckConnectionState.Stopped);
+				options.onSignedOut?.();
+				return;
+			}
+			if (access === StreamAccess.Unsupported) {
+				openCircuit();
+				return;
+			}
+			accessRevalidated = access === StreamAccess.Available;
+		}
+		if (consecutiveFailures >= maximumConsecutiveFailures) {
+			openCircuit();
+			return;
+		}
+		scheduleReconnect();
+	}
 
 	function connect(): void {
+		if (stopped || circuitOpen || socket !== null) {
+			return;
+		}
+		if (shouldPause()) {
+			connectionState = CurrentDeckConnectionState.Paused;
+			return;
+		}
+		connectionState = CurrentDeckConnectionState.Connecting;
 		const url = new URL("/api/v1/current-deck/stream", window.location.href);
 		url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-		socket = new WebSocket(url);
-		socket.addEventListener("message", (event) => {
+		const connection = new WebSocket(url);
+		socket = connection;
+		let settled = false;
+		connection.addEventListener("open", () => {
+			connectionState = CurrentDeckConnectionState.Open;
+		});
+		connection.addEventListener("message", (event) => {
 			if (typeof event.data !== "string") {
 				throw new Error("question stream sent a non-text frame");
 			}
 			const state = currentDeckStateSchema.parse(JSON.parse(event.data) as unknown);
+			consecutiveFailures = 0;
+			accessRevalidated = false;
+			failureSequence += 1;
+			connectionState = CurrentDeckConnectionState.Open;
 			onState({
 				afk: state.afk,
 				pairingStatus: {paired: state.paired, machineCount: state.machine_count},
 				currentDeck: toDeckQuestions(state.current_deck),
 			});
 		});
-		socket.addEventListener("close", () => {
+		connection.addEventListener("close", () => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			if (socket === connection) {
+				socket = null;
+			}
 			if (!stopped) {
-				reconnectTimer = window.setTimeout(connect, 1000);
+				void handleConnectionFailure();
 			}
 		});
 	}
 
+	function resume(): void {
+		if (stopped || circuitOpen || shouldPause()) {
+			return;
+		}
+		if (socket === null && reconnectTimer === undefined) {
+			connect();
+		}
+	}
+
+	function onOnline(): void {
+		resume();
+	}
+
+	function onOffline(): void {
+		clearReconnectTimer();
+		if (socket === null) {
+			connectionState = CurrentDeckConnectionState.Paused;
+		}
+	}
+
+	function onVisibilityChange(): void {
+		if (document.visibilityState === "visible") {
+			resume();
+			return;
+		}
+		clearReconnectTimer();
+		if (socket === null) {
+			connectionState = CurrentDeckConnectionState.Paused;
+		}
+	}
+
+	function onPageHide(): void {
+		stop(CurrentDeckConnectionState.Stopped);
+	}
+
+	function onApplicationUpdate(): void {
+		stop(CurrentDeckConnectionState.Stopped);
+	}
+
+	window.addEventListener("online", onOnline);
+	window.addEventListener("offline", onOffline);
+	window.addEventListener("pagehide", onPageHide);
+	document.addEventListener("visibilitychange", onVisibilityChange);
+	workerContainer?.addEventListener("controllerchange", onApplicationUpdate);
 	connect();
 	return {
 		close: () => {
-			stopped = true;
-			if (reconnectTimer !== undefined) {
-				window.clearTimeout(reconnectTimer);
-			}
-			socket?.close();
+			stop(CurrentDeckConnectionState.Stopped);
 		},
 		refresh: () => {
 			if (socket?.readyState === WebSocket.OPEN) {
 				socket.send("state");
+				return;
 			}
+			if (stopped) {
+				return;
+			}
+			circuitOpen = false;
+			consecutiveFailures = 0;
+			accessRevalidated = false;
+			failureSequence += 1;
+			clearReconnectTimer();
+			resume();
 		},
+		state: () => connectionState,
 	};
 }
 

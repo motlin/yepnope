@@ -4,6 +4,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import type {
 	AccountDevices,
 	AuthenticationUser,
+	CurrentDeckConnectionState,
 	LiveApplicationState,
 	PairingStatus,
 	CurrentDeckStream,
@@ -63,7 +64,11 @@ vi.mock("../src/api", () => ({
 		publishQuestions = (questions) => {
 			onState({afk: true, pairingStatus: {paired: true, machineCount: 1}, currentDeck: questions});
 		};
-		return {close: closeStream, refresh: refreshStream};
+		return {
+			close: closeStream,
+			refresh: refreshStream,
+			state: () => "open" as CurrentDeckConnectionState,
+		};
 	}),
 	registerAccount: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
 	requestPasswordReset: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
