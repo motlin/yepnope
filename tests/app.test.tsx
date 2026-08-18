@@ -154,8 +154,15 @@ describe("App live question synchronization", () => {
 		});
 
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		expect(window.location.pathname).toBe("/settings");
-		expect(document.title).toBe("Settings · YepNope");
+		expect({
+			appClass: document.querySelector(".app")?.className,
+			pathname: window.location.pathname,
+			title: document.title,
+		}).toStrictEqual({
+			appClass: "app app-settings",
+			pathname: "/settings",
+			title: "Settings · YepNope",
+		});
 
 		window.history.pushState({}, "", "/");
 		fireEvent.popState(window);
@@ -163,7 +170,10 @@ describe("App live question synchronization", () => {
 			screen.getByText("No questions waiting. Questions sent through your paired agent will appear here.")
 				.textContent,
 		).toBe("No questions waiting. Questions sent through your paired agent will appear here.");
-		expect(document.title).toBe("YepNope");
+		expect({appClass: document.querySelector(".app")?.className, title: document.title}).toStrictEqual({
+			appClass: "app",
+			title: "YepNope",
+		});
 	});
 
 	it("keeps the real deck empty after pairing and refreshes the controls automatically", async () => {

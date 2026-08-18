@@ -1295,7 +1295,7 @@ export function App(): ReactElement {
 	}
 
 	return (
-		<div className="app">
+		<div className={view === "settings" ? "app app-settings" : "app"}>
 			<div className="app-header">
 				<span className="meta">
 					{view === "deck" && (

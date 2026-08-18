@@ -42,6 +42,12 @@ body {
 	min-height: 0;
 }
 
+.app-settings {
+	height: auto;
+	max-width: 880px;
+	min-height: 100%;
+}
+
 .app-header {
 	flex: 0 0 auto;
 	display: flex;
@@ -321,8 +327,15 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
-	overflow-y: auto;
+	overflow-y: visible;
 	padding-top: 8px;
+}
+
+@media (width >= 768px) {
+	.app-settings {
+		padding-right: 32px;
+		padding-left: 32px;
+	}
 }
 
 .account-route {
