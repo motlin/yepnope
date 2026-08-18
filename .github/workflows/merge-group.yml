@@ -81,6 +81,8 @@ jobs:
         with:
           path: ~/.local/share/pnpm/store
           key: pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: just install
+      - run: vp exec playwright install --with-deps chromium
       - run: just test
 
   markdownlint:

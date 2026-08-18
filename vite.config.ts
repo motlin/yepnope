@@ -26,7 +26,7 @@ export default defineConfig({
 		tasks: {
 			"test:run": {
 				command:
-					"node node_modules/vitest/dist/cli.js run && node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts",
+					"node node_modules/vitest/dist/cli.js run && node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts && node node_modules/playwright/cli.js test --config playwright.config.ts",
 				input: [{auto: true}, "!node_modules/.experimental-vitest-cache/**"],
 				output: [],
 			},

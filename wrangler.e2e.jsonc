@@ -1,0 +1,30 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "yepnope-browser-e2e",
+	"main": "worker/browser-e2e.ts",
+	"compatibility_date": "2026-08-17",
+	"compatibility_flags": ["nodejs_compat"],
+	"assets": {
+		"directory": "./dist",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*"],
+	},
+	"durable_objects": {
+		"bindings": [{"name": "USER_DO", "class_name": "UserDurableObject"}],
+	},
+	"migrations": [{"tag": "v1", "new_sqlite_classes": ["UserDurableObject"]}],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "yepnope-browser-e2e",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "worker/migrations/d1",
+		},
+	],
+	"rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
+	"vars": {
+		"AUTH_EMAIL_FROM": "auth@example.com",
+		"BETTER_AUTH_URL": "https://127.0.0.1:4173",
+		"VAPID_SUBJECT": "mailto:push@example.com",
+	},
+}

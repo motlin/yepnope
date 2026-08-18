@@ -20,6 +20,7 @@
 		"fallow:ci": "fallow dead-code",
 		"typecheck": "wrangler types && tsc --noEmit && tsc -p worker/tsconfig.json && tsc -p shim/tsconfig.json",
 		"test": "node node_modules/vitest/dist/cli.js",
+		"test:browser": "node node_modules/playwright/cli.js test --config playwright.config.ts",
 		"test:ui": "node node_modules/vitest/dist/cli.js --ui",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
