@@ -8,6 +8,8 @@ import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountI
 
 const AUTHENTICATION_PATH = "/api/auth";
 const EMAIL_REGISTRATION_PATH = `${AUTHENTICATION_PATH}/sign-up/email`;
+const EMAIL_VERIFICATION_PATH = `${AUTHENTICATION_PATH}/verify-email`;
+const EMAIL_VERIFICATION_IDENTIFIER_PREFIX = "yepnope-email-verification:";
 const AUTHENTICATION_TOKEN_EXPIRY_SECONDS = 60 * 60;
 const emailRegistrationSchema = z
 	.object({
@@ -60,6 +62,30 @@ async function nameFreeAuthenticationHandler(
 			body: JSON.stringify({...registration.data, name: ""}),
 		}),
 	);
+}
+
+async function singleUseEmailVerificationHandler(
+	handler: (request: Request) => Promise<Response>,
+	request: Request,
+	database: D1Database,
+): Promise<Response> {
+	const url = new URL(request.url);
+	if (request.method !== "GET" || url.pathname !== EMAIL_VERIFICATION_PATH) {
+		return handler(request);
+	}
+	const token = url.searchParams.get("token");
+	if (token === null) {
+		return handler(request);
+	}
+	const consumed = await database
+		.prepare("DELETE FROM verification WHERE identifier = ? RETURNING id")
+		.bind(`${EMAIL_VERIFICATION_IDENTIFIER_PREFIX}${await hashToken(token)}`)
+		.first();
+	if (consumed !== null) {
+		return handler(request);
+	}
+	url.searchParams.set("token", "consumed");
+	return handler(new Request(url, request));
 }
 
 function escapeHtml(value: string): string {
@@ -151,17 +177,24 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 		emailVerification: {
 			sendOnSignUp: false,
 			sendOnSignIn: true,
-			autoSignInAfterVerification: false,
+			autoSignInAfterVerification: true,
 			expiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
-			sendVerificationEmail: async ({user, url}) =>
-				dependencies.sendEmail(
+			sendVerificationEmail: async ({user, url, token}) => {
+				await database.insert(verifications).values({
+					id: crypto.randomUUID(),
+					identifier: `${EMAIL_VERIFICATION_IDENTIFIER_PREFIX}${await hashToken(token)}`,
+					value: user.id,
+					expiresAt: new Date(Date.now() + AUTHENTICATION_TOKEN_EXPIRY_SECONDS * 1_000),
+				});
+				await dependencies.sendEmail(
 					authenticationEmail(environment, user.email, url, {
 						actionLabel: "Verify email",
 						introduction: "Verify your email address to finish creating your YepNope account.",
 						preheader: "Verify your email to finish setting up YepNope.",
 						subject: "Verify your YepNope email",
 					}),
-				),
+				);
+			},
 		},
 		emailAndPassword: {
 			enabled: true,
@@ -214,7 +247,13 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 	});
 	return {
 		...authentication,
-		handler: async (request: Request) => nameFreeAuthenticationHandler(authentication.handler, request),
+		handler: async (request: Request) =>
+			singleUseEmailVerificationHandler(
+				async (authenticationRequest) =>
+					nameFreeAuthenticationHandler(authentication.handler, authenticationRequest),
+				request,
+				environment.DB,
+			),
 	};
 }
 

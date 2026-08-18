@@ -62,7 +62,7 @@ export async function signIn(email: string, password: string): Promise<Authentic
 export async function registerAccount(email: string, password: string): Promise<AuthenticationUser> {
 	const result = await requestJson(
 		"/api/auth/sign-up/email",
-		jsonRequest({email, password, callbackURL: "/verify-email?verified=1"}),
+		jsonRequest({email, password, callbackURL: "/verify-email"}),
 		authenticatedResponseSchema,
 	);
 	return result.user;
@@ -73,7 +73,7 @@ const successResponseSchema = z.object({status: z.literal(true)});
 export async function sendVerificationEmail(email: string): Promise<void> {
 	await requestJson(
 		"/api/auth/send-verification-email",
-		jsonRequest({email, callbackURL: "/verify-email?verified=1"}),
+		jsonRequest({email, callbackURL: "/verify-email"}),
 		successResponseSchema,
 	);
 }

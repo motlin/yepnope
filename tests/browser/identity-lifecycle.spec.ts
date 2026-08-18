@@ -107,9 +107,19 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await firstPage.getByRole("button", {name: "Create account"}).click();
 		await expect(firstPage.getByRole("heading", {name: "Check your email"})).toBeVisible();
 
-		await firstPage.goto(await mailboxLink(request, verificationSubject));
-		await expect(firstPage.getByRole("heading", {name: "Email verified"})).toBeVisible();
-		await firstPage.getByRole("button", {name: "Sign in", exact: true}).click();
+		const verificationContext = await browser.newContext({ignoreHTTPSErrors: true});
+		contexts.push(verificationContext);
+		const verificationPage = await verificationContext.newPage();
+		await verificationPage.goto(await mailboxLink(request, verificationSubject));
+		await expect(verificationPage).toHaveURL(/\/$/);
+		await expect(verificationPage.getByRole("button", {name: "Pair a machine"})).toBeVisible();
+		await verificationPage.getByRole("button", {name: "Settings"}).click();
+		await expect(verificationPage.getByText(email)).toBeVisible();
+		const verifiedUserId = await sessionUserId(verificationPage);
+		await verificationContext.close();
+		contexts.splice(contexts.indexOf(verificationContext), 1);
+
+		await firstPage.goto("/sign-in");
 		await firstPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await firstPage.getByLabel("Password").fill(originalPassword);
 		await firstPage.getByRole("button", {name: "Sign in", exact: true}).click();
@@ -117,6 +127,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await expect.poll(() => firstHealthyConnectionAttempt).toBe(3);
 		await expect(firstPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		const userId = await sessionUserId(firstPage);
+		expect(userId).toBe(verifiedUserId);
 
 		await firstContext.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await firstPage.getByRole("button", {name: "Generate and copy pairing code"}).click();

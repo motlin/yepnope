@@ -4,6 +4,7 @@ import {
 	CurrentDeckConnectionState,
 	openCurrentDeckStream,
 	registerAccount,
+	sendVerificationEmail,
 	type LiveApplicationState,
 } from "../src/api";
 import {APPLICATION_UPDATE_EVENT} from "../src/application-updates";
@@ -110,8 +111,26 @@ describe("account registration", () => {
 					body: JSON.stringify({
 						email: "alice@example.com",
 						password: "example-password",
-						callbackURL: "/verify-email?verified=1",
+						callbackURL: "/verify-email",
 					}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+		]);
+	});
+
+	it("sends verification links back to the authenticated deck", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () => Promise.resolve(Response.json({status: true})));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await sendVerificationEmail("alice@example.com");
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/auth/send-verification-email",
+				{
+					body: JSON.stringify({email: "alice@example.com", callbackURL: "/verify-email"}),
 					credentials: "same-origin",
 					headers: {"Content-Type": "application/json"},
 					method: "POST",

@@ -1,6 +1,7 @@
 import {env} from "cloudflare:workers";
+import {SignJWT} from "jose";
 import {describe, expect, it} from "vitest";
-import {createAuthentication} from "../auth";
+import {createAuthentication, hashToken} from "../auth";
 import {API_ORIGIN, cookieFrom, emailLink, required, worker} from "./helpers";
 
 interface DeliveredEmail {
@@ -154,6 +155,36 @@ describe("Better Auth account recovery", () => {
 		});
 	});
 
+	it("keeps verification resend responses generic for unknown email addresses", async () => {
+		const mailbox: DeliveredEmail[] = [];
+		const authentication = createMailboxAuthentication(mailbox);
+		const email = "generic-alice@example.com";
+		const signUp = await authentication.handler(
+			postAuthentication("sign-up/email", {email, password: "correct-horse-battery-staple"}),
+		);
+		expect(signUp.status).toBe(200);
+
+		const existing = await authentication.handler(
+			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+		);
+		const missing = await authentication.handler(
+			postAuthentication("send-verification-email", {
+				callbackURL: "/verify-email",
+				email: "missing-alice@example.com",
+			}),
+		);
+		expect([
+			{body: await existing.json(), status: existing.status},
+			{body: await missing.json(), status: missing.status},
+		]).toStrictEqual([
+			{body: {status: true}, status: 200},
+			{body: {status: true}, status: 200},
+		]);
+		expect(mailbox.map(({subject, to}) => ({subject, to}))).toStrictEqual([
+			{subject: "Verify your YepNope email", to: email},
+		]);
+	});
+
 	it("creates, verifies, restores, signs out, and recovers a verified email account", async () => {
 		const mailbox: DeliveredEmail[] = [];
 		const authentication = createMailboxAuthentication(mailbox);
@@ -163,12 +194,13 @@ describe("Better Auth account recovery", () => {
 
 		const signUp = await authentication.handler(
 			postAuthentication("sign-up/email", {
-				callbackURL: "/",
+				callbackURL: "/verify-email",
 				email,
 				password: originalPassword,
 			}),
 		);
-		expect({body: await signUp.json(), status: signUp.status}).toStrictEqual({
+		const signUpBody = await signUp.json<{user: {id: string}}>();
+		expect({body: signUpBody, status: signUp.status}).toStrictEqual({
 			body: {
 				token: null,
 				user: {
@@ -182,10 +214,16 @@ describe("Better Auth account recovery", () => {
 			},
 			status: 200,
 		});
+		const registeredUser = await env.DB.prepare("SELECT id FROM user WHERE email = ?")
+			.bind(email)
+			.first<{id: string}>();
+		if (registeredUser === null) {
+			throw new Error("missing registered user");
+		}
 		expect(mailbox).toStrictEqual([]);
 
 		const verificationRequest = await authentication.handler(
-			postAuthentication("send-verification-email", {callbackURL: "/", email}),
+			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
 		);
 		expect({body: await verificationRequest.json(), status: verificationRequest.status}).toStrictEqual({
 			body: {status: true},
@@ -282,21 +320,32 @@ describe("Better Auth account recovery", () => {
 		const verification = await authentication.handler(
 			new Request(emailLink(required(mailbox[0], "verification email"))),
 		);
-		expect({location: verification.headers.get("location"), status: verification.status}).toStrictEqual({
-			location: "/",
-			status: 302,
-		});
-
-		const signIn = await authentication.handler(
-			postAuthentication("sign-in/email", {email, password: originalPassword}),
-		);
-		const signedInBody = await signIn.clone().json<{user: {id: string}}>();
-		const sessionCookie = cookieFrom(signIn);
-		expect({cookie: signIn.headers.get("set-cookie"), status: signIn.status}).toStrictEqual({
+		const sessionCookie = cookieFrom(verification);
+		expect({
+			cookie: verification.headers.get("set-cookie"),
+			location: verification.headers.get("location"),
+			status: verification.status,
+		}).toStrictEqual({
 			cookie: expect.stringMatching(
 				/^__Secure-better-auth\.session_token=.+; Max-Age=604800; Path=\/; HttpOnly; Secure; SameSite=Lax$/,
 			),
-			status: 200,
+			location: "/verify-email",
+			status: 302,
+		});
+		expect(
+			await env.DB.prepare("SELECT email_verified FROM user WHERE email = ?").bind(email).first(),
+		).toStrictEqual({
+			email_verified: 1,
+		});
+		const replay = await authentication.handler(new Request(emailLink(required(mailbox[0], "verification email"))));
+		expect({
+			cookie: replay.headers.get("set-cookie"),
+			location: replay.headers.get("location"),
+			status: replay.status,
+		}).toStrictEqual({
+			cookie: null,
+			location: "/verify-email?error=INVALID_TOKEN",
+			status: 302,
 		});
 
 		const restoredAuthentication = createMailboxAuthentication(mailbox);
@@ -317,7 +366,22 @@ describe("Better Auth account recovery", () => {
 			},
 		}).toStrictEqual({
 			status: 200,
-			user: {email, emailVerified: true, id: signedInBody.user.id, sessionUserId: signedInBody.user.id},
+			user: {
+				email,
+				emailVerified: true,
+				id: registeredUser.id,
+				sessionUserId: registeredUser.id,
+			},
+		});
+		expect(
+			await env.DB.prepare("SELECT count(*) AS sessions FROM session WHERE user_id = ?")
+				.bind(registeredUser.id)
+				.first(),
+		).toStrictEqual({sessions: 1});
+		const replayedSession = await restoredAuthentication.handler(new Request(`${API_ORIGIN}/api/auth/get-session`));
+		expect({body: await replayedSession.json(), status: replayedSession.status}).toStrictEqual({
+			body: null,
+			status: 200,
 		});
 
 		const signOut = await restoredAuthentication.handler(postAuthentication("sign-out", {}, sessionCookie));
@@ -379,12 +443,55 @@ describe("Better Auth account recovery", () => {
 				createdAt: expect.any(String),
 				email,
 				emailVerified: true,
-				id: signedInBody.user.id,
+				id: registeredUser.id,
 				image: null,
 				updatedAt: expect.any(String),
 			},
 		});
 		expect(cookieFrom(recovered)).toMatch(/^__Secure-better-auth\.session_token=.+$/);
+	});
+
+	it("rejects an expired email verification link without creating a session", async () => {
+		const authentication = createMailboxAuthentication([]);
+		const email = "expired-alice@example.com";
+		const signUp = await authentication.handler(
+			postAuthentication("sign-up/email", {email, password: "correct-horse-battery-staple"}),
+		);
+		expect(signUp.status).toBe(200);
+		const expiredToken = await new SignJWT({email})
+			.setProtectedHeader({alg: "HS256"})
+			.setIssuedAt(946_684_800)
+			.setExpirationTime(946_688_400)
+			.sign(new TextEncoder().encode(env.BETTER_AUTH_SECRET));
+		await env.DB.prepare(
+			"INSERT INTO verification (id, identifier, value, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		)
+			.bind(
+				"expired-email-verification",
+				`yepnope-email-verification:${await hashToken(expiredToken)}`,
+				email,
+				946_688_400_000,
+				946_684_800_000,
+				946_684_800_000,
+			)
+			.run();
+
+		const verification = await authentication.handler(
+			new Request(
+				`${API_ORIGIN}/api/auth/verify-email?token=${expiredToken}&callbackURL=${encodeURIComponent("/verify-email")}`,
+			),
+		);
+		expect({
+			cookie: verification.headers.get("set-cookie"),
+			location: verification.headers.get("location"),
+			status: verification.status,
+			user: await env.DB.prepare("SELECT email_verified FROM user WHERE email = ?").bind(email).first(),
+		}).toStrictEqual({
+			cookie: null,
+			location: "/verify-email?error=TOKEN_EXPIRED",
+			status: 302,
+			user: {email_verified: 0},
+		});
 	});
 
 	it("mounts Better Auth under the Worker authentication route", async () => {

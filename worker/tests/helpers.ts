@@ -50,7 +50,7 @@ export async function createVerifiedBrowserSession(
 	const authentication = authenticationWithMailbox(mailbox);
 	const signUp = await authentication.handler(
 		authenticationRequest("sign-up/email", {
-			callbackURL: "/",
+			callbackURL: "/verify-email",
 			email,
 			password: AUTHENTICATION_PASSWORD,
 		}),
@@ -59,7 +59,7 @@ export async function createVerifiedBrowserSession(
 		throw new Error(`expected sign-up 200, got ${signUp.status}`);
 	}
 	const verificationRequest = await authentication.handler(
-		authenticationRequest("send-verification-email", {callbackURL: "/", email}),
+		authenticationRequest("send-verification-email", {callbackURL: "/verify-email", email}),
 	);
 	if (verificationRequest.status !== 200) {
 		throw new Error(`expected verification email request 200, got ${verificationRequest.status}`);
@@ -69,14 +69,15 @@ export async function createVerifiedBrowserSession(
 	if (verification.status !== 302) {
 		throw new Error(`expected verification 302, got ${verification.status}`);
 	}
-	const signIn = await authentication.handler(
-		authenticationRequest("sign-in/email", {email, password: AUTHENTICATION_PASSWORD}),
+	const cookie = cookieFrom(verification);
+	const session = await authentication.handler(
+		new Request(`${API_ORIGIN}/api/auth/get-session`, {headers: {Cookie: cookie}}),
 	);
-	if (signIn.status !== 200) {
-		throw new Error(`expected sign-in 200, got ${signIn.status}`);
+	if (session.status !== 200) {
+		throw new Error(`expected session 200, got ${session.status}`);
 	}
-	const body = await signIn.clone().json<{user: {id: string}}>();
-	return {cookie: cookieFrom(signIn), userId: body.user.id};
+	const body = await session.json<{user: {id: string}}>();
+	return {cookie, userId: body.user.id};
 }
 
 export function required<T>(value: T | undefined, label: string): T {

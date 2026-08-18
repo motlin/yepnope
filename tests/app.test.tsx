@@ -546,6 +546,29 @@ describe("Better Auth account routes", () => {
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
 	});
 
+	it("restores the verification-created browser session on the authenticated deck", async () => {
+		window.history.replaceState({}, "", "/verify-email");
+		render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Settings"}));
+		expect(await screen.findByText("alice@example.com")).toBeDefined();
+		expect({
+			fetchSessionCalls: fetchSession.mock.calls,
+			pathname: window.location.pathname,
+			signInCalls: vi.mocked(signIn).mock.calls,
+		}).toStrictEqual({fetchSessionCalls: [[]], pathname: "/settings", signInCalls: []});
+	});
+
+	it("keeps invalid and expired verification link errors understandable", async () => {
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/verify-email?error=TOKEN_EXPIRED");
+		render(<App />);
+
+		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
+		expect(screen.getByRole("alert").textContent).toBe("That verification link is invalid or expired.");
+		expect(screen.getByRole("button", {name: "Resend verification email"})).toBeDefined();
+	});
+
 	it("requests recovery and accepts the token delivered by Better Auth", async () => {
 		fetchSession.mockResolvedValue(null);
 		window.history.replaceState({}, "", "/forgot-password");

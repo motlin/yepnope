@@ -375,7 +375,6 @@ interface VerifyEmailProps extends AccountRouteProps {
 
 function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailProps): ReactElement {
 	const parameters = new URLSearchParams(window.location.search);
-	const verified = parameters.get("verified") === "1";
 	const verificationError = parameters.get("error");
 	const [email, setEmail] = useState(initialEmail);
 	const [delivery, setDelivery] = useState(initialDelivery);
@@ -396,67 +395,51 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 	}
 
 	return (
-		<AccountPanel title={verified ? "Email verified" : "Check your email"}>
-			{verified ? (
-				<>
-					<p>Your email is verified. Sign in to continue.</p>
-					<button
-						type="button"
-						onClick={() => {
-							onNavigate("sign-in");
-						}}
-					>
-						Sign in
-					</button>
-				</>
+		<AccountPanel title="Check your email">
+			{delivery === "accepted" ? (
+				<p className="form-success" role="status">
+					Email sent. Check your inbox.
+				</p>
+			) : delivery === "failed" ? (
+				<p className="form-error" role="alert">
+					We couldn&apos;t send the email. Try again.
+				</p>
 			) : (
-				<>
-					{delivery === "accepted" ? (
-						<p className="form-success" role="status">
-							Email sent. Check your inbox.
-						</p>
-					) : delivery === "failed" ? (
-						<p className="form-error" role="alert">
-							We couldn&apos;t send the email. Try again.
-						</p>
-					) : (
-						<p>Enter your account email to send a verification link.</p>
-					)}
-					{verificationError !== null && (
-						<p className="form-error" role="alert">
-							That verification link is invalid or expired.
-						</p>
-					)}
-					<form className="account-form" onSubmit={(event) => void resend(event)}>
-						<label>
-							Email
-							<input
-								type="email"
-								name="email"
-								autoComplete="email"
-								required
-								value={email}
-								onChange={(event) => {
-									setEmail(event.currentTarget.value);
-								}}
-							/>
-						</label>
-						<button type="submit" disabled={submitting} aria-busy={submitting}>
-							{submitting ? "Sending…" : "Resend verification email"}
-						</button>
-					</form>
-					<div className="account-links">
-						<button
-							type="button"
-							onClick={() => {
-								onNavigate("sign-in");
-							}}
-						>
-							Back to sign in
-						</button>
-					</div>
-				</>
+				<p>Enter your account email to send a verification link.</p>
 			)}
+			{verificationError !== null && (
+				<p className="form-error" role="alert">
+					That verification link is invalid or expired.
+				</p>
+			)}
+			<form className="account-form" onSubmit={(event) => void resend(event)}>
+				<label>
+					Email
+					<input
+						type="email"
+						name="email"
+						autoComplete="email"
+						required
+						value={email}
+						onChange={(event) => {
+							setEmail(event.currentTarget.value);
+						}}
+					/>
+				</label>
+				<button type="submit" disabled={submitting} aria-busy={submitting}>
+					{submitting ? "Sending…" : "Resend verification email"}
+				</button>
+			</form>
+			<div className="account-links">
+				<button
+					type="button"
+					onClick={() => {
+						onNavigate("sign-in");
+					}}
+				>
+					Back to sign in
+				</button>
+			</div>
 		</AccountPanel>
 	);
 }
@@ -1108,6 +1091,10 @@ export function App(): ReactElement {
 			(user) => {
 				if (!cancelled) {
 					setSession(user);
+					if (user !== null && window.location.pathname === "/verify-email") {
+						window.history.replaceState({}, "", "/");
+						setView("deck");
+					}
 					setSessionReady(true);
 				}
 			},
