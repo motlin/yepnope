@@ -68,6 +68,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await firstPage.goto("/");
 		await expect(firstPage.getByRole("button", {name: "Sign in to pair"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		await expect(firstPage.locator(".card, .actions")).toHaveCount(0);
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
 			authentication_url: "https://127.0.0.1:4173",
 			machine_tokens: 0,
@@ -75,7 +76,12 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 			users: 0,
 		});
 
-		await firstPage.goto("/register");
+		await firstPage.getByRole("button", {name: "Sign in to pair"}).click();
+		await expect(firstPage).toHaveURL(/\/sign-in$/);
+		await expect(firstPage.locator(".app-header .afk-toggle")).toHaveCount(0);
+		await firstPage.getByRole("button", {name: "Create an account"}).click();
+		await expect(firstPage).toHaveURL(/\/register$/);
+		await expect(firstPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		await firstPage.getByRole("textbox", {name: "Name"}).fill("Alice Browser Test");
 		await firstPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await firstPage.getByLabel("Password").fill(originalPassword);
@@ -89,6 +95,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await firstPage.getByLabel("Password").fill(originalPassword);
 		await firstPage.getByRole("button", {name: "Sign in", exact: true}).click();
 		await expect(firstPage.getByText(email)).toBeVisible();
+		await expect(firstPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		const userId = await sessionUserId(firstPage);
 
 		await firstContext.grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -107,6 +114,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await expect(firstPage.getByText("Browser test machine")).toBeVisible();
 		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		await expect(firstPage.locator(".card, .actions")).toHaveCount(0);
 		await expect(firstPage.getByRole("button", {name: "AFK off"})).toHaveAttribute("aria-pressed", "false");
 
 		await firstPage.getByRole("button", {name: "AFK off"}).click();
@@ -155,7 +163,12 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await secondPage.getByRole("button", {name: "Sign out"}).click();
 		await expect(secondPage).toHaveURL(/\/$/);
 
-		await secondPage.goto("/forgot-password");
+		await secondPage.getByRole("button", {name: "Sign in to pair"}).click();
+		await expect(secondPage).toHaveURL(/\/sign-in$/);
+		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
+		await secondPage.getByRole("button", {name: "Forgot password?"}).click();
+		await expect(secondPage).toHaveURL(/\/forgot-password$/);
+		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await secondPage.getByRole("button", {name: "Send recovery email"}).click();
 		await expect(secondPage.getByRole("status")).toHaveText(
@@ -163,6 +176,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		);
 		await secondPage.goto(await mailboxLink(request, resetSubject));
 		await expect(secondPage.getByRole("heading", {name: "Choose a new password"})).toBeVisible();
+		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		await secondPage.getByLabel("New password").fill(replacementPassword);
 		await secondPage.getByRole("button", {name: "Save new password"}).click();
 		await expect(secondPage.getByRole("status")).toHaveText("Your password has been changed.");
@@ -171,11 +185,13 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await secondPage.getByLabel("Password").fill(replacementPassword);
 		await secondPage.getByRole("button", {name: "Sign in", exact: true}).click();
 		await expect(secondPage.getByText("Browser test machine")).toBeVisible();
+		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 
 		const machineRow = secondPage.getByRole("listitem").filter({hasText: "Browser test machine"});
 		await machineRow.getByRole("button", {name: "Revoke"}).click();
 		await expect(secondPage.getByText("No paired machines.")).toBeVisible();
 		await expect(secondPage.getByRole("heading", {name: "Pair a machine"})).toBeVisible();
+		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		await expect(firstPage.getByRole("button", {name: "Pair a machine"})).toBeVisible();
 		expect((await request.get("/api/v1/afk", {headers: {Authorization: `Bearer ${machineToken}`}})).status()).toBe(
 			401,
@@ -192,6 +208,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		expect(deletion).toStrictEqual({body: {message: "User deleted", success: true}, status: 200});
 		await secondPage.reload();
 		await expect(secondPage.getByRole("button", {name: "Sign in to pair"})).toBeVisible();
+		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 
 		const deletedState = await request.post("/api/__e2e__/deleted-account", {data: {user_id: userId}});
 		expect({body: await deletedState.json(), status: deletedState.status()}).toStrictEqual({

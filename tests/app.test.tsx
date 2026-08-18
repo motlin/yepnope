@@ -10,16 +10,16 @@ import type {
 } from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
-const initialQuestions: DeckQuestion[] = [
+const streamedQuestions: DeckQuestion[] = [
 	{
 		questionId: "batch-alice:0",
 		batchId: "batch-alice",
-		project: "demo",
+		project: "MCP test stream",
 		repo: null,
 		branch: null,
 		directory: null,
-		title: "Ship it?",
-		body: "",
+		title: "Deploy the streamed test change?",
+		body: "Delivered through the mocked current-deck stream.",
 	},
 ];
 
@@ -230,7 +230,21 @@ describe("App live question synchronization", () => {
 				currentDeck: [],
 			});
 		});
-		expect(screen.getByRole("button", {name: "Pair a machine"}).getAttribute("aria-pressed")).toBeNull();
+		expect({
+			headerPairingControls: [...document.querySelectorAll(".app-header .afk-toggle")].map(
+				(control) => control.textContent,
+			),
+			pathname: window.location.pathname,
+		}).toStrictEqual({headerPairingControls: ["Pair a machine"], pathname: "/"});
+
+		fireEvent.click(screen.getByRole("button", {name: "Pair a machine"}));
+		expect({
+			headerPairingControls: [...document.querySelectorAll(".app-header .afk-toggle")].map(
+				(control) => control.textContent,
+			),
+			pairingHeading: screen.getByRole("heading", {name: "Pair a machine"}).textContent,
+			pathname: window.location.pathname,
+		}).toStrictEqual({headerPairingControls: [], pairingHeading: "Pair a machine", pathname: "/settings"});
 	});
 
 	it("removes the redundant product name from the app header", async () => {
@@ -357,15 +371,17 @@ describe("App live question synchronization", () => {
 			expect(publishQuestions).toBeTypeOf("function");
 		});
 		act(() => {
-			publishQuestions?.(initialQuestions);
+			publishQuestions?.(streamedQuestions);
 		});
-		expect(screen.getByText("Ship it?")).toBeDefined();
+		expect(screen.getByText("Deploy the streamed test change?").textContent).toBe(
+			"Deploy the streamed test change?",
+		);
 
 		act(() => {
 			publishQuestions?.([]);
 		});
 
-		expect(screen.queryByText("Ship it?")).toBeNull();
+		expect(screen.queryByText("Deploy the streamed test change?")).toBeNull();
 		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
 	});
 
@@ -393,17 +409,69 @@ describe("Better Auth account routes", () => {
 
 	it("shows an empty real deck without creating or storing a browser credential", async () => {
 		fetchSession.mockResolvedValue(null);
-		const storeCredential = vi.spyOn(Storage.prototype, "setItem");
+		const storeCredential = vi.spyOn(window.localStorage, "setItem");
 
-		render(<App />);
+		const {container} = render(<App />);
 
-		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
-		expect(screen.queryByText("Approve this sample change?")).toBeNull();
 		await waitFor(() => {
-			expect(screen.getByRole("button", {name: "Sign in to pair"})).toBeDefined();
+			expect(screen.getByRole("button", {name: "Sign in to pair"}).textContent).toBe("Sign in to pair");
 		});
-		expect(storeCredential.mock.calls).toStrictEqual([]);
-		expect(publishQuestions).toBeUndefined();
+		expect({
+			answerButtons: [...container.querySelectorAll(".actions button")].map((button) => button.textContent),
+			cards: [...container.querySelectorAll(".card")].map((card) => card.textContent),
+			deckText: container.querySelector(".deck")?.textContent,
+			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+				(control) => control.textContent,
+			),
+			openedStream: publishQuestions !== undefined,
+			storedCredentials: storeCredential.mock.calls,
+		}).toStrictEqual({
+			answerButtons: [],
+			cards: [],
+			deckText: "All caught upNo questions waiting. Questions sent through your paired agent will appear here.",
+			headerPairingControls: ["Sign in to pair"],
+			openedStream: false,
+			storedCredentials: [],
+		});
+	});
+
+	it("keeps the pairing header control off account routes reached from the signed-out deck", async () => {
+		fetchSession.mockResolvedValue(null);
+		const {container} = render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Sign in to pair"}));
+		expect({
+			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+				(control) => control.textContent,
+			),
+			pathname: window.location.pathname,
+		}).toStrictEqual({headerPairingControls: [], pathname: "/sign-in"});
+
+		fireEvent.click(screen.getByRole("button", {name: "Create an account"}));
+		expect({
+			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+				(control) => control.textContent,
+			),
+			pathname: window.location.pathname,
+		}).toStrictEqual({headerPairingControls: [], pathname: "/register"});
+
+		fireEvent.click(screen.getByRole("button", {name: "Already have an account?"}));
+		fireEvent.click(screen.getByRole("button", {name: "Forgot password?"}));
+		expect({
+			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+				(control) => control.textContent,
+			),
+			pathname: window.location.pathname,
+		}).toStrictEqual({headerPairingControls: [], pathname: "/forgot-password"});
+
+		window.history.pushState({}, "", "/reset-password?token=test-recovery-token");
+		fireEvent.popState(window);
+		expect({
+			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+				(control) => control.textContent,
+			),
+			pathname: window.location.pathname,
+		}).toStrictEqual({headerPairingControls: [], pathname: "/reset-password"});
 	});
 
 	it("requires an account before pairing or enabling notifications", async () => {
@@ -585,8 +653,10 @@ describe("Better Auth account routes", () => {
 		await waitFor(() => {
 			expect(publishQuestions).toBeTypeOf("function");
 		});
-		act(() => publishQuestions?.(initialQuestions));
-		expect(screen.getByText("Ship it?")).toBeDefined();
+		act(() => publishQuestions?.(streamedQuestions));
+		expect(screen.getByText("Deploy the streamed test change?").textContent).toBe(
+			"Deploy the streamed test change?",
+		);
 		firstBrowser.unmount();
 
 		publishQuestions = undefined;
@@ -607,12 +677,14 @@ describe("Better Auth account routes", () => {
 			publishApplicationState?.({
 				afk: false,
 				pairingStatus: {paired: true, machineCount: 1},
-				currentDeck: initialQuestions,
+				currentDeck: streamedQuestions,
 			});
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
 
-		expect(screen.getByText("Ship it?")).toBeDefined();
+		expect(screen.getByText("Deploy the streamed test change?").textContent).toBe(
+			"Deploy the streamed test change?",
+		);
 		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
 		expect(fetchSession.mock.calls).toStrictEqual([[], []]);
 	});
