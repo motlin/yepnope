@@ -98,6 +98,35 @@ describe("yepnope.io.v1 event encoding", () => {
 		expect(decoded.references[0] === decoded.references[1]).toBe(true);
 	});
 
+	it("serializes supported platform values and labels unsupported objects", () => {
+		const headers = new Headers();
+		headers.append("X-Bob", "second");
+		headers.append("X-Alice", "first");
+		const url = new URL("https://example.com/api/v1/resource?answer=yep#details");
+		const durableObjectId = env.USER_DO.idFromName("observability-platform-alice");
+
+		expect(
+			decodeObservedValue(
+				encodeObservedValue({durableObjectId, headers, unsupported: new ReadableStream(), url}),
+			),
+		).toStrictEqual({
+			durableObjectId: {kind: "durable_object_id", value: durableObjectId.toString()},
+			headers: {
+				kind: "headers",
+				entries: [
+					["x-alice", "first"],
+					["x-bob", "second"],
+				],
+			},
+			unsupported: {
+				kind: "unsupported",
+				type: "ReadableStream",
+				reason: "unsupported_platform_object",
+			},
+			url: {kind: "url", href: "https://example.com/api/v1/resource?answer=yep#details"},
+		});
+	});
+
 	it("redacts payloads before encoding one structured line", () => {
 		const captured = capture();
 		const context = createObservationContext("test.chunking", "chunk-correlation", captured.sink);
@@ -597,15 +626,48 @@ describe("Durable Object and transport observation", () => {
 		});
 		const deliveredResponseBody = await response.arrayBuffer();
 
-		const observedEnvironment = observeEnvironment(env, context);
+		const deliveredMessages: Array<EmailMessage | EmailMessageBuilder> = [];
+		const email: SendEmail = {
+			send: async (message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult> => {
+				deliveredMessages.push(message);
+				return Promise.resolve({messageId: `test-message-${deliveredMessages.length}`});
+			},
+		};
+		const observedEnvironment = observeEnvironment({DB: env.DB, EMAIL: email, USER_DO: env.USER_DO}, context);
+		const namedId = observedEnvironment.USER_DO.idFromName("observability-id-alice");
+		const parsedId = observedEnvironment.USER_DO.idFromString(namedId.toString());
+		const uniqueId = observedEnvironment.USER_DO.newUniqueId();
+		const namedObject = observedEnvironment.USER_DO.get(namedId);
 		const object = observedEnvironment.USER_DO.getByName("observability-rpc-alice");
 		const rpcResult = await object.setAfk(false, false);
 		const emailResult = await observedEnvironment.EMAIL.send({
-			to: "alice@example.com",
+			to: ["alice@example.com", {email: "bob@example.com", name: "Bob"}],
+			cc: "charlie@example.com",
+			bcc: {email: "dana@example.com", name: "Dana"},
 			from: {email: "accounts@yepnope.app", name: "Example Sender"},
 			subject: "Reset your password",
-			text: "https://example.com/reset-password?token=fake-reset-token",
+			replyTo: {email: "support@example.com", name: "Example Support"},
+			headers: {"X-Example-Category": "authentication"},
+			text: "Use https://example.com/reset-password?token=fake-reset-token",
+			html: '<p>Use <a href="https://example.com/reset-password?token=fake-reset-token">this link</a></p>',
+			attachments: [
+				{
+					disposition: "inline",
+					contentId: "example-logo",
+					filename: "logo.txt",
+					type: "text/plain",
+					content: "example inline attachment",
+				},
+				{
+					disposition: "attachment",
+					filename: "codes.bin",
+					type: "application/octet-stream",
+					content: Uint8Array.of(0, 128, 255),
+				},
+			],
 		});
+		const rawEmail: EmailMessage = {from: "accounts@yepnope.app", to: "alice@example.com"};
+		const rawEmailResult = await observedEnvironment.EMAIL.send(rawEmail);
 		observeWebSocketFrame(
 			context,
 			"outbound",
@@ -615,16 +677,24 @@ describe("Durable Object and transport observation", () => {
 
 		expect({
 			emailMessageIdType: typeof emailResult.messageId,
+			namedObjectId: namedObject.id.toString(),
+			parsedId: parsedId.toString(),
+			rawEmailMessageId: rawEmailResult.messageId,
 			handledBody: handledBody === undefined ? undefined : new Uint8Array(handledBody),
 			responseBody: new Uint8Array(deliveredResponseBody),
 			responseStatus: response.status,
 			rpcResult,
+			uniqueId: uniqueId.toString(),
 		}).toStrictEqual({
 			emailMessageIdType: "string",
+			namedObjectId: namedId.toString(),
+			parsedId: namedId.toString(),
+			rawEmailMessageId: "test-message-2",
 			handledBody: requestBody,
 			responseBody,
 			responseStatus: 201,
 			rpcResult: {status: "updated", afk: false},
+			uniqueId: uniqueId.toString(),
 		});
 		const events = capturedEvents(captured.lines);
 		expect(
@@ -661,16 +731,148 @@ describe("Durable Object and transport observation", () => {
 		expect(
 			events
 				.filter(({operation}) =>
-					["do.namespace.getByName", "do.rpc.setAfk", "email.send", "websocket.frame"].includes(operation),
+					[
+						"do.namespace.idFromName",
+						"do.namespace.idFromString",
+						"do.namespace.newUniqueId",
+						"do.namespace.get",
+						"do.namespace.getByName",
+						"do.rpc.setAfk",
+						"email.send",
+						"websocket.frame",
+					].includes(operation),
 				)
 				.map(({severity, operation, phase, data}) => ({severity, operation, phase, data})),
 		).toStrictEqual([
-			{severity: "log", operation: "do.namespace.getByName", phase: "input", data: {kind: "object"}},
-			{severity: "log", operation: "do.namespace.getByName", phase: "output", data: {kind: "object"}},
+			{
+				severity: "log",
+				operation: "do.namespace.idFromName",
+				phase: "input",
+				data: {arguments: ["observability-id-alice"]},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.idFromName",
+				phase: "output",
+				data: {kind: "durable_object_id", value: namedId.toString()},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.idFromString",
+				phase: "input",
+				data: {arguments: [namedId.toString()]},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.idFromString",
+				phase: "output",
+				data: {kind: "durable_object_id", value: namedId.toString()},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.newUniqueId",
+				phase: "input",
+				data: {arguments: []},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.newUniqueId",
+				phase: "output",
+				data: {kind: "durable_object_id", value: uniqueId.toString()},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.get",
+				phase: "input",
+				data: {arguments: [{kind: "durable_object_id", value: namedId.toString()}]},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.get",
+				phase: "output",
+				data: {id: namedId.toString(), name: "observability-id-alice"},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.getByName",
+				phase: "input",
+				data: {arguments: ["observability-rpc-alice"]},
+			},
+			{
+				severity: "log",
+				operation: "do.namespace.getByName",
+				phase: "output",
+				data: {id: object.id.toString(), name: "observability-rpc-alice"},
+			},
 			{severity: "log", operation: "do.rpc.setAfk", phase: "input", data: {kind: "object"}},
 			{severity: "log", operation: "do.rpc.setAfk", phase: "output", data: {kind: "object"}},
-			{severity: "log", operation: "email.send", phase: "input", data: {kind: "object"}},
-			{severity: "log", operation: "email.send", phase: "output", data: {kind: "object"}},
+			{
+				severity: "log",
+				operation: "email.send",
+				phase: "input",
+				data: {
+					arguments: [
+						{
+							kind: "email_message_builder",
+							fields: {
+								attachments: [
+									{
+										disposition: "inline",
+										contentId: "example-logo",
+										filename: "logo.txt",
+										type: "text/plain",
+										content: "example inline attachment",
+									},
+									{
+										disposition: "attachment",
+										filename: "codes.bin",
+										type: "application/octet-stream",
+										content: Uint8Array.of(0, 128, 255),
+									},
+								],
+								bcc: {email: "dana@example.com", name: "Dana"},
+								cc: "charlie@example.com",
+								from: {email: "accounts@yepnope.app", name: "Example Sender"},
+								headers: {"X-Example-Category": "authentication"},
+								html: '<p>Use <a href="https://example.com/reset-password?token=fake-reset-token">this link</a></p>',
+								replyTo: {email: "support@example.com", name: "Example Support"},
+								subject: "Reset your password",
+								text: "Use https://example.com/reset-password?token=fake-reset-token",
+								to: ["alice@example.com", {email: "bob@example.com", name: "Bob"}],
+							},
+						},
+					],
+				},
+			},
+			{
+				severity: "log",
+				operation: "email.send",
+				phase: "output",
+				data: {messageId: "test-message-1"},
+			},
+			{
+				severity: "log",
+				operation: "email.send",
+				phase: "input",
+				data: {
+					arguments: [
+						{
+							kind: "email_message",
+							envelope: {from: "accounts@yepnope.app", to: "alice@example.com"},
+							content: {
+								available: false,
+								reason: "raw_mime_not_exposed_by_send_binding",
+							},
+						},
+					],
+				},
+			},
+			{
+				severity: "log",
+				operation: "email.send",
+				phase: "output",
+				data: {messageId: "test-message-2"},
+			},
 			{severity: "log", operation: "websocket.frame", phase: "outbound", data: {kind: "string"}},
 			{severity: "log", operation: "websocket.frame", phase: "inbound", data: {kind: "array_buffer"}},
 		]);

@@ -81,6 +81,18 @@ type EncodedObservedValue =
 	  }
 	| {kind: "array_buffer"; id: number; value: string}
 	| {kind: "array_buffer_view"; id: number; view: string; value: string}
+	| {kind: "durable_object_id"; id: number; value: string}
+	| {kind: "headers"; id: number; value: Array<[string, string]>}
+	| {kind: "url"; id: number; value: string}
+	| {
+			kind: "email_message";
+			id: number;
+			from: string;
+			to: string;
+			content: {available: false; reason: "raw_mime_not_exposed_by_send_binding"};
+	  }
+	| {kind: "email_message_builder"; id: number; value: Array<[string, EncodedObservedValue]>}
+	| {kind: "unsupported"; id: number; type: string; reason: "unsupported_platform_object"}
 	| {kind: "reference"; id: number};
 
 type RedactedObservedValue =
@@ -236,6 +248,64 @@ function decodeNumber(value: string): number {
 	}
 }
 
+class OutboundEmailObservation {
+	readonly message: EmailMessage | EmailMessageBuilder;
+
+	constructor(message: EmailMessage | EmailMessageBuilder) {
+		this.message = message;
+	}
+}
+
+function objectType(value: object): string {
+	const prototype = Object.getPrototypeOf(value) as {constructor?: unknown} | null;
+	const constructor = prototype?.constructor;
+	if (typeof constructor === "function" && constructor.name !== "") {
+		return constructor.name;
+	}
+	return Object.prototype.toString.call(value).slice(8, -1);
+}
+
+function isDurableObjectId(value: object): value is DurableObjectId {
+	return objectType(value) === "DurableObjectId" && typeof Reflect.get(value, "equals") === "function";
+}
+
+function isPlainObject(value: object): boolean {
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === null || prototype === Object.prototype;
+}
+
+function encodeOutboundEmail(
+	message: EmailMessage | EmailMessageBuilder,
+	id: number,
+	references: Map<object, number>,
+): EncodedObservedValue {
+	if (!("subject" in message)) {
+		return {
+			kind: "email_message",
+			id,
+			from: message.from,
+			to: message.to,
+			content: {available: false, reason: "raw_mime_not_exposed_by_send_binding"},
+		};
+	}
+	return {
+		kind: "email_message_builder",
+		id,
+		value: [
+			["attachments", encodeValue(message.attachments, references)],
+			["bcc", encodeValue(message.bcc, references)],
+			["cc", encodeValue(message.cc, references)],
+			["from", encodeValue(message.from, references)],
+			["headers", encodeValue(message.headers, references)],
+			["html", encodeValue(message.html, references)],
+			["replyTo", encodeValue(message.replyTo, references)],
+			["subject", encodeValue(message.subject, references)],
+			["text", encodeValue(message.text, references)],
+			["to", encodeValue(message.to, references)],
+		],
+	};
+}
+
 function encodeValue(value: unknown, references: Map<object, number>): EncodedObservedValue {
 	if (value === null) {
 		return {kind: "null"};
@@ -265,6 +335,9 @@ function encodeValue(value: unknown, references: Map<object, number>): EncodedOb
 	const id = references.size;
 	references.set(value, id);
 
+	if (value instanceof OutboundEmailObservation) {
+		return encodeOutboundEmail(value.message, id, references);
+	}
 	if (value instanceof ArrayBuffer) {
 		return {kind: "array_buffer", id, value: bytesToBase64(new Uint8Array(value))};
 	}
@@ -306,6 +379,18 @@ function encodeValue(value: unknown, references: Map<object, number>): EncodedOb
 	}
 	if (value instanceof Set) {
 		return {kind: "set", id, value: Array.from(value, (item) => encodeValue(item, references))};
+	}
+	if (value instanceof Headers) {
+		return {kind: "headers", id, value: Array.from(value.entries())};
+	}
+	if (value instanceof URL) {
+		return {kind: "url", id, value: value.href};
+	}
+	if (isDurableObjectId(value)) {
+		return {kind: "durable_object_id", id, value: value.toString()};
+	}
+	if (!isPlainObject(value)) {
+		return {kind: "unsupported", id, type: objectType(value), reason: "unsupported_platform_object"};
 	}
 	return {
 		kind: "object",
@@ -430,6 +515,46 @@ function decodeValue(value: EncodedObservedValue, references: Map<number, object
 		}
 		case "array_buffer_view": {
 			const decoded = decodeArrayBufferView(value.view, base64ToBytes(value.value));
+			references.set(value.id, decoded);
+			return decoded;
+		}
+		case "durable_object_id": {
+			const decoded = {kind: value.kind, value: value.value};
+			references.set(value.id, decoded);
+			return decoded;
+		}
+		case "headers": {
+			const decoded = {kind: value.kind, entries: value.value};
+			references.set(value.id, decoded);
+			return decoded;
+		}
+		case "url": {
+			const decoded = {kind: value.kind, href: value.value};
+			references.set(value.id, decoded);
+			return decoded;
+		}
+		case "email_message": {
+			const decoded = {
+				kind: value.kind,
+				envelope: {from: value.from, to: value.to},
+				content: value.content,
+			};
+			references.set(value.id, decoded);
+			return decoded;
+		}
+		case "email_message_builder": {
+			const decoded: {kind: "email_message_builder"; fields: Record<string, unknown>} = {
+				kind: value.kind,
+				fields: {},
+			};
+			references.set(value.id, decoded);
+			for (const [key, item] of value.value) {
+				decoded.fields[key] = decodeValue(item, references);
+			}
+			return decoded;
+		}
+		case "unsupported": {
+			const decoded = {kind: value.kind, type: value.type, reason: value.reason};
 			references.set(value.id, decoded);
 			return decoded;
 		}
@@ -1173,25 +1298,44 @@ function observePlatformOperation(
 	arguments_: unknown[],
 	execute: () => unknown,
 ): unknown {
-	emitObservation(context, operation, "input", {arguments: arguments_});
+	return observePlatformOperationWithEmitter(context, operation, arguments_, execute, emitObservation);
+}
+
+function observeDebugPlatformOperation(
+	context: ObservationContext,
+	operation: string,
+	arguments_: unknown[],
+	execute: () => unknown,
+): unknown {
+	return observePlatformOperationWithEmitter(context, operation, arguments_, execute, emitDebugObservation);
+}
+
+function observePlatformOperationWithEmitter(
+	context: ObservationContext,
+	operation: string,
+	arguments_: unknown[],
+	execute: () => unknown,
+	emit: typeof emitObservation,
+): unknown {
+	emit(context, operation, "input", {arguments: arguments_});
 	try {
 		const result = execute();
 		if (isPromiseLike(result)) {
 			return Promise.resolve(result).then(
 				(value) => {
-					emitObservation(context, operation, "output", value);
+					emit(context, operation, "output", value);
 					return value;
 				},
 				(error: unknown) => {
-					emitObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
+					emit(context, operation, "failure", {arguments: arguments_, error}, "error");
 					throw error;
 				},
 			);
 		}
-		emitObservation(context, operation, "output", result);
+		emit(context, operation, "output", result);
 		return result;
 	} catch (error) {
-		emitObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
+		emit(context, operation, "failure", {arguments: arguments_, error}, "error");
 		throw error;
 	}
 }
@@ -1295,10 +1439,10 @@ function observeDurableObjectNamespace(
 			if (property === "get" || property === "getByName") {
 				return (...arguments_: unknown[]): DurableObjectStub => {
 					const operation = `do.namespace.${String(property)}`;
-					emitObservation(context, operation, "input", {arguments: arguments_});
+					emitDebugObservation(context, operation, "input", {arguments: arguments_});
 					try {
 						const stub = Reflect.apply(member, target, arguments_) as DurableObjectStub;
-						emitObservation(context, operation, "output", {
+						emitDebugObservation(context, operation, "output", {
 							id: stub.id.toString(),
 							name: stub.name,
 						});
@@ -1307,13 +1451,13 @@ function observeDurableObjectNamespace(
 							objectId: stub.id.toString(),
 						});
 					} catch (error) {
-						emitObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
+						emitDebugObservation(context, operation, "failure", {arguments: arguments_, error}, "error");
 						throw error;
 					}
 				};
 			}
 			return (...arguments_: unknown[]): unknown =>
-				observePlatformOperation(context, `do.namespace.${String(property)}`, arguments_, () =>
+				observeDebugPlatformOperation(context, `do.namespace.${String(property)}`, arguments_, () =>
 					Reflect.apply(member, target, arguments_),
 				);
 		},
@@ -1328,7 +1472,7 @@ function observeEmailBinding(email: SendEmail, context: ObservationContext): Sen
 				return typeof member === "function" ? member.bind(target) : member;
 			}
 			return async (message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult> =>
-				observePlatformOperation(context, "email.send", [message], () =>
+				observeDebugPlatformOperation(context, "email.send", [new OutboundEmailObservation(message)], () =>
 					Reflect.apply(member, target, [message]),
 				) as Promise<EmailSendResult>;
 		},
