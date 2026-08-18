@@ -3,6 +3,7 @@
 	"name": "yepnope",
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-08-17",
+	"compatibility_flags": ["nodejs_compat"],
 	"routes": [{"pattern": "yepnope.app", "custom_domain": true}],
 	"assets": {
 		"directory": "./dist",
@@ -21,8 +22,13 @@
 			"migrations_dir": "worker/migrations/d1",
 		},
 	],
+	"send_email": [{"name": "EMAIL", "allowed_sender_addresses": ["auth@yepnope.app"]}],
 	"rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
-	// Production's VAPID_PRIVATE_JWK is a Wrangler secret; local development reads it from .dev.vars.
-	"vars": {"VAPID_SUBJECT": "mailto:push@yepnope.app"},
+	// Production's BETTER_AUTH_SECRET and VAPID_PRIVATE_JWK are Wrangler secrets.
+	"vars": {
+		"AUTH_EMAIL_FROM": "auth@yepnope.app",
+		"BETTER_AUTH_URL": "https://yepnope.app",
+		"VAPID_SUBJECT": "mailto:push@yepnope.app",
+	},
 	"observability": {"enabled": true},
 }

@@ -1,6 +1,6 @@
-import {authenticateMachineToken} from "./auth";
+import {authenticateBrowserSession, authenticateRequest, createWorkerAuthentication} from "./auth";
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
-import {claimPairingCode, createAppIdentity, createPairingCode, getPairedMachineCount} from "./pairing";
+import {claimPairingCode, createPairingCode, getPairedMachineCount} from "./pairing";
 import type {UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
@@ -28,33 +28,41 @@ export default {
 			return new Response(null, {status: 413});
 		}
 
-		// 🤝 The pairing entry points and the VAPID key are the only unauthenticated routes.
-		if (url.pathname === "/api/v1/pair/new" && request.method === "POST") {
-			const identity = await createAppIdentity(env.DB);
-			return Response.json({token: identity.token}, {status: 201});
+		if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
+			return createWorkerAuthentication(env, executionContext).handler(request);
 		}
+
+		// 🤝 Machine claims and the VAPID key are the only unauthenticated application routes.
 		if (url.pathname === "/api/v1/pair/claim" && request.method === "POST") {
 			return claimPairing(request, env.DB);
 		}
 		if (url.pathname === "/api/v1/push/public-key" && request.method === "GET") {
 			return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});
 		}
+		if (url.pathname === "/api/v1/pair/code" && request.method === "POST") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			if (accountUserId === null) {
+				return new Response(null, {status: 401});
+			}
+			const issued = await createPairingCode(env.DB, accountUserId);
+			return Response.json({code: issued.code, expires_at: issued.expiresAt}, {status: 201});
+		}
+		if (url.pathname === "/api/v1/pair/status" && request.method === "GET") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			if (accountUserId === null) {
+				return new Response(null, {status: 401});
+			}
+			const machineCount = await getPairedMachineCount(env.DB, accountUserId);
+			return Response.json({paired: machineCount > 0, machine_count: machineCount});
+		}
 
 		const authenticatedRequest = withBrowserSocketAuthorization(request, url);
-		const userId = await authenticateMachineToken(authenticatedRequest, env.DB);
+		const userId = await authenticateRequest(authenticatedRequest, env, executionContext);
 		if (userId === null) {
 			return new Response(null, {status: 401});
 		}
 		const stub = env.USER_DO.getByName(userId);
 
-		if (url.pathname === "/api/v1/pair/code" && request.method === "POST") {
-			const issued = await createPairingCode(env.DB, userId);
-			return Response.json({code: issued.code, expires_at: issued.expiresAt}, {status: 201});
-		}
-		if (url.pathname === "/api/v1/pair/status" && request.method === "GET") {
-			const machineCount = await getPairedMachineCount(env.DB, userId);
-			return Response.json({paired: machineCount > 0, machine_count: machineCount});
-		}
 		if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST") {
 			return subscribePush(request, stub);
 		}

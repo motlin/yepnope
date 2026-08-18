@@ -1,4 +1,5 @@
 import {cloudflareTest, readD1Migrations} from "@cloudflare/vitest-pool-workers";
+import {randomBytes} from "node:crypto";
 import {defineConfig} from "vitest/config";
 
 const TEST_VAPID_PRIVATE_JWK =
@@ -6,11 +7,18 @@ const TEST_VAPID_PRIVATE_JWK =
 
 export default defineConfig(async () => {
 	const migrations = await readD1Migrations("./worker/migrations/d1");
+	const authenticationSecret = randomBytes(32).toString("base64url");
 	return {
 		plugins: [
 			cloudflareTest({
 				wrangler: {configPath: "./wrangler.jsonc"},
-				miniflare: {bindings: {TEST_MIGRATIONS: migrations, VAPID_PRIVATE_JWK: TEST_VAPID_PRIVATE_JWK}},
+				miniflare: {
+					bindings: {
+						BETTER_AUTH_SECRET: authenticationSecret,
+						TEST_MIGRATIONS: migrations,
+						VAPID_PRIVATE_JWK: TEST_VAPID_PRIVATE_JWK,
+					},
+				},
 			}),
 		],
 		test: {

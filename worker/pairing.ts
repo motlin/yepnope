@@ -1,4 +1,4 @@
-import {and, count, eq, gt, lte} from "drizzle-orm";
+import {and, count, eq, gt, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {hashToken} from "./auth";
 import {machineTokens, pairingCodes} from "./db/d1-schema";
@@ -28,18 +28,9 @@ function mintToken(): string {
 	return base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
 }
 
-export interface MintedIdentity {
+export interface MintedMachineCredential {
 	token: string;
 	userId: string;
-}
-
-export async function createAppIdentity(database: D1Database): Promise<MintedIdentity> {
-	const userId = crypto.randomUUID();
-	const token = mintToken();
-	await drizzle(database)
-		.insert(machineTokens)
-		.values({tokenHash: await hashToken(token), userId, label: "app", createdAt: Date.now()});
-	return {token, userId};
 }
 
 export interface IssuedPairingCode {
@@ -48,12 +39,11 @@ export interface IssuedPairingCode {
 }
 
 export async function getPairedMachineCount(database: D1Database, userId: string): Promise<number> {
-	// Each user has one app token; every additional token belongs to a paired machine.
 	const rows = await drizzle(database)
 		.select({value: count()})
 		.from(machineTokens)
-		.where(eq(machineTokens.userId, userId));
-	return Math.max(0, (rows[0]?.value ?? 1) - 1);
+		.where(and(eq(machineTokens.userId, userId), isNull(machineTokens.revokedAt)));
+	return rows[0]?.value ?? 0;
 }
 
 export async function createPairingCode(database: D1Database, userId: string): Promise<IssuedPairingCode> {
@@ -78,7 +68,7 @@ export async function claimPairingCode(
 	database: D1Database,
 	code: string,
 	label: string,
-): Promise<MintedIdentity | null> {
+): Promise<MintedMachineCredential | null> {
 	const db = drizzle(database);
 	// 🔒 Single-use: the DELETE consumes the code atomically, so a concurrent claim loses.
 	const consumed = await db
