@@ -393,17 +393,19 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 	const verificationError = parameters.get("error");
 	const [email, setEmail] = useState(initialEmail);
 	const [delivery, setDelivery] = useState(initialDelivery);
-	const [error, setError] = useState<string | null>(null);
+	const [submitting, setSubmitting] = useState(false);
 
 	async function resend(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
 		event.preventDefault();
-		setError(null);
+		setSubmitting(true);
+		setDelivery("idle");
 		try {
 			await sendVerificationEmail(email);
 			setDelivery("accepted");
-		} catch (caught) {
+		} catch {
 			setDelivery("failed");
-			setError(errorMessage(caught));
+		} finally {
+			setSubmitting(false);
 		}
 	}
 
@@ -425,11 +427,11 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 				<>
 					{delivery === "accepted" ? (
 						<p className="form-success" role="status">
-							Cloudflare accepted your verification email for delivery. Open its link to continue.
+							Email sent. Check your inbox.
 						</p>
 					) : delivery === "failed" ? (
 						<p className="form-error" role="alert">
-							Your account was created, but the verification email was not accepted. Try sending it again.
+							We couldn&apos;t send the email. Try again.
 						</p>
 					) : (
 						<p>Enter your account email to send a verification link.</p>
@@ -453,12 +455,9 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 								}}
 							/>
 						</label>
-						{error !== null && (
-							<p className="form-error" role="alert">
-								{error}
-							</p>
-						)}
-						<button type="submit">Resend verification email</button>
+						<button type="submit" disabled={submitting} aria-busy={submitting}>
+							{submitting ? "Sending…" : "Resend verification email"}
+						</button>
 					</form>
 					<div className="account-links">
 						<button

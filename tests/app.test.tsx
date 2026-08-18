@@ -438,18 +438,26 @@ describe("Better Auth account routes", () => {
 			["Alice", "alice@example.com", "example-password"],
 		]);
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
-		expect(screen.getByRole("status").textContent).toBe(
-			"Cloudflare accepted your verification email for delivery. Open its link to continue.",
+		expect(screen.getByRole("status").textContent).toBe("Email sent. Check your inbox.");
+		let finishResend: () => void = () => undefined;
+		vi.mocked(sendVerificationEmail).mockReturnValueOnce(
+			new Promise<void>((resolve) => {
+				finishResend = resolve;
+			}),
 		);
 		fireEvent.click(screen.getByRole("button", {name: "Resend verification email"}));
+		const sendingButton = screen.getByRole("button", {name: "Sending…"});
+		expect({
+			ariaBusy: sendingButton.getAttribute("aria-busy"),
+			disabled: (sendingButton as HTMLButtonElement).disabled,
+		}).toStrictEqual({ariaBusy: "true", disabled: true});
+		finishResend();
 		await waitFor(() => {
 			expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([
 				["alice@example.com"],
 				["alice@example.com"],
 			]);
-			expect(screen.getByRole("status").textContent).toBe(
-				"Cloudflare accepted your verification email for delivery. Open its link to continue.",
-			);
+			expect(screen.getByRole("status").textContent).toBe("Email sent. Check your inbox.");
 		});
 	});
 
@@ -465,9 +473,7 @@ describe("Better Auth account routes", () => {
 		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
 
 		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
-		expect(screen.getByRole("alert").textContent).toBe(
-			"Your account was created, but the verification email was not accepted. Try sending it again.",
-		);
+		expect(screen.getByRole("alert").textContent).toBe("We couldn't send the email. Try again.");
 		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
 			["Alice", "alice@example.com", "example-password"],
 		]);
