@@ -5,6 +5,7 @@ import {API_ORIGIN, cookieFrom, emailLink, required, worker} from "./helpers";
 
 interface DeliveredEmail {
 	from: string | EmailAddress;
+	html: string;
 	subject: string;
 	text: string;
 	to: string | EmailAddress | (string | EmailAddress)[];
@@ -17,6 +18,7 @@ function createMailboxAuthentication(mailbox: DeliveredEmail[]) {
 			await Promise.resolve(
 				mailbox.push({
 					from: message.from,
+					html: required(message.html, "email HTML"),
 					subject: message.subject,
 					text: required(message.text, "email text"),
 					to: required(message.to, "email recipient"),
@@ -24,6 +26,46 @@ function createMailboxAuthentication(mailbox: DeliveredEmail[]) {
 			);
 		},
 	});
+}
+
+function escapeHtml(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#039;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
+}
+
+function emailLinks(html: string): Array<{href: string; label: string}> {
+	return Array.from(html.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g), ([, href, label]) => ({
+		href: required(href, "email link href"),
+		label: required(label, "email link label"),
+	}));
+}
+
+function emailLayout(html: string) {
+	return {
+		cardStyle: required(
+			/<table role="presentation" width="100%"[^>]+style="(width:100%;max-width:560px;[^"]+)"/.exec(html)?.[1],
+			"responsive email card style",
+		),
+		externalAssets: Array.from(html.matchAll(/(?:background|src)="(https?:\/\/[^"\s]+)"/g), ([, url]) =>
+			required(url, "external email asset URL"),
+		),
+		styleElements: Array.from(html.matchAll(/<style[^>]*>/g), ([element]) => element),
+		viewport: required(/<meta name="viewport" content="([^"]+)">/.exec(html)?.[1], "email viewport"),
+	};
+}
+
+function emailCopy(html: string) {
+	return {
+		expiration: required(/<p style="margin:24px 0 0;[^"]+">([^<]+)<\/p>/.exec(html)?.[1], "email expiration copy"),
+		heading: required(/<h1[^>]*>([^<]+)<\/h1>/.exec(html)?.[1], "email heading"),
+		introduction: required(/<p style="margin:0 0 24px;[^"]+">([^<]+)<\/p>/.exec(html)?.[1], "email introduction"),
+		preheader: required(/<div style="display:none;[^"]+">([^<]+)<\/div>/.exec(html)?.[1], "email preheader"),
+		safety: required(/<p style="margin:20px 0 0;[^"]+">([^<]+)<\/p>/.exec(html)?.[1], "email safety copy"),
+	};
 }
 
 function postAuthentication(path: string, body: Record<string, string>, cookie?: string): Request {
@@ -149,14 +191,72 @@ describe("Better Auth account recovery", () => {
 			body: {status: true},
 			status: 200,
 		});
-		expect(mailbox).toStrictEqual([
-			{
-				from: {email: "accounts@yepnope.app", name: "YepNope"},
-				subject: "Verify your YepNope email",
-				text: expect.stringMatching(/^Verify your email address/),
-				to: email,
-			},
+		const verificationEmail = required(mailbox[0], "verification email");
+		const verificationUrl = emailLink(verificationEmail);
+		const {html: verificationHtml, ...verificationEnvelope} = verificationEmail;
+		expect(verificationEnvelope).toStrictEqual({
+			from: {email: "accounts@yepnope.app", name: "YepNope"},
+			subject: "Verify your YepNope email",
+			text: `Verify your email address to finish creating your YepNope account.\n\nVerify email: ${verificationUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+			to: email,
+		});
+		expect(emailLinks(verificationHtml)).toStrictEqual([
+			{href: escapeHtml(verificationUrl), label: "Verify email"},
+			{href: escapeHtml(verificationUrl), label: "Open this secure link"},
 		]);
+		expect(emailCopy(verificationHtml)).toStrictEqual({
+			expiration: "This link expires in one hour.",
+			heading: "Verify your YepNope email",
+			introduction: "Verify your email address to finish creating your YepNope account.",
+			preheader: "Verify your email to finish setting up YepNope.",
+			safety: "If you did not request this, you can ignore this email.",
+		});
+		expect(emailLayout(verificationHtml)).toStrictEqual({
+			cardStyle:
+				"width:100%;max-width:560px;border-collapse:separate;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:12px;",
+			externalAssets: [],
+			styleElements: [],
+			viewport: "width=device-width, initial-scale=1",
+		});
+		expect(verificationHtml.replaceAll(escapeHtml(verificationUrl), "{{ACTION_URL}}")).toMatchInlineSnapshot(`
+				"<!doctype html>
+				<html lang="en">
+				<head>
+				<meta charset="utf-8">
+				<meta name="viewport" content="width=device-width, initial-scale=1">
+				<meta name="color-scheme" content="light">
+				<title>Verify your YepNope email</title>
+				</head>
+				<body style="margin:0;padding:0;background-color:#f4f4f5;color:#18181b;">
+				<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Verify your email to finish setting up YepNope.</div>
+				<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;background-color:#f4f4f5;">
+				<tr>
+				<td align="center" style="padding:24px 16px;">
+				<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;border-collapse:separate;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:12px;">
+				<tr>
+				<td style="padding:28px;font-family:Arial,Helvetica,sans-serif;">
+				<p style="margin:0 0 20px;color:#52525b;font-size:14px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">YepNope</p>
+				<h1 style="margin:0 0 12px;color:#18181b;font-size:24px;line-height:1.25;font-weight:700;">Verify your YepNope email</h1>
+				<p style="margin:0 0 24px;color:#3f3f46;font-size:16px;line-height:1.5;">Verify your email address to finish creating your YepNope account.</p>
+				<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;">
+				<tr>
+				<td style="border-radius:8px;background-color:#18181b;">
+				<a href="{{ACTION_URL}}" style="display:inline-block;padding:12px 20px;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;line-height:1.25;text-decoration:none;border-radius:8px;">Verify email</a>
+				</td>
+				</tr>
+				</table>
+				<p style="margin:24px 0 0;color:#52525b;font-size:14px;line-height:1.5;">This link expires in one hour.</p>
+				<p style="margin:12px 0 0;color:#71717a;font-size:12px;line-height:1.5;">Button not working? <a href="{{ACTION_URL}}" style="color:#52525b;text-decoration:underline;">Open this secure link</a>.</p>
+				<p style="margin:20px 0 0;padding-top:20px;border-top:1px solid #e4e4e7;color:#71717a;font-size:12px;line-height:1.5;">If you did not request this, you can ignore this email.</p>
+				</td>
+				</tr>
+				</table>
+				</td>
+				</tr>
+				</table>
+				</body>
+				</html>"
+			`);
 
 		const beforeVerification = await authentication.handler(
 			postAuthentication("sign-in/email", {email, password: originalPassword}),
@@ -165,19 +265,18 @@ describe("Better Auth account recovery", () => {
 			body: {code: "EMAIL_NOT_VERIFIED", message: "Email not verified"},
 			status: 403,
 		});
-		expect(mailbox).toStrictEqual([
-			{
-				from: {email: "accounts@yepnope.app", name: "YepNope"},
-				subject: "Verify your YepNope email",
-				text: expect.stringMatching(/^Verify your email address/),
-				to: email,
-			},
-			{
-				from: {email: "accounts@yepnope.app", name: "YepNope"},
-				subject: "Verify your YepNope email",
-				text: expect.stringMatching(/^Verify your email address/),
-				to: email,
-			},
+		const secondVerificationEmail = required(mailbox[1], "second verification email");
+		const secondVerificationUrl = emailLink(secondVerificationEmail);
+		const {html: secondVerificationHtml, ...secondVerificationEnvelope} = secondVerificationEmail;
+		expect(secondVerificationEnvelope).toStrictEqual({
+			from: {email: "accounts@yepnope.app", name: "YepNope"},
+			subject: "Verify your YepNope email",
+			text: `Verify your email address to finish creating your YepNope account.\n\nVerify email: ${secondVerificationUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+			to: email,
+		});
+		expect(emailLinks(secondVerificationHtml)).toStrictEqual([
+			{href: escapeHtml(secondVerificationUrl), label: "Verify email"},
+			{href: escapeHtml(secondVerificationUrl), label: "Open this secure link"},
 		]);
 
 		const verification = await authentication.handler(
@@ -242,14 +341,27 @@ describe("Better Auth account recovery", () => {
 			status: 200,
 		});
 		const resetEmail = required(mailbox[2], "password reset email");
-		expect(resetEmail).toStrictEqual({
+		const resetUrl = emailLink(resetEmail);
+		const {html: resetHtml, ...resetEnvelope} = resetEmail;
+		expect(resetEnvelope).toStrictEqual({
 			from: {email: "accounts@yepnope.app", name: "YepNope"},
 			subject: "Reset your YepNope password",
-			text: expect.stringMatching(/^Use this link to choose a new YepNope password/),
+			text: `Choose a new password for your YepNope account.\n\nReset password: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
 			to: email,
 		});
-		const resetUrl = new URL(emailLink(resetEmail));
-		const resetToken = required(resetUrl.pathname.split("/").at(-1), "password reset token");
+		expect(emailLinks(resetHtml)).toStrictEqual([
+			{href: escapeHtml(resetUrl), label: "Reset password"},
+			{href: escapeHtml(resetUrl), label: "Open this secure link"},
+		]);
+		expect(emailCopy(resetHtml)).toStrictEqual({
+			expiration: "This link expires in one hour.",
+			heading: "Reset your YepNope password",
+			introduction: "Choose a new password for your YepNope account.",
+			preheader: "Reset your YepNope password securely.",
+			safety: "If you did not request this, you can ignore this email.",
+		});
+		const resetTokenUrl = new URL(resetUrl);
+		const resetToken = required(resetTokenUrl.pathname.split("/").at(-1), "password reset token");
 		const reset = await restoredAuthentication.handler(
 			postAuthentication("reset-password", {newPassword: replacementPassword, token: resetToken}),
 		);

@@ -8,6 +8,7 @@ import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountI
 
 const AUTHENTICATION_PATH = "/api/auth";
 const EMAIL_REGISTRATION_PATH = `${AUTHENTICATION_PATH}/sign-up/email`;
+const AUTHENTICATION_TOKEN_EXPIRY_SECONDS = 60 * 60;
 const emailRegistrationSchema = z
 	.object({
 		callbackURL: z.string().optional(),
@@ -22,6 +23,13 @@ type AuthenticationEnvironment = Pick<
 	"AUTH_EMAIL_FROM" | "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "DB" | "USER_DO"
 >;
 type AuthenticationEmail = Parameters<SendEmail["send"]>[0];
+
+interface AuthenticationEmailCopy {
+	actionLabel: string;
+	introduction: string;
+	preheader: string;
+	subject: string;
+}
 
 export interface AuthenticationDependencies {
 	runInBackground: ((promise: Promise<unknown>) => void) | undefined;
@@ -66,17 +74,56 @@ function escapeHtml(value: string): string {
 function authenticationEmail(
 	environment: AuthenticationEnvironment,
 	to: string,
-	subject: string,
-	introduction: string,
 	url: string,
+	copy: AuthenticationEmailCopy,
 ): AuthenticationEmail {
+	const safeActionLabel = escapeHtml(copy.actionLabel);
+	const safeIntroduction = escapeHtml(copy.introduction);
+	const safePreheader = escapeHtml(copy.preheader);
+	const safeSubject = escapeHtml(copy.subject);
 	const safeUrl = escapeHtml(url);
 	return {
 		to,
 		from: {email: environment.AUTH_EMAIL_FROM, name: "YepNope"},
-		subject,
-		text: `${introduction}\n\n${url}\n\nIf you did not request this, you can ignore this email.`,
-		html: `<p>${introduction}</p><p><a href="${safeUrl}">${safeUrl}</a></p><p>If you did not request this, you can ignore this email.</p>`,
+		subject: copy.subject,
+		text: `${copy.introduction}\n\n${copy.actionLabel}: ${url}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+		html: `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>${safeSubject}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;color:#18181b;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${safePreheader}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;background-color:#f4f4f5;">
+<tr>
+<td align="center" style="padding:24px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;border-collapse:separate;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:12px;">
+<tr>
+<td style="padding:28px;font-family:Arial,Helvetica,sans-serif;">
+<p style="margin:0 0 20px;color:#52525b;font-size:14px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">YepNope</p>
+<h1 style="margin:0 0 12px;color:#18181b;font-size:24px;line-height:1.25;font-weight:700;">${safeSubject}</h1>
+<p style="margin:0 0 24px;color:#3f3f46;font-size:16px;line-height:1.5;">${safeIntroduction}</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;">
+<tr>
+<td style="border-radius:8px;background-color:#18181b;">
+<a href="${safeUrl}" style="display:inline-block;padding:12px 20px;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;line-height:1.25;text-decoration:none;border-radius:8px;">${safeActionLabel}</a>
+</td>
+</tr>
+</table>
+<p style="margin:24px 0 0;color:#52525b;font-size:14px;line-height:1.5;">This link expires in one hour.</p>
+<p style="margin:12px 0 0;color:#71717a;font-size:12px;line-height:1.5;">Button not working? <a href="${safeUrl}" style="color:#52525b;text-decoration:underline;">Open this secure link</a>.</p>
+<p style="margin:20px 0 0;padding-top:20px;border-top:1px solid #e4e4e7;color:#71717a;font-size:12px;line-height:1.5;">If you did not request this, you can ignore this email.</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>`,
 	};
 }
 
@@ -105,30 +152,30 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 			sendOnSignUp: false,
 			sendOnSignIn: true,
 			autoSignInAfterVerification: false,
+			expiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
 			sendVerificationEmail: async ({user, url}) =>
 				dependencies.sendEmail(
-					authenticationEmail(
-						environment,
-						user.email,
-						"Verify your YepNope email",
-						"Verify your email address to finish creating your YepNope account:",
-						url,
-					),
+					authenticationEmail(environment, user.email, url, {
+						actionLabel: "Verify email",
+						introduction: "Verify your email address to finish creating your YepNope account.",
+						preheader: "Verify your email to finish setting up YepNope.",
+						subject: "Verify your YepNope email",
+					}),
 				),
 		},
 		emailAndPassword: {
 			enabled: true,
 			autoSignIn: false,
 			requireEmailVerification: true,
+			resetPasswordTokenExpiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
 			sendResetPassword: async ({user, url}) =>
 				dependencies.sendEmail(
-					authenticationEmail(
-						environment,
-						user.email,
-						"Reset your YepNope password",
-						"Use this link to choose a new YepNope password:",
-						url,
-					),
+					authenticationEmail(environment, user.email, url, {
+						actionLabel: "Reset password",
+						introduction: "Choose a new password for your YepNope account.",
+						preheader: "Reset your YepNope password securely.",
+						subject: "Reset your YepNope password",
+					}),
 				),
 		},
 		user: {
