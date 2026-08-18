@@ -97,7 +97,9 @@ function AfkToggle({afk, pairingStatus, signedIn, onPair, onToggle}: AfkTogglePr
 			</button>
 		);
 	}
+	const checking = afk === null;
 	const enabled = afk === true;
+	const afkClassName = checking ? "afk-toggle afk-checking" : enabled ? "afk-toggle afk-on" : "afk-toggle afk-off";
 	return (
 		<>
 			<button type="button" className={waiting ? "machine-status waiting" : "machine-status"} onClick={onPair}>
@@ -105,12 +107,13 @@ function AfkToggle({afk, pairingStatus, signedIn, onPair, onToggle}: AfkTogglePr
 			</button>
 			<button
 				type="button"
-				className={enabled ? "afk-toggle afk-on" : "afk-toggle"}
-				aria-pressed={enabled}
-				disabled={afk === null}
+				className={afkClassName}
+				aria-busy={checking || undefined}
+				aria-pressed={checking ? undefined : enabled}
+				disabled={checking}
 				onClick={onToggle}
 			>
-				{enabled ? "AFK on" : "AFK off"}
+				{checking ? "Checking AFK…" : enabled ? "AFK on" : "AFK off"}
 			</button>
 		</>
 	);

@@ -49,6 +49,8 @@ const fetchPairingStatus = vi.hoisted(() =>
 		Promise.resolve({paired: true, machineCount: 1, pendingPairingExpiresAt: null}),
 	),
 );
+const fetchAfk = vi.hoisted(() => vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)));
+const updateAfk = vi.hoisted(() => vi.fn<(afk: boolean) => Promise<boolean>>(async (afk) => Promise.resolve(afk)));
 
 let publishQuestions: ((questions: DeckQuestion[]) => void) | undefined;
 let publishApplicationState: ((state: LiveApplicationState) => void) | undefined;
@@ -58,7 +60,7 @@ const refreshStream = vi.fn<() => void>();
 vi.mock("../src/api", () => ({
 	claimLegacyIdentity,
 	fetchAccountDevices,
-	fetchAfk: vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)),
+	fetchAfk,
 	fetchPairingStatus,
 	fetchSession,
 	issuePairingCode: vi.fn<() => Promise<import("../src/api").IssuedPairingCode>>(),
@@ -90,7 +92,7 @@ vi.mock("../src/api", () => ({
 	submitAnswer: vi.fn<(_questionId: string, _disposition: Disposition) => Promise<void>>(async () =>
 		Promise.resolve(),
 	),
-	updateAfk: vi.fn<(afk: boolean) => Promise<boolean>>(async (afk) => Promise.resolve(afk)),
+	updateAfk,
 }));
 
 vi.mock("../src/push", () => ({
@@ -347,6 +349,79 @@ describe("App live question synchronization", () => {
 			pairingHeading: screen.getByRole("heading", {name: "Connect a CLI"}).textContent,
 			pathname: window.location.pathname,
 		}).toStrictEqual({headerPairingControls: [], pairingHeading: "Connect a CLI", pathname: "/settings"});
+	});
+
+	it("exposes distinct accessible checking, off, and on AFK toggle states", async () => {
+		let resolveAfk: ((afk: boolean) => void) | undefined;
+		fetchAfk.mockImplementationOnce(
+			async () =>
+				new Promise((resolve) => {
+					resolveAfk = resolve;
+				}),
+		);
+
+		render(<App />);
+
+		const checking = await screen.findByRole("button", {name: "Checking AFK…"});
+		expect({
+			ariaBusy: checking.getAttribute("aria-busy"),
+			ariaPressed: checking.getAttribute("aria-pressed"),
+			className: checking.className,
+			disabled: (checking as HTMLButtonElement).disabled,
+			text: checking.textContent,
+			type: checking.getAttribute("type"),
+		}).toStrictEqual({
+			ariaBusy: "true",
+			ariaPressed: null,
+			className: "afk-toggle afk-checking",
+			disabled: true,
+			text: "Checking AFK…",
+			type: "button",
+		});
+
+		await act(async () => {
+			resolveAfk?.(false);
+			await Promise.resolve();
+		});
+		const off = screen.getByRole("button", {name: "AFK off", pressed: false});
+		expect({
+			ariaBusy: off.getAttribute("aria-busy"),
+			ariaPressed: off.getAttribute("aria-pressed"),
+			className: off.className,
+			disabled: (off as HTMLButtonElement).disabled,
+			text: off.textContent,
+			type: off.getAttribute("type"),
+		}).toStrictEqual({
+			ariaBusy: null,
+			ariaPressed: "false",
+			className: "afk-toggle afk-off",
+			disabled: false,
+			text: "AFK off",
+			type: "button",
+		});
+
+		await act(async () => {
+			fireEvent.click(off);
+			await Promise.resolve();
+		});
+		const on = screen.getByRole("button", {name: "AFK on", pressed: true});
+		expect({
+			ariaBusy: on.getAttribute("aria-busy"),
+			ariaPressed: on.getAttribute("aria-pressed"),
+			className: on.className,
+			disabled: (on as HTMLButtonElement).disabled,
+			text: on.textContent,
+			type: on.getAttribute("type"),
+			updateCalls: updateAfk.mock.calls,
+		}).toStrictEqual({
+			ariaBusy: null,
+			ariaPressed: "true",
+			className: "afk-toggle afk-on",
+			disabled: false,
+			text: "AFK on",
+			type: "button",
+			updateCalls: [[true]],
+		});
 	});
 
 	it("removes the redundant product name from the app header", async () => {
