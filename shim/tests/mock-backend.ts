@@ -96,7 +96,9 @@ export async function startMockBackend(options: MockBackendOptions = {}): Promis
 			if (request.method === "POST" && request.url === "/api/v1/pair/claim") {
 				backend.claimBodies.push(JSON.parse(body));
 				response.writeHead(options.claimStatus ?? 201, {"Content-Type": "application/json"});
-				response.end(JSON.stringify(options.claimBody ?? {token: "ynp_mock_machine_token"}));
+				response.end(
+					JSON.stringify(options.claimBody ?? {token: "ynp_mock_machine_token", credential_type: "machine"}),
+				);
 				return;
 			}
 			response.writeHead(404);

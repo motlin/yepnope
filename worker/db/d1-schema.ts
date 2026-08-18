@@ -94,11 +94,31 @@ export const machineTokens = sqliteTable(
 			.notNull()
 			.references(() => users.id, {onDelete: "cascade"}),
 		label: text("label").notNull(),
+		credentialType: text("credential_type", {enum: ["machine", "legacy_app"]})
+			.default("machine")
+			.notNull(),
 		createdAt: integer("created_at").notNull(),
 		lastUsedAt: integer("last_used_at"),
 		revokedAt: integer("revoked_at"),
 	},
 	(table) => [index("machine_tokens_user_id_idx").on(table.userId)],
+);
+
+export const legacyIdentityClaims = sqliteTable(
+	"legacy_identity_claims",
+	{
+		tokenHash: text("token_hash").primaryKey(),
+		legacyUserId: text("legacy_user_id").notNull().unique(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, {onDelete: "cascade"}),
+		status: text("status", {enum: ["pending", "complete"]})
+			.default("pending")
+			.notNull(),
+		claimedAt: integer("claimed_at"),
+		createdAt: integer("created_at").notNull(),
+	},
+	(table) => [index("legacy_identity_claims_user_id_idx").on(table.userId)],
 );
 
 export const pairingCodes = sqliteTable(

@@ -54,6 +54,13 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 			provider: "sqlite",
 			schema: {account: accounts, session: sessions, user: users, verification: verifications},
 		}),
+		account: {
+			accountLinking: {
+				enabled: true,
+				allowDifferentEmails: false,
+				disableImplicitLinking: false,
+			},
+		},
 		emailVerification: {
 			sendOnSignUp: true,
 			sendOnSignIn: true,
@@ -125,7 +132,13 @@ async function authenticateMachineToken(request: Request, database: D1Database):
 	const rows = await connection
 		.select({userId: machineTokens.userId})
 		.from(machineTokens)
-		.where(and(eq(machineTokens.tokenHash, tokenHash), isNull(machineTokens.revokedAt)));
+		.where(
+			and(
+				eq(machineTokens.tokenHash, tokenHash),
+				eq(machineTokens.credentialType, "machine"),
+				isNull(machineTokens.revokedAt),
+			),
+		);
 	const authenticated = rows[0];
 	if (authenticated === undefined) {
 		return null;

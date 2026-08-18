@@ -3,7 +3,7 @@ import {DurableObject} from "cloudflare:workers";
 import {and, asc, eq, inArray, isNull, lte, min, sql} from "drizzle-orm";
 import {drizzle, type DrizzleSqliteDODatabase} from "drizzle-orm/durable-sqlite";
 import {migrate} from "drizzle-orm/durable-sqlite/migrator";
-import {answers, batches, devices, questions, state} from "./db/do-schema";
+import {answers, batches, devices, identityMergeLock, identityMerges, questions, state} from "./db/do-schema";
 import migrationBundle from "./migrations/do/migrations.js";
 import {hashToken} from "./auth";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
@@ -60,8 +60,45 @@ export interface SubmittedAnswer {
 	disposition: Disposition;
 }
 
+export interface LegacyIdentitySnapshot {
+	state: {
+		afk: boolean;
+		questionsAsked: number;
+		yepCount: number;
+		nopeCount: number;
+		skipCount: number;
+	};
+	devices: Array<typeof devices.$inferSelect>;
+	batches: Array<typeof batches.$inferSelect>;
+	questions: Array<typeof questions.$inferSelect>;
+	answers: Array<typeof answers.$inferSelect>;
+}
+
+export type LegacyIdentityPreparation =
+	| {status: "ready"; snapshot: LegacyIdentitySnapshot}
+	| {status: "conflict"; reason: string};
+
+export type LegacyIdentityMergeResult =
+	| {status: "merged"}
+	| {status: "already_merged"}
+	| {status: "conflict"; reason: string};
+
 const STATE_ROW_ID = 1;
 const QUESTIONS_SOCKET_TAG = "questions";
+
+function findRowConflict<Row extends object>(
+	existingRows: Row[],
+	incomingRows: Row[],
+	key: (row: Row) => string,
+): string | null {
+	const existingById = new Map(existingRows.map((row) => [key(row), row]));
+	for (const incoming of incomingRows) {
+		if (existingById.has(key(incoming))) {
+			return `conflicting Durable Object row: ${key(incoming)}`;
+		}
+	}
+	return null;
+}
 
 export class UserDurableObject extends DurableObject<Env> {
 	private readonly database: DrizzleSqliteDODatabase;
@@ -77,6 +114,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async createBatch(request: CreateBatchRequest): Promise<CreatedBatch> {
+		this.assertWritable();
 		const now = Date.now();
 		const batchId = crypto.randomUUID();
 		// 🆔 Derived, not minted (spec appendix A.1): there is no reason for an id to be random.
@@ -121,6 +159,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async setAfk(afk: boolean): Promise<void> {
+		this.assertWritable();
 		await this.database.update(state).set({afk}).where(eq(state.id, STATE_ROW_ID));
 	}
 
@@ -169,6 +208,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {
+		this.assertWritable();
 		const affectedBatchIds = this.database.transaction((transaction) => {
 			const questionIds = submitted.map((answer) => answer.question_id);
 			if (new Set(questionIds).size !== questionIds.length) {
@@ -237,6 +277,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	};
 
 	async registerDevice(subscription: PushSubscription): Promise<void> {
+		this.assertWritable();
 		const serialized = JSON.stringify(subscription);
 		await this.database
 			.insert(devices)
@@ -247,6 +288,9 @@ export class UserDurableObject extends DurableObject<Env> {
 	// 📣 One push per batch (spec §6.2). The service worker fetches question content after receipt,
 	// so the encrypted push payload contains metadata only.
 	async sendBatchPush(batchId: string): Promise<number> {
+		if (this.isMergeLocked()) {
+			return 0;
+		}
 		const batchRows = await this.database
 			.select({project: batches.project})
 			.from(batches)
@@ -296,7 +340,9 @@ export class UserDurableObject extends DurableObject<Env> {
 			}
 			if (status === 404 || status === 410) {
 				// 🧹 The push service says this subscription is gone for good.
-				await this.database.delete(devices).where(eq(devices.id, device.id));
+				if (!this.isMergeLocked()) {
+					await this.database.delete(devices).where(eq(devices.id, device.id));
+				}
 			} else if (status >= 200 && status < 300) {
 				delivered += 1;
 			}
@@ -352,6 +398,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			socket.close(1008, "unknown batch");
 			return;
 		}
+		this.assertWritable();
 		await this.database.update(batches).set({lastHeartbeatAt: Date.now()}).where(eq(batches.id, batchId));
 		await this.sendCurrentState(socket, batchId);
 	}
@@ -359,6 +406,9 @@ export class UserDurableObject extends DurableObject<Env> {
 	// 🗑️ The single DO alarm serves two deadlines: 7 day retention (spec §13.1) and
 	// heartbeat-and-delete retraction (option C in .llm/decisions.md, spec §5).
 	override async alarm(): Promise<void> {
+		if (this.isMergeLocked()) {
+			return;
+		}
 		const now = Date.now();
 		const expired = await this.database
 			.select({id: batches.id})
@@ -388,6 +438,125 @@ export class UserDurableObject extends DurableObject<Env> {
 		await this.armNextDeadline();
 	}
 
+	prepareLegacyIdentityClaim(destinationUserId: string): LegacyIdentityPreparation {
+		return this.database.transaction((transaction) => {
+			const existingLock = transaction.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
+			if (existingLock !== undefined && existingLock.destinationUserId !== destinationUserId) {
+				return {status: "conflict", reason: "legacy identity is already being claimed by another account"};
+			}
+			transaction.insert(identityMergeLock).values({id: 1, destinationUserId}).onConflictDoNothing().run();
+			const sourceState = transaction.select().from(state).where(eq(state.id, STATE_ROW_ID)).get();
+			if (sourceState === undefined) {
+				throw new Error("legacy identity state is missing");
+			}
+			return {
+				status: "ready",
+				snapshot: {
+					state: {
+						afk: sourceState.afk,
+						questionsAsked: sourceState.questionsAsked,
+						yepCount: sourceState.yepCount,
+						nopeCount: sourceState.nopeCount,
+						skipCount: sourceState.skipCount,
+					},
+					devices: transaction.select().from(devices).all(),
+					batches: transaction.select().from(batches).all(),
+					questions: transaction.select().from(questions).all(),
+					answers: transaction.select().from(answers).all(),
+				},
+			};
+		});
+	}
+
+	async mergeLegacyIdentity(
+		sourceUserId: string,
+		snapshot: LegacyIdentitySnapshot,
+	): Promise<LegacyIdentityMergeResult> {
+		const result = this.database.transaction((transaction): LegacyIdentityMergeResult => {
+			const imported = transaction
+				.select({sourceUserId: identityMerges.sourceUserId})
+				.from(identityMerges)
+				.where(eq(identityMerges.sourceUserId, sourceUserId))
+				.get();
+			if (imported !== undefined) {
+				return {status: "already_merged"};
+			}
+			if (transaction.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get() !== undefined) {
+				return {status: "conflict", reason: "destination account is itself being merged"};
+			}
+
+			const conflicts = [
+				findRowConflict(transaction.select().from(devices).all(), snapshot.devices, (row) => row.id),
+				findRowConflict(transaction.select().from(batches).all(), snapshot.batches, (row) => row.id),
+				findRowConflict(transaction.select().from(questions).all(), snapshot.questions, (row) => row.id),
+				findRowConflict(transaction.select().from(answers).all(), snapshot.answers, (row) => row.questionId),
+			].filter((conflict) => conflict !== null);
+			if (conflicts[0] !== undefined) {
+				return {status: "conflict", reason: conflicts[0]};
+			}
+
+			if (snapshot.devices.length > 0) {
+				transaction.insert(devices).values(snapshot.devices).onConflictDoNothing().run();
+			}
+			if (snapshot.batches.length > 0) {
+				transaction.insert(batches).values(snapshot.batches).onConflictDoNothing().run();
+			}
+			if (snapshot.questions.length > 0) {
+				transaction.insert(questions).values(snapshot.questions).onConflictDoNothing().run();
+			}
+			if (snapshot.answers.length > 0) {
+				transaction.insert(answers).values(snapshot.answers).onConflictDoNothing().run();
+			}
+			transaction
+				.update(state)
+				.set({
+					afk: sql`${state.afk} OR ${snapshot.state.afk}`,
+					questionsAsked: sql`${state.questionsAsked} + ${snapshot.state.questionsAsked}`,
+					yepCount: sql`${state.yepCount} + ${snapshot.state.yepCount}`,
+					nopeCount: sql`${state.nopeCount} + ${snapshot.state.nopeCount}`,
+					skipCount: sql`${state.skipCount} + ${snapshot.state.skipCount}`,
+				})
+				.where(eq(state.id, STATE_ROW_ID))
+				.run();
+			transaction.insert(identityMerges).values({sourceUserId, importedAt: Date.now()}).run();
+			return {status: "merged"};
+		});
+		if (result.status !== "conflict") {
+			await this.armNextDeadline();
+			await this.broadcastOutstandingQuestionState();
+		}
+		return result;
+	}
+
+	async clearClaimedLegacyIdentity(destinationUserId: string): Promise<void> {
+		this.database.transaction((transaction) => {
+			const lock = transaction.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
+			if (lock?.destinationUserId !== destinationUserId) {
+				throw new Error("legacy identity claim lock does not match the destination account");
+			}
+			transaction.delete(answers).run();
+			transaction.delete(questions).run();
+			transaction.delete(batches).run();
+			transaction.delete(devices).run();
+			transaction
+				.update(state)
+				.set({afk: false, questionsAsked: 0, yepCount: 0, nopeCount: 0, skipCount: 0})
+				.where(eq(state.id, STATE_ROW_ID))
+				.run();
+		});
+		await this.ctx.storage.deleteAlarm();
+		for (const socket of this.ctx.getWebSockets()) {
+			socket.close(1000, "identity moved");
+		}
+	}
+
+	releaseLegacyIdentityClaim(destinationUserId: string): void {
+		this.database
+			.delete(identityMergeLock)
+			.where(and(eq(identityMergeLock.id, 1), eq(identityMergeLock.destinationUserId, destinationUserId)))
+			.run();
+	}
+
 	private async deleteBatches(batchIds: string[], code: string, message: string, closeReason: string): Promise<void> {
 		if (batchIds.length === 0) {
 			return;
@@ -411,6 +580,16 @@ export class UserDurableObject extends DurableObject<Env> {
 		await this.database.delete(questions).where(inArray(questions.batchId, batchIds));
 		await this.database.delete(batches).where(inArray(batches.id, batchIds));
 		await this.broadcastOutstandingQuestionState();
+	}
+
+	private isMergeLocked(): boolean {
+		return this.database.select({id: identityMergeLock.id}).from(identityMergeLock).limit(1).get() !== undefined;
+	}
+
+	private assertWritable(): void {
+		if (this.isMergeLocked()) {
+			throw new Error("identity_merge_in_progress: this legacy identity is being moved to an account");
+		}
 	}
 
 	// ⏰ Re-arm for whichever deadline comes sooner: retention on any batch, or heartbeat

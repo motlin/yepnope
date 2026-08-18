@@ -104,6 +104,10 @@ export const pairClaimRequestSchema = z.object({
 	label: z.string().min(1).max(100),
 });
 
+export const legacyIdentityClaimRequestSchema = z.object({
+	legacy_token: z.string().min(32).max(256),
+});
+
 export const pushSubscriptionSchema = z.object({
 	endpoint: z.url(),
 	keys: z.object({

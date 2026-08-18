@@ -6,7 +6,7 @@ import {z} from "zod";
 const USAGE = "usage: yepnope-mcp pair <code> [--label <machine-label>]";
 const LABEL_PREFIX = "--label=";
 
-const claimResponseSchema = z.object({token: z.string().min(1)});
+const claimResponseSchema = z.object({token: z.string().min(1), credential_type: z.literal("machine")});
 
 export interface PairCommandOptions {
 	baseUrl: string;

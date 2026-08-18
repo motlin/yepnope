@@ -1,3 +1,4 @@
+import {ZodError} from "zod";
 import {runPairCommand, type PairCommandOptions} from "../pair";
 import {startMockBackend, type MockBackend} from "./mock-backend";
 
@@ -12,7 +13,7 @@ describe("yepnope-mcp pair", () => {
 	});
 
 	it("claims the code and prints the export line", async () => {
-		backend = await startMockBackend({claimBody: {token: "test-machine-token"}});
+		backend = await startMockBackend({claimBody: {token: "test-machine-token", credential_type: "machine"}});
 		const output = await runPairCommand(["ABC234", "--label", "alice-laptop"], {baseUrl: backend.baseUrl});
 		expect(backend.claimBodies).toStrictEqual([{code: "ABC234", label: "alice-laptop"}]);
 		expect(output).toBe(
@@ -49,6 +50,28 @@ describe("yepnope-mcp pair", () => {
 		await expect(runPairCommand(["ABC234"], {baseUrl: backend.baseUrl, defaultLabel: "test-host"})).rejects.toThrow(
 			new Error("pairing failed: the server answered HTTP 500."),
 		);
+	});
+
+	it("rejects a response that is not explicitly a machine credential", async () => {
+		backend = await startMockBackend({claimBody: {token: "legacy-app-token", credential_type: "legacy_app"}});
+		let caught: unknown;
+		try {
+			await runPairCommand(["ABC234"], {baseUrl: backend.baseUrl, defaultLabel: "test-host"});
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(ZodError);
+		if (!(caught instanceof ZodError)) {
+			throw new Error("pairing accepted a non-machine credential response");
+		}
+		expect(caught.issues).toStrictEqual([
+			{
+				code: "invalid_value",
+				message: 'Invalid input: expected "machine"',
+				path: ["credential_type"],
+				values: ["machine"],
+			},
+		]);
 	});
 
 	it("requires a pairing code", async () => {

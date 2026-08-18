@@ -35,6 +35,15 @@ function postAuthentication(path: string, body: Record<string, string>, cookie?:
 }
 
 describe("Better Auth account recovery", () => {
+	it("links only provider identities that resolve to the same verified email account", () => {
+		const authentication = createMailboxAuthentication([]);
+		expect(authentication.options.account.accountLinking).toStrictEqual({
+			allowDifferentEmails: false,
+			disableImplicitLinking: false,
+			enabled: true,
+		});
+	});
+
 	it("creates, verifies, restores, signs out, and recovers a verified email account", async () => {
 		const mailbox: DeliveredEmail[] = [];
 		const authentication = createMailboxAuthentication(mailbox);

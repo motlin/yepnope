@@ -118,6 +118,19 @@ export async function fetchPairingStatus(): Promise<PairingStatus> {
 	return {paired: body.paired, machineCount: body.machine_count};
 }
 
+const legacyIdentityClaimResponseSchema = z.object({
+	status: z.literal("claimed"),
+	already_claimed: z.boolean(),
+});
+
+export async function claimLegacyIdentity(legacyToken: string): Promise<void> {
+	await requestJson(
+		"/api/v1/account/claim-legacy",
+		jsonRequest({legacy_token: legacyToken}),
+		legacyIdentityClaimResponseSchema,
+	);
+}
+
 const questionSchema = z.object({
 	batch_id: z.string(),
 	project: z.string(),

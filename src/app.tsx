@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent} from "react";
 import {
+	claimLegacyIdentity,
 	fetchAfk,
 	fetchPairingStatus,
 	fetchSession,
@@ -20,6 +21,7 @@ import {
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {DEMO_QUESTIONS, isDemoQuestion} from "./demo-questions";
+import {clearLegacyToken, loadLegacyToken} from "./legacy-token";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
 
 // 🌟 Harness icon placeholder: an 8-ray starburst standing in for the asking harness's logo.
@@ -941,6 +943,27 @@ export function App(): ReactElement {
 			// Keep the last known pairing state and retry on the next refresh.
 		});
 	}, [session]);
+
+	useEffect(() => {
+		if (session === null) {
+			return;
+		}
+		const legacyToken = loadLegacyToken();
+		if (legacyToken === null) {
+			return;
+		}
+		claimLegacyIdentity(legacyToken).then(
+			() => {
+				clearLegacyToken();
+				refreshAfk();
+				refreshPairingStatus();
+				questionsStream.current?.refresh();
+			},
+			() => {
+				// Keep the credential so the signed-in user can retry the explicit claim.
+			},
+		);
+	}, [refreshAfk, refreshPairingStatus, session]);
 
 	useEffect(() => {
 		if (session === null) {

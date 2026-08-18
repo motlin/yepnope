@@ -29,6 +29,18 @@ describe("POST /api/v1/pair/new", () => {
 			).first(),
 		).toStrictEqual({machines: 0, users: 0});
 	});
+
+	it("accepts only a verified browser session", async () => {
+		const session = await createVerifiedBrowserSession();
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/pair/new`, {
+			method: "POST",
+			headers: {Cookie: session.cookie},
+		});
+		expect({body: await response.json(), status: response.status}).toStrictEqual({
+			body: {status: "ready"},
+			status: 200,
+		});
+	});
 });
 
 describe("POST /api/v1/pair/code", () => {
@@ -93,7 +105,8 @@ describe("POST /api/v1/pair/claim", () => {
 
 		const claimed = await claimPairingCode(issued.code, "Alice's laptop");
 		expect(claimed.status).toBe(201);
-		const machine = await claimed.json<{token: string}>();
+		const machine = await claimed.json<{token: string; credential_type: string}>();
+		expect(machine.credential_type).toBe("machine");
 
 		const created = await createBatchOverHttp(machine.token, "example-project", [
 			{title: "Continue?", body: "Proceed with the example operation?"},
@@ -136,8 +149,18 @@ describe("POST /api/v1/pair/claim", () => {
 	it("is single-use", async () => {
 		const session = await createVerifiedBrowserSession();
 		const issued = await requestPairingCode(session.cookie);
-		expect((await claimPairingCode(issued.code, "Alice's first laptop")).status).toBe(201);
-		expect((await claimPairingCode(issued.code, "Alice's second laptop")).status).toBe(404);
+		const responses = await Promise.all([
+			claimPairingCode(issued.code, "Alice's first laptop"),
+			claimPairingCode(issued.code, "Alice's second laptop"),
+		]);
+		expect(responses.map((response) => response.status).sort()).toStrictEqual([201, 404]);
+		expect(
+			await env.DB.prepare(
+				"SELECT count(*) AS value FROM machine_tokens WHERE user_id = ? AND credential_type = 'machine'",
+			)
+				.bind(session.userId)
+				.first(),
+		).toStrictEqual({value: 1});
 	});
 
 	it("rejects an expired code", async () => {

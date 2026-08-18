@@ -25,6 +25,7 @@ const alice: AuthenticationUser = {
 };
 
 const fetchSession = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser | null>>());
+const claimLegacyIdentity = vi.hoisted(() => vi.fn<(_token: string) => Promise<void>>(async () => Promise.resolve()));
 
 const fetchPairingStatus = vi.hoisted(() =>
 	vi.fn<() => Promise<PairingStatus>>(async () => Promise.resolve({paired: true, machineCount: 1})),
@@ -35,6 +36,7 @@ const closeStream = vi.fn<() => void>();
 const refreshStream = vi.fn<() => void>();
 
 vi.mock("../src/api", () => ({
+	claimLegacyIdentity,
 	fetchAfk: vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)),
 	fetchPairingStatus,
 	fetchSession,
@@ -74,6 +76,24 @@ import {
 import {isIos, isStandalone} from "../src/push";
 
 beforeEach(() => {
+	const storedValues = new Map<string, string>();
+	const storage = {
+		clear: () => {
+			storedValues.clear();
+		},
+		getItem: (key: string) => storedValues.get(key) ?? null,
+		key: (index: number) => [...storedValues.keys()][index] ?? null,
+		get length() {
+			return storedValues.size;
+		},
+		removeItem: (key: string) => {
+			storedValues.delete(key);
+		},
+		setItem: (key: string, value: string) => {
+			storedValues.set(key, value);
+		},
+	} satisfies Storage;
+	Object.defineProperty(window, "localStorage", {configurable: true, value: storage});
 	window.history.replaceState({}, "", "/");
 	publishQuestions = undefined;
 	closeStream.mockClear();
@@ -291,6 +311,17 @@ describe("App live question synchronization", () => {
 });
 
 describe("Better Auth account routes", () => {
+	it("claims and removes a legacy browser token after restoring a verified session", async () => {
+		window.localStorage.setItem("yepnope.token", "legacy-app-token-for-alice");
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(claimLegacyIdentity.mock.calls).toStrictEqual([["legacy-app-token-for-alice"]]);
+			expect(window.localStorage.getItem("yepnope.token")).toBeNull();
+		});
+	});
+
 	it("keeps the demo deck available without creating or storing a browser credential", async () => {
 		fetchSession.mockResolvedValue(null);
 		const storeCredential = vi.spyOn(Storage.prototype, "setItem");

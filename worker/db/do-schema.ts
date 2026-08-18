@@ -47,3 +47,13 @@ export const answers = sqliteTable("answers", {
 	disposition: text("disposition").notNull(),
 	answeredAt: integer("answered_at").notNull(),
 });
+
+export const identityMerges = sqliteTable("identity_merges", {
+	sourceUserId: text("source_user_id").primaryKey(),
+	importedAt: integer("imported_at").notNull(),
+});
+
+export const identityMergeLock = sqliteTable("identity_merge_lock", {
+	id: integer("id").primaryKey(),
+	destinationUserId: text("destination_user_id").notNull(),
+});

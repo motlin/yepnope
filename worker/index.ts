@@ -1,10 +1,12 @@
 import {authenticateBrowserSession, authenticateRequest, createWorkerAuthentication} from "./auth";
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
+import {claimLegacyIdentity} from "./identity-linking";
 import {claimPairingCode, createPairingCode, getPairedMachineCount} from "./pairing";
 import type {UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
 	createBatchRequestSchema,
+	legacyIdentityClaimRequestSchema,
 	MAX_REQUEST_BYTES,
 	pairClaimRequestSchema,
 	pushSubscriptionSchema,
@@ -47,6 +49,10 @@ export default {
 			const issued = await createPairingCode(env.DB, accountUserId);
 			return Response.json({code: issued.code, expires_at: issued.expiresAt}, {status: 201});
 		}
+		if (url.pathname === "/api/v1/pair/new" && request.method === "POST") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			return accountUserId === null ? new Response(null, {status: 401}) : Response.json({status: "ready"});
+		}
 		if (url.pathname === "/api/v1/pair/status" && request.method === "GET") {
 			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
 			if (accountUserId === null) {
@@ -54,6 +60,13 @@ export default {
 			}
 			const machineCount = await getPairedMachineCount(env.DB, accountUserId);
 			return Response.json({paired: machineCount > 0, machine_count: machineCount});
+		}
+		if (url.pathname === "/api/v1/account/claim-legacy" && request.method === "POST") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			if (accountUserId === null) {
+				return new Response(null, {status: 401});
+			}
+			return claimLegacyBrowserIdentity(request, env, accountUserId);
 		}
 
 		const authenticatedRequest = withBrowserSocketAuthorization(request, url);
@@ -130,7 +143,22 @@ async function claimPairing(request: Request, database: D1Database): Promise<Res
 	if (claimed === null) {
 		return new Response(null, {status: 404});
 	}
-	return Response.json({token: claimed.token}, {status: 201});
+	return Response.json({token: claimed.token, credential_type: "machine"}, {status: 201});
+}
+
+async function claimLegacyBrowserIdentity(request: Request, environment: Env, userId: string): Promise<Response> {
+	const parsed = legacyIdentityClaimRequestSchema.safeParse(await request.json().catch(() => null));
+	if (!parsed.success) {
+		return new Response(null, {status: 400});
+	}
+	const result = await claimLegacyIdentity(environment.DB, environment.USER_DO, userId, parsed.data.legacy_token);
+	if (result.status === "not_found") {
+		return new Response(null, {status: 404});
+	}
+	if (result.status === "conflict") {
+		return Response.json({message: result.message}, {status: 409});
+	}
+	return Response.json({status: "claimed", already_claimed: result.alreadyClaimed});
 }
 
 async function subscribePush(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
