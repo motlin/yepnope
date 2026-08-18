@@ -1,6 +1,39 @@
 import {BODY_MAX_CHARACTERS, TITLE_MAX_CHARACTERS} from "../worker/validation";
+import {z} from "zod";
+import type {Disposition} from "../worker/validation";
 
 export const TOOL_NAME = "ask_yep_nope";
+
+export const ASK_YEP_NOPE_ARGUMENTS_SCHEMA = z.object({
+	project: z.string().min(1),
+	questions: z.array(z.object({title: z.string(), body: z.string()})).min(1),
+});
+
+export type AskYepNopeArguments = z.infer<typeof ASK_YEP_NOPE_ARGUMENTS_SCHEMA>;
+
+export const SKIP_INSTRUCTION =
+	"SKIPPED. The user declined to decide. Leave this alone and report it; do not choose for them.";
+
+const DISPOSITION_SUFFIX: Record<Disposition, string> = {
+	yep: "YEP",
+	nope: "NOPE",
+	skip: SKIP_INSTRUCTION,
+};
+
+export function formatAskYepNopeResult(
+	questions: AskYepNopeArguments["questions"],
+	dispositions: Disposition[],
+): string {
+	return questions
+		.map((question, position) => {
+			const disposition = dispositions[position];
+			if (disposition === undefined) {
+				throw new Error(`missing disposition for question ${String(position)}`);
+			}
+			return `${question.title} -> ${DISPOSITION_SUFFIX[disposition]}`;
+		})
+		.join("\n");
+}
 
 // 🗣️ Verbatim from the spec (appendix A.2 step 0); iterate against real sessions, not in review.
 export const TOOL_DESCRIPTION =
@@ -40,3 +73,25 @@ export const TOOL_INPUT_SCHEMA = {
 		},
 	},
 } as const;
+
+function schemaTypes<Input>(): {input: Input; output: Input} | undefined {
+	return undefined;
+}
+
+export const ASK_YEP_NOPE_STANDARD_SCHEMA = {
+	"~standard": {
+		version: 1 as const,
+		vendor: "yepnope",
+		types: schemaTypes<AskYepNopeArguments>(),
+		validate(value: unknown) {
+			const parsed = ASK_YEP_NOPE_ARGUMENTS_SCHEMA.safeParse(value);
+			return parsed.success
+				? {value: parsed.data}
+				: {issues: parsed.error.issues.map((issue) => ({message: issue.message, path: issue.path}))};
+		},
+		jsonSchema: {
+			input: () => TOOL_INPUT_SCHEMA,
+			output: () => TOOL_INPUT_SCHEMA,
+		},
+	},
+};

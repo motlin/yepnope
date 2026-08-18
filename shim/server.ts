@@ -1,11 +1,10 @@
 // eslint-disable-next-line typescript/no-deprecated -- the low-level Server is the sanctioned way to publish a verbatim JSON Schema tool listing
 import {Server} from "@modelcontextprotocol/sdk/server/index.js";
 import {CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult} from "@modelcontextprotocol/sdk/types.js";
-import {z} from "zod";
 import {askYepNope, type AskOptions} from "./ask";
 import {deriveGitContext, type GitContext} from "./git-context";
 import {recordAndCoach} from "./telemetry";
-import {TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA, TOOL_NAME} from "./tool";
+import {ASK_YEP_NOPE_ARGUMENTS_SCHEMA, TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA, TOOL_NAME} from "./tool";
 
 const SHIM_VERSION = "0.1.0";
 
@@ -18,13 +17,6 @@ export interface ShimServerOptions {
 	reconnectDelayMilliseconds?: number;
 	deriveContext?: (directory: string) => Promise<GitContext>;
 }
-
-// 🪃 Lenient shape check only: length limits go through findLengthViolations so the model
-// gets the teaching rejection (spec §7.2), never a zod stack trace.
-const argumentsSchema = z.object({
-	project: z.string().min(1),
-	questions: z.array(z.object({title: z.string(), body: z.string()})).min(1),
-});
 
 function textResult(text: string, isError: boolean): CallToolResult {
 	return {content: [{type: "text", text}], ...(isError ? {isError: true} : {})};
@@ -49,7 +41,7 @@ export function createShimServer(options: ShimServerOptions): Server {
 		if (request.params.name !== TOOL_NAME) {
 			return textResult(`Unknown tool: ${request.params.name}. The only tool here is ${TOOL_NAME}.`, true);
 		}
-		const parsed = argumentsSchema.safeParse(request.params.arguments);
+		const parsed = ASK_YEP_NOPE_ARGUMENTS_SCHEMA.safeParse(request.params.arguments);
 		if (!parsed.success) {
 			return textResult(
 				"ask_yep_nope needs a project label and a non-empty questions array of {title, body} objects.",

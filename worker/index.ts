@@ -2,6 +2,7 @@ import {authenticateBrowserSession, authenticateRequest, createWorkerAuthenticat
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
 import {claimLegacyIdentity} from "./identity-linking";
 import {cleanupExpiredIdentityRecords} from "./identity-lifecycle";
+import {handleRemoteMcpRequest} from "./mcp";
 import {
 	createObservationContext,
 	emitObservation,
@@ -57,10 +58,13 @@ export default {
 		const observationContext = createObservationContext("worker.main");
 		const env = observeEnvironment(environment, observationContext);
 		const observeExchange =
-			url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")
+			url.pathname === "/mcp" || url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")
 				? observeRedactedHttpExchange
 				: observeHttpExchange;
 		return observeExchange(observationContext, request, async (request) => {
+			if (url.pathname === "/mcp") {
+				return handleRemoteMcpRequest(request, environment, executionContext, observationContext);
+			}
 			if (
 				url.pathname === "/api/auth" ||
 				url.pathname.startsWith("/api/auth/") ||

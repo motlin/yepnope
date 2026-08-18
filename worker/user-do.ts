@@ -253,6 +253,26 @@ export class UserDurableObject extends DurableObject<Env> {
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
 	}
 
+	async retractBatch(batchId: string): Promise<boolean> {
+		await this.initialize();
+		this.assertWritable();
+		if (!(await this.batchExists(batchId))) {
+			return false;
+		}
+		if (isComplete(await this.batchDispositions(batchId))) {
+			return false;
+		}
+		await this.deleteBatches(
+			[batchId],
+			TerminalActivityOutcome.Retracted,
+			"batch_retracted",
+			"the originating MCP call ended before the questions were answered",
+			"batch retracted",
+		);
+		await this.armNextDeadline();
+		return true;
+	}
+
 	async getAfk(paired: boolean): Promise<boolean> {
 		await this.initialize();
 		if (!paired) {
@@ -968,6 +988,9 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	private sendWebSocketFrame(socket: WebSocket, frame: string | ArrayBuffer | ArrayBufferView): void {
+		if (socket.readyState !== WebSocket.OPEN) {
+			return;
+		}
 		observeWebSocketFrame(this.observationContext, "outbound", frame);
 		socket.send(frame);
 	}

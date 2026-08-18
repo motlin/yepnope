@@ -4,15 +4,14 @@ import {z} from "zod";
 import {parseFrame, type DispositionMap} from "../worker/protocol";
 import {findLengthViolations, teachingRejection, type Disposition} from "../worker/validation";
 import type {GitContext} from "./git-context";
+import {formatAskYepNopeResult} from "./tool";
 
 // 🛑 Verbatim from spec §8.3: a tool error, not a result, so the model treats it as blocking.
 export const QUOTA_EXHAUSTED_TEXT =
 	"STOP. Question quota exhausted. Do not proceed and do not guess. Tell the user their quota " +
 	"resets Tuesday at 4:00 AM, or that they can upgrade at yepnope.app/upgrade, then end your turn.";
 
-// 🙅 A skip is a refusal to decide, never a license to choose (spec appendix A.2 step 14).
-export const SKIP_INSTRUCTION =
-	"SKIPPED. The user declined to decide. Leave this alone and report it; do not choose for them.";
+export {SKIP_INSTRUCTION} from "./tool";
 
 const DEFAULT_HEARTBEAT_MILLISECONDS = 30_000;
 const DEFAULT_PROGRESS_MILLISECONDS = 15_000;
@@ -62,16 +61,6 @@ type SocketResult =
 
 function errorOutcome(text: string): AskOutcome {
 	return {isError: true, text, dispositions: []};
-}
-
-const DISPOSITION_SUFFIX: Record<Disposition, string> = {
-	yep: "YEP",
-	nope: "NOPE",
-	skip: SKIP_INSTRUCTION,
-};
-
-function dispositionLine(title: string, disposition: Disposition): string {
-	return `${title} -> ${DISPOSITION_SUFFIX[disposition]}`;
 }
 
 function streamUrl(baseUrl: string, batchId: string): string {
@@ -179,17 +168,15 @@ function reconnectDelay(
 
 function resolvedOutcome(batch: AskBatch, created: CreatedBatch, dispositions: DispositionMap): AskOutcome {
 	const ordered: Disposition[] = [];
-	const lines: string[] = [];
-	for (const [position, question] of batch.questions.entries()) {
+	for (const position of batch.questions.keys()) {
 		const questionId = created.question_ids[position];
 		const disposition = questionId === undefined ? null : (dispositions[questionId] ?? null);
 		if (disposition === null) {
 			return errorOutcome(`The batch resolved without a disposition for question ${position}.`);
 		}
 		ordered.push(disposition);
-		lines.push(dispositionLine(question.title, disposition));
 	}
-	return {isError: false, text: lines.join("\n"), dispositions: ordered};
+	return {isError: false, text: formatAskYepNopeResult(batch.questions, ordered), dispositions: ordered};
 }
 
 async function openStreamOnce(
