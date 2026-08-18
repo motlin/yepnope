@@ -26,7 +26,6 @@ import {
 	type PairingStatus,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
-import {DEMO_QUESTIONS, isDemoQuestion} from "./demo-questions";
 import {migrateLegacyIdentity} from "./legacy-token";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
 
@@ -269,7 +268,7 @@ function SignIn({onAuthenticated, onNavigate}: SignInProps): ReactElement {
 						onNavigate("deck");
 					}}
 				>
-					Back to the demo
+					Back to the deck
 				</button>
 			</div>
 		</AccountPanel>
@@ -369,7 +368,7 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 						onNavigate("deck");
 					}}
 				>
-					Back to the demo
+					Back to the deck
 				</button>
 			</div>
 		</AccountPanel>
@@ -1068,7 +1067,6 @@ export function App(): ReactElement {
 	const [currentQuestions, setCurrentQuestions] = useState<DeckQuestion[]>([]);
 	const [afk, setAfkState] = useState<boolean | null>(null);
 	const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
-	const [demoQuestions, setDemoQuestions] = useState<DeckQuestion[]>(() => [...DEMO_QUESTIONS]);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const [registrationEmail, setRegistrationEmail] = useState("");
 	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
@@ -1205,10 +1203,6 @@ export function App(): ReactElement {
 	}, [refreshAfk, refreshPairingStatus, session]);
 
 	function onAnswer(questionId: string, disposition: Disposition): void {
-		if (isDemoQuestion(questionId)) {
-			setDemoQuestions((current) => current.filter((question) => question.questionId !== questionId));
-			return;
-		}
 		if (session === null) {
 			return;
 		}
@@ -1287,12 +1281,7 @@ export function App(): ReactElement {
 			case "reset-password":
 				return <ResetPassword onNavigate={navigate} />;
 			case "deck":
-				return (
-					<Deck
-						questions={currentQuestions.length === 0 ? demoQuestions : currentQuestions}
-						onAnswer={onAnswer}
-					/>
-				);
+				return <Deck questions={currentQuestions} onAnswer={onAnswer} />;
 		}
 		return unreachableView(view);
 	}
@@ -1301,15 +1290,17 @@ export function App(): ReactElement {
 		<div className="app">
 			<div className="app-header">
 				<span className="meta">
-					<AfkToggle
-						afk={afk}
-						paired={pairingStatus?.paired ?? null}
-						signedIn={session !== null}
-						onPair={() => {
-							navigate(session === null ? "sign-in" : "settings");
-						}}
-						onToggle={onToggleAfk}
-					/>
+					{view === "deck" && (
+						<AfkToggle
+							afk={afk}
+							paired={pairingStatus?.paired ?? null}
+							signedIn={session !== null}
+							onPair={() => {
+								navigate(session === null ? "sign-in" : "settings");
+							}}
+							onToggle={onToggleAfk}
+						/>
+					)}
 					<HarnessIcon />
 					<button
 						type="button"

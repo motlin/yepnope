@@ -158,7 +158,7 @@ export function Deck({questions, onAnswer}: DeckProps): ReactElement {
 			<div className="deck">
 				<div className="resolved">
 					<h3>All caught up</h3>
-					<p>No questions waiting. Your agents are on their own for now.</p>
+					<p>No questions waiting. Questions sent through your paired agent will appear here.</p>
 				</div>
 			</div>
 		);

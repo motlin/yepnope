@@ -155,11 +155,14 @@ describe("App live question synchronization", () => {
 
 		window.history.pushState({}, "", "/");
 		fireEvent.popState(window);
-		expect(screen.getByText("Approve this sample change?")).toBeDefined();
+		expect(
+			screen.getByText("No questions waiting. Questions sent through your paired agent will appear here.")
+				.textContent,
+		).toBe("No questions waiting. Questions sent through your paired agent will appear here.");
 		expect(document.title).toBe("YepNope");
 	});
 
-	it("keeps demo cards after pairing and refreshes the controls automatically", async () => {
+	it("keeps the real deck empty after pairing and refreshes the controls automatically", async () => {
 		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0});
 		vi.mocked(issuePairingCode).mockResolvedValue({code: "ABC234", expiresAt: Date.now() + 60_000});
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
@@ -178,10 +181,10 @@ describe("App live question synchronization", () => {
 		});
 
 		expect((await screen.findByRole("button", {name: "Pair a machine"})).getAttribute("aria-pressed")).toBeNull();
-		expect(screen.getByText("Approve this sample change?")).toBeDefined();
-		expect(screen.getByText("1 of 3")).toBeDefined();
+		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
 
 		fireEvent.click(screen.getByRole("button", {name: "Pair a machine"}));
+		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
 		expect(await screen.findByText("ABC234")).toBeDefined();
 
@@ -199,11 +202,11 @@ describe("App live question synchronization", () => {
 				currentDeck: [],
 			});
 		});
-		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
+		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 
 		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
-		expect(screen.getByText("Approve this sample change?")).toBeDefined();
-		expect(screen.getByText("1 of 3")).toBeDefined();
+		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
+		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
 	});
 
 	it("shows pairing immediately when the live state reports that the last machine was revoked", async () => {
@@ -362,7 +365,8 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(screen.getByText("Approve this sample change?")).toBeDefined();
+		expect(screen.queryByText("Ship it?")).toBeNull();
+		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
 	});
 
 	it("closes the live stream when the app unmounts", async () => {
@@ -387,14 +391,14 @@ describe("Better Auth account routes", () => {
 		});
 	});
 
-	it("keeps the demo deck available without creating or storing a browser credential", async () => {
+	it("shows an empty real deck without creating or storing a browser credential", async () => {
 		fetchSession.mockResolvedValue(null);
 		const storeCredential = vi.spyOn(Storage.prototype, "setItem");
 
 		render(<App />);
 
-		expect(screen.getByText("Approve this sample change?")).toBeDefined();
-		expect(screen.getByText("1 of 3")).toBeDefined();
+		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
+		expect(screen.queryByText("Approve this sample change?")).toBeNull();
 		await waitFor(() => {
 			expect(screen.getByRole("button", {name: "Sign in to pair"})).toBeDefined();
 		});
@@ -412,11 +416,11 @@ describe("Better Auth account routes", () => {
 		expect(screen.queryByRole("button", {name: "Generate and copy pairing code"})).toBeNull();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
 		expect(screen.getAllByRole("button", {name: /sign in/i}).map((button) => button.textContent)).toStrictEqual([
-			"Sign in to pair",
 			"Sign in",
 			"Sign in",
 			"Sign in to pair",
 		]);
+		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 	});
 
 	it("registers an account and supports verification email resend", async () => {
@@ -532,7 +536,8 @@ describe("Better Auth account routes", () => {
 		await waitFor(() => {
 			expect(revokeMachine.mock.calls).toStrictEqual([["machine-alice"]]);
 			expect(screen.getByText("No paired machines.").textContent).toBe("No paired machines.");
-			expect(screen.getByRole("button", {name: "Pair a machine"}).textContent).toBe("Pair a machine");
+			expect(screen.getByRole("heading", {name: "Pair a machine"}).textContent).toBe("Pair a machine");
+			expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		});
 	});
 
@@ -551,6 +556,8 @@ describe("Better Auth account routes", () => {
 		window.history.replaceState({}, "", "/");
 		render(<App />);
 		fireEvent.click(screen.getByRole("button", {name: "Sign in to pair"}));
+		expect(window.location.pathname).toBe("/sign-in");
+		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
 		fireEvent.click(screen.getByRole("button", {name: /^Sign in$/}));
