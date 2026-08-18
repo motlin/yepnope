@@ -555,7 +555,7 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	override async fetch(request: Request): Promise<Response> {
-		return observeHttpExchange(this.observationContext, request, async () => {
+		return observeHttpExchange(this.observationContext, request, async (request) => {
 			await this.initialize();
 			const url = new URL(request.url);
 			if (url.pathname === "/api/v1/current-deck/stream") {

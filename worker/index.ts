@@ -33,18 +33,18 @@ const PUSH_DEVICE_MANAGEMENT_PATH = /^\/api\/v1\/account\/push-devices\/([0-9a-f
 
 export default {
 	async fetch(request, environment, executionContext): Promise<Response> {
+		const url = new URL(request.url);
+		// 🛡️ Rude by design: reject on Content-Length before reading the body (spec §7.2).
+		// The hook route carries whole tool_inputs and gets a higher ceiling (spec §10).
+		const byteCeiling = url.pathname === "/api/v1/hook" ? MAX_HOOK_REQUEST_BYTES : MAX_REQUEST_BYTES;
+		const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+		if (contentLength > byteCeiling) {
+			return new Response(null, {status: 413});
+		}
+
 		const observationContext = createObservationContext("worker.main");
 		const env = observeEnvironment(environment, observationContext);
-		return observeHttpExchange(observationContext, request, async () => {
-			const url = new URL(request.url);
-			// 🛡️ Rude by design: reject on Content-Length before reading the body (spec §7.2).
-			// The hook route carries whole tool_inputs and gets a higher ceiling (spec §10).
-			const byteCeiling = url.pathname === "/api/v1/hook" ? MAX_HOOK_REQUEST_BYTES : MAX_REQUEST_BYTES;
-			const contentLength = Number(request.headers.get("Content-Length") ?? "0");
-			if (contentLength > byteCeiling) {
-				return new Response(null, {status: 413});
-			}
-
+		return observeHttpExchange(observationContext, request, async (request) => {
 			if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
 				return createWorkerAuthentication(env, executionContext).handler(request);
 			}

@@ -78,7 +78,7 @@ export function createAdminHandler(authenticate: AccessAuthenticator = authentic
 		async fetch(request: Request, rawEnvironment: AdminEnvironment): Promise<Response> {
 			const observationContext = createObservationContext("worker.admin");
 			const environment = observeEnvironment(rawEnvironment, observationContext);
-			return observeHttpExchange(observationContext, request, async () => {
+			return observeHttpExchange(observationContext, request, async (request) => {
 				try {
 					await authenticate(request, environment);
 				} catch {

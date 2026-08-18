@@ -2,6 +2,7 @@
 
 const OBSERVATION_SCHEMA = "yepnope.io.v1";
 const OBSERVATION_CHUNK_BYTES = 24 * 1024;
+const OBSERVED_BODY_BYTES = 1024 * 1024;
 
 type ObservationSeverity = "error" | "log";
 
@@ -426,6 +427,26 @@ export function emitObservation(
 	data: unknown,
 	severity: ObservationSeverity = "log",
 ): string[] {
+	return emitEncodedObservation(context, operation, phase, encodeObservedValue(redactObservedValue(data)), severity);
+}
+
+function emitDebugObservation(
+	context: ObservationContext,
+	operation: string,
+	phase: string,
+	data: unknown,
+	severity: ObservationSeverity = "log",
+): string[] {
+	return emitEncodedObservation(context, operation, phase, encodeObservedValue(data), severity);
+}
+
+function emitEncodedObservation(
+	context: ObservationContext,
+	operation: string,
+	phase: string,
+	data: EncodedObservedValue,
+	severity: ObservationSeverity,
+): string[] {
 	const event: ObservationEvent = {
 		schema: OBSERVATION_SCHEMA,
 		event_id: crypto.randomUUID(),
@@ -435,7 +456,7 @@ export function emitObservation(
 		operation,
 		phase,
 		timestamp: Date.now(),
-		data: encodeObservedValue(redactObservedValue(data)),
+		data,
 	};
 	const bytes = new TextEncoder().encode(JSON.stringify(event));
 	const chunkCount = Math.max(1, Math.ceil(bytes.length / OBSERVATION_CHUNK_BYTES));
@@ -744,16 +765,149 @@ export function observeD1Database(database: D1Database, context: ObservationCont
 	return new ObservedD1Database(database, context);
 }
 
+interface CapturedBody {
+	body: ArrayBuffer;
+	bodyTruncated: boolean;
+}
+
+function observedBody(
+	body: ReadableStream<Uint8Array>,
+	complete: (captured: CapturedBody) => void,
+	fail: (error: unknown) => void,
+): ReadableStream<Uint8Array> {
+	const chunks: Uint8Array[] = [];
+	let capturedBytes = 0;
+	let bodyTruncated = false;
+	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
+	return new ReadableStream<Uint8Array>(
+		{
+			async pull(controller) {
+				reader ??= body.getReader();
+				let result: ReadableStreamReadResult<Uint8Array>;
+				try {
+					result = await reader.read();
+				} catch (error) {
+					fail(error);
+					controller.error(error);
+					return;
+				}
+				if (result.done) {
+					const captured = new Uint8Array(capturedBytes);
+					let offset = 0;
+					for (const chunk of chunks) {
+						captured.set(chunk, offset);
+						offset += chunk.byteLength;
+					}
+					complete({body: captured.buffer, bodyTruncated});
+					controller.close();
+					return;
+				}
+
+				const remainingBytes = OBSERVED_BODY_BYTES - capturedBytes;
+				if (remainingBytes > 0) {
+					const capturedChunk = result.value.slice(0, remainingBytes);
+					if (capturedChunk.byteLength > 0) {
+						chunks.push(capturedChunk);
+					}
+					capturedBytes += capturedChunk.byteLength;
+				}
+				bodyTruncated ||= result.value.byteLength > remainingBytes;
+				controller.enqueue(result.value);
+			},
+			async cancel(reason) {
+				try {
+					reader ??= body.getReader();
+					await reader.cancel(reason);
+				} catch (error) {
+					fail(error);
+					throw error;
+				}
+			},
+		},
+		{highWaterMark: 0},
+	);
+}
+
+function emitHttpCaptureFailure(context: ObservationContext, operation: string, error: unknown): void {
+	try {
+		emitDebugObservation(context, `${operation}.capture`, "failure", error, "error");
+	} catch {
+		// Observation failures must not affect the HTTP exchange.
+	}
+}
+
+function emitHttpObservation(context: ObservationContext, operation: string, data: unknown): void {
+	try {
+		emitDebugObservation(context, operation, operation === "http.request" ? "input" : "output", data);
+	} catch (error) {
+		emitHttpCaptureFailure(context, operation, error);
+	}
+}
+
+function requestObservation(request: Request, context: ObservationContext): Request {
+	const observation = {
+		method: request.method,
+		url: request.url,
+		headers: Array.from(request.headers.entries()),
+	};
+	if (request.body === null) {
+		emitHttpObservation(context, "http.request", {...observation, body: null, bodyTruncated: false});
+		return request;
+	}
+	try {
+		const body = observedBody(
+			request.body,
+			(captured) => {
+				emitHttpObservation(context, "http.request", {...observation, ...captured});
+			},
+			(error) => {
+				emitHttpCaptureFailure(context, "http.request", error);
+			},
+		);
+		return new Request(request, {body});
+	} catch (error) {
+		emitHttpCaptureFailure(context, "http.request", error);
+		return request;
+	}
+}
+
+function responseObservation(response: Response, context: ObservationContext): Response {
+	const observation = {
+		status: response.status,
+		statusText: response.statusText,
+		headers: Array.from(response.headers.entries()),
+		webSocket: response.webSocket !== null,
+	};
+	if (response.body === null || response.webSocket !== null) {
+		emitHttpObservation(context, "http.response", {...observation, body: null, bodyTruncated: false});
+		return response;
+	}
+	try {
+		const body = observedBody(
+			response.body,
+			(captured) => {
+				emitHttpObservation(context, "http.response", {...observation, ...captured});
+			},
+			(error) => {
+				emitHttpCaptureFailure(context, "http.response", error);
+			},
+		);
+		return new Response(body, response);
+	} catch (error) {
+		emitHttpCaptureFailure(context, "http.response", error);
+		return response;
+	}
+}
+
 export async function observeHttpExchange(
 	context: ObservationContext,
 	request: Request,
-	handle: () => Promise<Response>,
+	handle: (request: Request) => Promise<Response>,
 ): Promise<Response> {
-	emitObservation(context, "http.request", "input", request);
+	const observedRequest = requestObservation(request, context);
 	try {
-		const response = await handle();
-		emitObservation(context, "http.response", "output", response);
-		return response;
+		return responseObservation(await handle(observedRequest), context);
 	} catch (error) {
 		emitObservation(context, "http.exchange", "failure", error, "error");
 		throw error;
@@ -1053,7 +1207,7 @@ function observeDurableObjectStub(stub: DurableObjectStub, context: ObservationC
 			if (property === "fetch") {
 				return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 					const request = new Request(input, init);
-					return observeHttpExchange(context, request, async () => target.fetch(request));
+					return observeHttpExchange(context, request, async (request) => target.fetch(request));
 				};
 			}
 			return (...arguments_: unknown[]): unknown =>
