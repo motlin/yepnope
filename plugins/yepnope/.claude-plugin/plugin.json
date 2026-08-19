@@ -1,0 +1,16 @@
+{
+	"$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+	"name": "yepnope",
+	"displayName": "YepNope",
+	"version": "0.1.0",
+	"description": "Route brief yes-or-no coding-agent questions to your phone.",
+	"author": {
+		"name": "YepNope"
+	},
+	"homepage": "https://yepnope.app",
+	"repository": "https://github.com/motlin/yepnope",
+	"license": "MIT",
+	"keywords": ["claude-code", "codex", "mcp", "yes-no"],
+	"skills": ["./skills/yepnope", "./skills/yepnope-setup"],
+	"mcpServers": "./.mcp.json"
+}

@@ -6,6 +6,57 @@ Agents ask brief, self-contained questions through an MCP tool or the Claude Cod
 permission hook; the questions land on your phone as swipe cards. Right is yep,
 left is nope, down is skip. The agent blocks until every card is answered.
 
+## Install the agent integration
+
+This repository is the distribution source; YepNope does not need a separate
+skills repository. The recommended plugin install bundles both YepNope skills
+with the remote MCP connection.
+
+For Codex:
+
+```sh
+codex plugin marketplace add motlin/yepnope
+codex plugin add yepnope@yepnope
+```
+
+For Claude Code:
+
+```sh
+claude plugin marketplace add motlin/yepnope
+claude plugin install yepnope@yepnope
+```
+
+Start a new agent session after installation and complete OAuth when the client
+prompts you. The plugin does not create or replace a status line.
+
+To install from a local checkout while developing the plugin, run:
+
+```sh
+./install-local.sh all
+```
+
+Pass `claude` or `codex` instead of `all` to update only one client. The local
+installer registers this checkout as the `yepnope` marketplace, refreshes the
+plugin cache, and leaves status-line settings untouched.
+
+For a lightweight skill-only installation without the bundled MCP connection,
+use the open Agent Skills installer:
+
+```sh
+npx skills add motlin/yepnope \
+	--skill yepnope \
+	--skill yepnope-setup \
+	--global \
+	--agent claude-code \
+	--agent codex \
+	--yes
+```
+
+That command installs both skills. Run `/yepnope-setup` in Claude Code or
+`$yepnope-setup` in Codex to add and authenticate the remote MCP connection.
+The skill-only path does not install project settings, status-line settings, or
+background polling.
+
 ## Pairing
 
 Until the package is published, build and run the checked-out shim directly:

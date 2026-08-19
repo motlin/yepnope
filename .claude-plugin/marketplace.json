@@ -1,0 +1,20 @@
+{
+	"$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+	"name": "yepnope",
+	"description": "YepNope skills and remote MCP connection for coding agents.",
+	"owner": {
+		"name": "YepNope"
+	},
+	"plugins": [
+		{
+			"name": "yepnope",
+			"description": "Route brief yes-or-no coding-agent questions to your phone.",
+			"version": "0.1.0",
+			"author": {
+				"name": "YepNope"
+			},
+			"source": "./plugins/yepnope",
+			"category": "productivity"
+		}
+	]
+}

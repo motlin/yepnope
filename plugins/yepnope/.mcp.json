@@ -1,0 +1,8 @@
+{
+	"mcpServers": {
+		"yepnope": {
+			"type": "http",
+			"url": "https://yepnope.app/mcp"
+		}
+	}
+}

@@ -1,0 +1,23 @@
+{
+	"name": "yepnope",
+	"version": "0.1.0",
+	"description": "Route brief yes-or-no coding-agent questions to your phone.",
+	"author": {
+		"name": "YepNope"
+	},
+	"homepage": "https://yepnope.app",
+	"repository": "https://github.com/motlin/yepnope",
+	"license": "MIT",
+	"keywords": ["codex", "claude-code", "mcp", "yes-no"],
+	"skills": "./skills/",
+	"interface": {
+		"displayName": "YepNope",
+		"shortDescription": "Answer coding-agent questions from your phone",
+		"longDescription": "Connect YepNope and route brief yes-or-no coding-agent questions to your phone without taking over a status line.",
+		"developerName": "YepNope",
+		"category": "Productivity",
+		"capabilities": ["Skills", "MCP"],
+		"defaultPrompt": ["Use YepNope to ask me a yes-or-no question.", "Check whether YepNope is connected."]
+	},
+	"mcpServers": "./.mcp.json"
+}
