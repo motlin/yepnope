@@ -347,7 +347,10 @@ describe("Durable Object and transport observation", () => {
 		const context = createObservationContext("test.machine-token", "machine-token-correlation", captured.sink);
 		const request = new Request(`https://example.com/api/v1/resource?credential=${MACHINE_TOKEN_FIXTURE}`, {
 			method: "POST",
-			headers: {Authorization: `Bearer ${MACHINE_TOKEN_FIXTURE}`},
+			headers: {
+				Authorization: `Bearer ${MACHINE_TOKEN_FIXTURE}`,
+				"Cf-Access-Jwt-Assertion": "access-assertion-secret",
+			},
 			body: JSON.stringify({token: MACHINE_TOKEN_FIXTURE}),
 		});
 		const response = await observeHttpExchange(context, request, async (observedRequest) => {
@@ -371,7 +374,8 @@ describe("Durable Object and transport observation", () => {
 					body: new TextEncoder().encode(JSON.stringify({token: MACHINE_TOKEN_REDACTION})).buffer,
 					bodyTruncated: false,
 					headers: [
-						["authorization", `Bearer ${MACHINE_TOKEN_REDACTION}`],
+						["authorization", "[redacted]"],
+						["cf-access-jwt-assertion", "[redacted]"],
 						["content-type", "text/plain;charset=UTF-8"],
 					],
 					method: "POST",
@@ -944,73 +948,10 @@ describe("Durable Object and transport observation", () => {
 			},
 			{severity: "log", operation: "do.rpc.setAfk", phase: "input", data: {kind: "object"}},
 			{severity: "log", operation: "do.rpc.setAfk", phase: "output", data: {kind: "object"}},
-			{
-				severity: "log",
-				operation: "email.send",
-				phase: "input",
-				data: {
-					arguments: [
-						{
-							kind: "email_message_builder",
-							fields: {
-								attachments: [
-									{
-										disposition: "inline",
-										contentId: "example-logo",
-										filename: "logo.txt",
-										type: "text/plain",
-										content: "example inline attachment",
-									},
-									{
-										disposition: "attachment",
-										filename: "codes.bin",
-										type: "application/octet-stream",
-										content: Uint8Array.of(0, 128, 255),
-									},
-								],
-								bcc: {email: "dana@example.com", name: "Dana"},
-								cc: "charlie@example.com",
-								from: {email: "accounts@yepnope.app", name: "Example Sender"},
-								headers: {"X-Example-Category": "authentication"},
-								html: '<p>Use <a href="https://example.com/reset-password?token=fake-reset-token">this link</a></p>',
-								replyTo: {email: "support@example.com", name: "Example Support"},
-								subject: "Reset your password",
-								text: "Use https://example.com/reset-password?token=fake-reset-token",
-								to: ["alice@example.com", {email: "bob@example.com", name: "Bob"}],
-							},
-						},
-					],
-				},
-			},
-			{
-				severity: "log",
-				operation: "email.send",
-				phase: "output",
-				data: {messageId: "test-message-1"},
-			},
-			{
-				severity: "log",
-				operation: "email.send",
-				phase: "input",
-				data: {
-					arguments: [
-						{
-							kind: "email_message",
-							envelope: {from: "accounts@yepnope.app", to: "alice@example.com"},
-							content: {
-								available: false,
-								reason: "raw_mime_not_exposed_by_send_binding",
-							},
-						},
-					],
-				},
-			},
-			{
-				severity: "log",
-				operation: "email.send",
-				phase: "output",
-				data: {messageId: "test-message-2"},
-			},
+			{severity: "log", operation: "email.send", phase: "input", data: {kind: "object"}},
+			{severity: "log", operation: "email.send", phase: "output", data: {kind: "object"}},
+			{severity: "log", operation: "email.send", phase: "input", data: {kind: "object"}},
+			{severity: "log", operation: "email.send", phase: "output", data: {kind: "object"}},
 			{severity: "log", operation: "websocket.frame", phase: "outbound", data: {kind: "string"}},
 			{severity: "log", operation: "websocket.frame", phase: "inbound", data: {kind: "array_buffer"}},
 		]);

@@ -262,14 +262,6 @@ function decodeNumber(value: string): number {
 	}
 }
 
-class OutboundEmailObservation {
-	readonly message: EmailMessage | EmailMessageBuilder;
-
-	constructor(message: EmailMessage | EmailMessageBuilder) {
-		this.message = message;
-	}
-}
-
 function objectType(value: object): string {
 	const prototype = Object.getPrototypeOf(value) as {constructor?: unknown} | null;
 	const constructor = prototype?.constructor;
@@ -286,39 +278,6 @@ function isDurableObjectId(value: object): value is DurableObjectId {
 function isPlainObject(value: object): boolean {
 	const prototype = Object.getPrototypeOf(value);
 	return prototype === null || prototype === Object.prototype;
-}
-
-function encodeOutboundEmail(
-	message: EmailMessage | EmailMessageBuilder,
-	id: number,
-	references: Map<object, number>,
-	redactMachineTokenSecrets: boolean,
-): EncodedObservedValue {
-	if (!("subject" in message)) {
-		return {
-			kind: "email_message",
-			id,
-			from: redactMachineTokenSecrets ? redactMachineTokens(message.from) : message.from,
-			to: redactMachineTokenSecrets ? redactMachineTokens(message.to) : message.to,
-			content: {available: false, reason: "raw_mime_not_exposed_by_send_binding"},
-		};
-	}
-	return {
-		kind: "email_message_builder",
-		id,
-		value: [
-			["attachments", encodeValue(message.attachments, references, redactMachineTokenSecrets)],
-			["bcc", encodeValue(message.bcc, references, redactMachineTokenSecrets)],
-			["cc", encodeValue(message.cc, references, redactMachineTokenSecrets)],
-			["from", encodeValue(message.from, references, redactMachineTokenSecrets)],
-			["headers", encodeValue(message.headers, references, redactMachineTokenSecrets)],
-			["html", encodeValue(message.html, references, redactMachineTokenSecrets)],
-			["replyTo", encodeValue(message.replyTo, references, redactMachineTokenSecrets)],
-			["subject", encodeValue(message.subject, references, redactMachineTokenSecrets)],
-			["text", encodeValue(message.text, references, redactMachineTokenSecrets)],
-			["to", encodeValue(message.to, references, redactMachineTokenSecrets)],
-		],
-	};
 }
 
 function encodeValue(
@@ -354,9 +313,6 @@ function encodeValue(
 	const id = references.size;
 	references.set(value, id);
 
-	if (value instanceof OutboundEmailObservation) {
-		return encodeOutboundEmail(value.message, id, references, redactMachineTokenSecrets);
-	}
 	if (value instanceof ArrayBuffer) {
 		const bytes = new Uint8Array(value);
 		return {
@@ -1085,11 +1041,28 @@ function emitHttpObservation(context: ObservationContext, operation: string, dat
 	}
 }
 
+const SENSITIVE_HTTP_HEADERS = new Set([
+	"authorization",
+	"cf-access-jwt-assertion",
+	"cookie",
+	"proxy-authorization",
+	"sec-websocket-protocol",
+	"set-cookie",
+	"x-api-key",
+]);
+
+function observedHttpHeaders(headers: Headers): Array<[string, string]> {
+	return Array.from(headers.entries(), ([name, value]) => [
+		name,
+		SENSITIVE_HTTP_HEADERS.has(name) ? "[redacted]" : value,
+	]);
+}
+
 function requestObservation(request: Request, context: ObservationContext): Request {
 	const observation = {
 		method: request.method,
 		url: request.url,
-		headers: Array.from(request.headers.entries()),
+		headers: observedHttpHeaders(request.headers),
 	};
 	if (request.body === null) {
 		emitHttpObservation(context, "http.request", {...observation, body: null, bodyTruncated: false});
@@ -1116,7 +1089,7 @@ function responseObservation(response: Response, context: ObservationContext): R
 	const observation = {
 		status: response.status,
 		statusText: response.statusText,
-		headers: Array.from(response.headers.entries()),
+		headers: observedHttpHeaders(response.headers),
 		webSocket: response.webSocket !== null,
 	};
 	if (response.body === null || response.webSocket !== null) {
@@ -1551,7 +1524,7 @@ function observeEmailBinding(email: SendEmail, context: ObservationContext): Sen
 				return typeof member === "function" ? member.bind(target) : member;
 			}
 			return async (message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult> =>
-				observeDebugPlatformOperation(context, "email.send", [new OutboundEmailObservation(message)], () =>
+				observePlatformOperation(context, "email.send", [message], () =>
 					Reflect.apply(member, target, [message]),
 				) as Promise<EmailSendResult>;
 		},

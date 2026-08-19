@@ -215,7 +215,7 @@ describe("OAuth authorization", () => {
 				return Response.json({redirect: true, url: "https://yepnope.app/oauth/consent?continued=true"});
 			}
 			if (path === `/api/auth/oauth2/authorize?${oauthQuery}`) {
-				return Response.json({redirect: true, url: "https://yepnope.app/oauth/consent?resumed=true"});
+				return Response.json({redirect: true, url: "/oauth/consent?resumed=true"});
 			}
 			if (path === "/api/auth/oauth2/consent") {
 				return Response.json({redirect: true, url: "http://127.0.0.1:45678/callback?result=approved"});
@@ -230,7 +230,7 @@ describe("OAuth authorization", () => {
 			signIn: await signInForOAuth("alice@example.com", "example-password", oauthQuery),
 		}).toStrictEqual({
 			consent: "http://127.0.0.1:45678/callback?result=approved",
-			resume: "https://yepnope.app/oauth/consent?resumed=true",
+			resume: "http://localhost:3000/oauth/consent?resumed=true",
 			signIn: "https://yepnope.app/oauth/consent?continued=true",
 		});
 		expect(fetchMock.mock.calls).toStrictEqual([
@@ -360,7 +360,7 @@ describe("openCurrentDeckStream", () => {
 			state: stream.state(),
 		}).toStrictEqual({
 			connections: 2,
-			sessionChecks: [["/api/auth/get-session", {credentials: "same-origin"}]],
+			sessionChecks: [["/api/auth/get-session", {cache: "no-store", credentials: "same-origin"}]],
 			state: CurrentDeckConnectionState.Stopped,
 		});
 		expect(onSignedOut.mock.calls).toStrictEqual([[]]);
@@ -395,7 +395,7 @@ describe("openCurrentDeckStream", () => {
 		}).toStrictEqual({
 			connections: 2,
 			sessionChecks: [
-				["/api/auth/get-session", {credentials: "same-origin"}],
+				["/api/auth/get-session", {cache: "no-store", credentials: "same-origin"}],
 				["/api/v1/current-deck/stream", {credentials: "same-origin"}],
 			],
 			state: CurrentDeckConnectionState.Stopped,

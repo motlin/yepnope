@@ -13,6 +13,38 @@ interface CapturedEmail {
 type ApplicationEnvironment = Parameters<typeof application.fetch>[1];
 
 const mailbox = new Map<string, CapturedEmail[]>();
+const OBSERVATION_CAPTURE_LIMIT = 4_096;
+const observationLines: string[] = [];
+let droppedObservationLineCount = 0;
+
+function captureObservationLine(...values: unknown[]): void {
+	for (const value of values) {
+		if (typeof value !== "string") {
+			continue;
+		}
+		try {
+			const parsed: unknown = JSON.parse(value);
+			if (
+				typeof parsed !== "object" ||
+				parsed === null ||
+				!("schema" in parsed) ||
+				parsed.schema !== "yepnope.io.v1"
+			) {
+				continue;
+			}
+		} catch {
+			continue;
+		}
+		if (observationLines.length === OBSERVATION_CAPTURE_LIMIT) {
+			observationLines.shift();
+			droppedObservationLineCount += 1;
+		}
+		observationLines.push(value);
+	}
+}
+
+console.log = captureObservationLine;
+console.error = captureObservationLine;
 
 async function captureAuthenticationEmail(message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult> {
 	if (!("text" in message)) {
@@ -146,6 +178,49 @@ async function authorizeMcpClientResponse(request: Request, environment: Applica
 	return Response.json({status: "authorized"});
 }
 
+const observationAuditSchema = z.object({forbidden_values: z.array(z.string().min(1).max(8_192)).max(64)}).strict();
+
+async function observationAuditResponse(request: Request): Promise<Response> {
+	const parsed = observationAuditSchema.safeParse(await request.json());
+	if (!parsed.success) {
+		return new Response(null, {status: 400});
+	}
+	const captured = observationLines.join("\n");
+	const forbiddenValueIndices = parsed.data.forbidden_values.flatMap((value, index) =>
+		captured.includes(value) ? [index] : [],
+	);
+	const forbiddenValueOperations = parsed.data.forbidden_values.flatMap((value, index) => {
+		const operations = observationLines.flatMap((line) => {
+			if (!line.includes(value)) {
+				return [];
+			}
+			const observation: unknown = JSON.parse(line);
+			if (typeof observation !== "object" || observation === null || !("operation" in observation)) {
+				return [];
+			}
+			return typeof observation.operation === "string" ? [observation.operation] : [];
+		});
+		return operations.length === 0 ? [] : [{index, operations: [...new Set(operations)]}];
+	});
+	return Response.json({
+		dropped_event_count: droppedObservationLineCount,
+		event_count: observationLines.length,
+		forbidden_value_detected: forbiddenValueIndices.length > 0,
+		forbidden_value_indices: forbiddenValueIndices,
+		forbidden_value_operations: forbiddenValueOperations,
+		maximum_line_bytes: Math.max(0, ...observationLines.map((line) => new TextEncoder().encode(line).byteLength)),
+		mcp_exchange_event_count: observationLines.filter((line) => line.includes("/mcp")).length,
+		oauth_exchange_event_count: observationLines.filter((line) => line.includes("/api/auth/")).length,
+		redacted_body_event_count: observationLines.filter((line) => line.includes('"redacted"')).length,
+	});
+}
+
+function resetObservationCapture(): Response {
+	observationLines.length = 0;
+	droppedObservationLineCount = 0;
+	return Response.json({status: "reset"});
+}
+
 export default {
 	async fetch(request, environment, executionContext): Promise<Response> {
 		const url = new URL(request.url);
@@ -160,6 +235,12 @@ export default {
 		}
 		if (url.pathname === "/api/__e2e__/authorize-mcp-client" && request.method === "POST") {
 			return authorizeMcpClientResponse(request, environment);
+		}
+		if (url.pathname === "/api/__e2e__/observations" && request.method === "POST") {
+			return observationAuditResponse(request);
+		}
+		if (url.pathname === "/api/__e2e__/observations" && request.method === "DELETE") {
+			return resetObservationCapture();
 		}
 		return application.fetch(request, withCapturedEmail(environment), executionContext);
 	},

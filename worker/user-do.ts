@@ -128,6 +128,7 @@ export type LegacyIdentityMergeResult =
 
 const STATE_ROW_ID = 1;
 const CURRENT_DECK_SOCKET_TAG = "current-deck";
+const MCP_REQUEST_STORAGE_PREFIX = "mcp-request:";
 
 enum TerminalActivityOutcome {
 	Retracted = "retracted",
@@ -271,6 +272,35 @@ export class UserDurableObject extends DurableObject<Env> {
 		);
 		await this.armNextDeadline();
 		return true;
+	}
+
+	async registerMcpRequest(requestKey: string, batchId: string): Promise<void> {
+		await this.initialize();
+		this.assertWritable();
+		if (!(await this.batchExists(batchId))) {
+			throw new Error("cannot register an MCP request for an unknown batch");
+		}
+		await this.ctx.storage.put(`${MCP_REQUEST_STORAGE_PREFIX}${requestKey}`, batchId);
+	}
+
+	async cancelMcpRequest(requestKey: string): Promise<boolean> {
+		await this.initialize();
+		this.assertWritable();
+		const storageKey = `${MCP_REQUEST_STORAGE_PREFIX}${requestKey}`;
+		const batchId = await this.ctx.storage.get<string>(storageKey);
+		if (batchId === undefined) {
+			return false;
+		}
+		const retracted = await this.retractBatch(batchId);
+		await this.ctx.storage.delete(storageKey);
+		return retracted;
+	}
+
+	async unregisterMcpRequest(requestKey: string, batchId: string): Promise<void> {
+		const storageKey = `${MCP_REQUEST_STORAGE_PREFIX}${requestKey}`;
+		if ((await this.ctx.storage.get<string>(storageKey)) === batchId) {
+			await this.ctx.storage.delete(storageKey);
+		}
 	}
 
 	async getAfk(hasActiveConnectedMcpClient: boolean): Promise<boolean> {

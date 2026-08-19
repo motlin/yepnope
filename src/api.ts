@@ -55,7 +55,7 @@ export type AuthenticationUser = z.infer<typeof authenticationUserSchema>;
 const sessionResponseSchema = z.object({user: authenticationUserSchema}).nullable();
 
 export async function fetchSession(): Promise<AuthenticationUser | null> {
-	const session = await requestJson("/api/auth/get-session", {}, sessionResponseSchema);
+	const session = await requestJson("/api/auth/get-session", {cache: "no-store"}, sessionResponseSchema);
 	return session?.user ?? null;
 }
 
@@ -70,7 +70,15 @@ export async function signIn(email: string, password: string): Promise<Authentic
 	return result.user;
 }
 
-const oauthRedirectResponseSchema = z.object({redirect: z.boolean(), url: z.url()});
+const oauthRedirectResponseSchema = z.object({redirect: z.boolean(), url: z.string().min(1)});
+
+function normalizedOAuthRedirectUrl(value: string): string {
+	const target = new URL(value, window.location.origin);
+	if (target.protocol !== "http:" && target.protocol !== "https:") {
+		throw new TypeError("OAuth redirect must use HTTP or HTTPS");
+	}
+	return target.href;
+}
 
 export async function signInForOAuth(email: string, password: string, oauthQuery: string): Promise<string> {
 	const result = await requestJson(
@@ -83,7 +91,7 @@ export async function signInForOAuth(email: string, password: string, oauthQuery
 		}),
 		oauthRedirectResponseSchema,
 	);
-	return result.url;
+	return normalizedOAuthRedirectUrl(result.url);
 }
 
 export async function resumeOAuthAuthorization(oauthQuery: string): Promise<string> {
@@ -92,7 +100,7 @@ export async function resumeOAuthAuthorization(oauthQuery: string): Promise<stri
 		{headers: {Accept: "application/json"}},
 		oauthRedirectResponseSchema,
 	);
-	return result.url;
+	return normalizedOAuthRedirectUrl(result.url);
 }
 
 const oauthClientResponseSchema = z.object({
@@ -122,7 +130,7 @@ export async function submitOAuthConsent(oauthQuery: string, accept: boolean): P
 		jsonRequest({accept, oauth_query: oauthQuery}),
 		oauthRedirectResponseSchema,
 	);
-	return result.url;
+	return normalizedOAuthRedirectUrl(result.url);
 }
 
 export async function registerAccount(

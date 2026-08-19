@@ -55,6 +55,13 @@ const ROOT_AUTHENTICATION_METADATA_PATHS = new Set([
 	"/.well-known/oauth-protected-resource",
 	"/.well-known/oauth-protected-resource/mcp",
 ]);
+const REDACTED_APPLICATION_PATHS = new Set([
+	"/api/v1/answers",
+	"/api/v1/current-deck",
+	CURRENT_DECK_STREAM_PATH,
+	"/api/v1/hook",
+	"/api/v1/questions",
+]);
 
 export default {
 	async fetch(request, environment, executionContext): Promise<Response> {
@@ -70,7 +77,11 @@ export default {
 		const observationContext = createObservationContext("worker.main");
 		const env = observeEnvironment(environment, observationContext);
 		const observeExchange =
-			url.pathname === "/mcp" || url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")
+			url.pathname === "/mcp" ||
+			url.pathname === "/api/auth" ||
+			url.pathname.startsWith("/api/auth/") ||
+			REDACTED_APPLICATION_PATHS.has(url.pathname) ||
+			STREAM_PATH.test(url.pathname)
 				? observeRedactedHttpExchange
 				: observeHttpExchange;
 		return observeExchange(observationContext, request, async (request) => {

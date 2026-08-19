@@ -32,6 +32,15 @@ const accessTokenClaimsSchema = z
 
 const stringArraySchema = z.array(z.string());
 const jsonWebKeySetSchema = z.object({keys: z.array(z.record(z.string(), z.unknown()))});
+const mcpRequestIdSchema = z.union([z.string(), z.number()]);
+const mcpMessageSchema = z
+	.object({
+		id: mcpRequestIdSchema.optional(),
+		method: z.string(),
+		params: z.unknown().optional(),
+	})
+	.loose();
+const mcpCancellationParamsSchema = z.object({requestId: mcpRequestIdSchema}).loose();
 
 export interface RemoteMcpTiming {
 	answerTimeoutMilliseconds: number;
@@ -303,6 +312,7 @@ function createRemoteMcpServer(
 	executionContext: ExecutionContext,
 	observationContext: ObservationContext,
 	timing: RemoteMcpTiming,
+	requestKey: string | null,
 ): McpServer {
 	const server = new McpServer({name: "yepnope", version: "0.1.0"});
 	server.registerTool(
@@ -330,6 +340,9 @@ function createRemoteMcpServer(
 				);
 			}
 			const created = await stub.createBatch(batch);
+			if (requestKey !== null) {
+				await stub.registerMcpRequest(requestKey, created.batchId);
+			}
 			executionContext.waitUntil(stub.sendBatchPush(created.batchId));
 			let completed = false;
 			let latest: DispositionMap = {};
@@ -377,6 +390,9 @@ function createRemoteMcpServer(
 				clearInterval(progress);
 				if (!completed) {
 					await stub.retractBatch(created.batchId);
+				}
+				if (requestKey !== null) {
+					await stub.unregisterMcpRequest(requestKey, created.batchId);
 				}
 			}
 		},
@@ -448,6 +464,26 @@ export async function handleRemoteMcpRequest(
 		emitObservation(observationContext, "mcp.authentication", "output", {outcome: "invalid_grant"});
 		return invalidGrantResponse(resource);
 	}
+	const message = mcpMessageSchema.safeParse(
+		await request
+			.clone()
+			.json()
+			.catch(() => null),
+	);
+	const requestKey =
+		message.success && message.data.id !== undefined
+			? `${parsed.data.client_id}:${parsed.data.sid}:${String(message.data.id)}`
+			: null;
+	const cancellation =
+		message.success && message.data.method === "notifications/cancelled"
+			? mcpCancellationParamsSchema.safeParse(message.data.params)
+			: null;
+	if (cancellation?.success === true) {
+		const cancelled = await environment.USER_DO.getByName(parsed.data.sub).cancelMcpRequest(
+			`${parsed.data.client_id}:${parsed.data.sid}:${String(cancellation.data.requestId)}`,
+		);
+		emitObservation(observationContext, "mcp.cancellation", "output", {cancelled});
+	}
 	const handler = createMcpHandler(
 		() =>
 			createRemoteMcpServer(
@@ -456,6 +492,7 @@ export async function handleRemoteMcpRequest(
 				executionContext,
 				observationContext,
 				timing,
+				requestKey,
 			),
 		{responseMode: "sse"},
 	);
