@@ -29,14 +29,14 @@ async function signIn(page: Page, password: string): Promise<void> {
 	await expect(page).toHaveURL(/\/settings$/);
 }
 
-async function mailboxLink(request: APIRequestContext, subject: string): Promise<string> {
+async function mailboxLink(request: APIRequestContext, subject: string, recipient = email): Promise<string> {
 	await expect
 		.poll(async () => {
-			const response = await request.get("/api/__e2e__/mailbox", {params: {email, subject}});
+			const response = await request.get("/api/__e2e__/mailbox", {params: {email: recipient, subject}});
 			return response.status();
 		})
 		.toBe(200);
-	const response = await request.get("/api/__e2e__/mailbox", {params: {email, subject}});
+	const response = await request.get("/api/__e2e__/mailbox", {params: {email: recipient, subject}});
 	return ((await response.json()) as MailboxResponse).url;
 }
 
@@ -220,7 +220,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await secondPage.getByRole("button", {name: "Send recovery email"}).click();
 		await expect(secondPage.getByRole("status")).toHaveText(
-			"If that account exists, a recovery email was requested.",
+			"If recovery is available for that address, check its inbox for next steps.",
 		);
 		const resetLink = await mailboxLink(request, resetSubject);
 		await secondPage.goto(resetLink);
@@ -299,4 +299,133 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 	} finally {
 		await closeContexts(contexts);
 	}
+});
+
+test("public authentication contracts do not reveal account state", async ({page, request}) => {
+	const password = "browser-contract-password";
+	const unverifiedEmail = "unverified-browser-contract@example.com";
+	const verifiedEmail = "verified-browser-contract@example.com";
+	const missingEmail = "missing-browser-contract@example.com";
+	const acceptedBody = {
+		message: "If the request can be completed, check your inbox for next steps.",
+		status: true,
+	};
+	const acceptedContract = {body: acceptedBody, status: 200};
+	const signInFailureContract = {
+		body: {
+			code: "AUTHENTICATION_FAILED",
+			message: "Sign-in failed. Check your email and password, or recover your account.",
+		},
+		status: 401,
+	};
+
+	async function post(path: string, data: Record<string, string>) {
+		const startedAt = performance.now();
+		const response = await request.post(`/api/auth/${path}`, {data});
+		return {
+			contract: {body: await response.json(), status: response.status()},
+			elapsedMilliseconds: performance.now() - startedAt,
+		};
+	}
+
+	for (const accountEmail of [unverifiedEmail, verifiedEmail]) {
+		await post("sign-up/email", {callbackURL: "/verify-email", email: accountEmail, password});
+	}
+	await post("send-verification-email", {callbackURL: "/verify-email", email: verifiedEmail});
+	await page.goto(await mailboxLink(request, verificationSubject, verifiedEmail));
+	await expect(page).toHaveURL(/\/$/);
+	await page.context().clearCookies();
+
+	const registrations = [];
+	for (const accountEmail of [missingEmail, unverifiedEmail, verifiedEmail]) {
+		registrations.push(await post("sign-up/email", {callbackURL: "/verify-email", email: accountEmail, password}));
+	}
+	const signIns = [];
+	for (const accountEmail of ["unknown-browser-contract@example.com", unverifiedEmail, verifiedEmail]) {
+		signIns.push(await post("sign-in/email", {email: accountEmail, password: "wrong-password"}));
+	}
+	const verificationRequests = [];
+	for (const accountEmail of ["unknown-browser-contract@example.com", unverifiedEmail, verifiedEmail]) {
+		verificationRequests.push(
+			await post("send-verification-email", {callbackURL: "/verify-email", email: accountEmail}),
+		);
+	}
+	const recoveryRequests = [];
+	for (const accountEmail of ["unknown-browser-contract@example.com", unverifiedEmail, verifiedEmail]) {
+		recoveryRequests.push(
+			await post("request-password-reset", {email: accountEmail, redirectTo: "/reset-password"}),
+		);
+	}
+
+	expect({
+		recovery: recoveryRequests.map(({contract}) => contract),
+		registration: registrations.map(({contract}) => contract),
+		signIn: signIns.map(({contract}) => contract),
+		verification: verificationRequests.map(({contract}) => contract),
+	}).toStrictEqual({
+		recovery: [acceptedContract, acceptedContract, acceptedContract],
+		registration: [acceptedContract, acceptedContract, acceptedContract],
+		signIn: [signInFailureContract, signInFailureContract, signInFailureContract],
+		verification: [acceptedContract, acceptedContract, acceptedContract],
+	});
+	const elapsedMilliseconds = [...registrations, ...signIns, ...verificationRequests, ...recoveryRequests].map(
+		(result) => result.elapsedMilliseconds,
+	);
+	expect(Math.min(...elapsedMilliseconds)).toBeGreaterThanOrEqual(450);
+
+	const signInCopy = [];
+	for (const accountEmail of ["unknown-ui-browser-contract@example.com", verifiedEmail]) {
+		await page.goto("/sign-in");
+		await page.getByRole("textbox", {name: "Email"}).fill(accountEmail);
+		await page.getByLabel("Password").fill("wrong-password");
+		await page.getByRole("button", {name: "Sign in", exact: true}).click();
+		signInCopy.push(await page.getByRole("alert").textContent());
+	}
+
+	const registrationCopy = [];
+	for (const accountEmail of ["new-ui-browser-contract@example.com", unverifiedEmail, verifiedEmail]) {
+		await page.goto("/register");
+		await page.getByRole("textbox", {name: "Email"}).fill(accountEmail);
+		await page.getByLabel("Password").fill(password);
+		await page.getByRole("button", {name: "Create account"}).click();
+		registrationCopy.push(await page.getByRole("status").textContent());
+	}
+
+	const verificationCopy = [];
+	for (const accountEmail of ["unknown-ui-browser-contract@example.com", unverifiedEmail, verifiedEmail]) {
+		await page.goto("/verify-email");
+		await page.getByRole("textbox", {name: "Email"}).fill(accountEmail);
+		await page.getByRole("button", {name: "Resend verification email"}).click();
+		verificationCopy.push(await page.getByRole("status").textContent());
+	}
+
+	const recoveryCopy = [];
+	for (const accountEmail of ["unknown-ui-browser-contract@example.com", unverifiedEmail, verifiedEmail]) {
+		await page.goto("/forgot-password");
+		await page.getByRole("textbox", {name: "Email"}).fill(accountEmail);
+		await page.getByRole("button", {name: "Send recovery email"}).click();
+		recoveryCopy.push(await page.getByRole("status").textContent());
+	}
+
+	expect({recoveryCopy, registrationCopy, signInCopy, verificationCopy}).toStrictEqual({
+		recoveryCopy: [
+			"If recovery is available for that address, check its inbox for next steps.",
+			"If recovery is available for that address, check its inbox for next steps.",
+			"If recovery is available for that address, check its inbox for next steps.",
+		],
+		registrationCopy: [
+			"If verification is available for that address, check its inbox for next steps.",
+			"If verification is available for that address, check its inbox for next steps.",
+			"If verification is available for that address, check its inbox for next steps.",
+		],
+		signInCopy: [
+			"Sign-in failed. Check your email and password, or recover your account.",
+			"Sign-in failed. Check your email and password, or recover your account.",
+		],
+		verificationCopy: [
+			"If verification is available for that address, check its inbox for next steps.",
+			"If verification is available for that address, check its inbox for next steps.",
+			"If verification is available for that address, check its inbox for next steps.",
+		],
+	});
 });

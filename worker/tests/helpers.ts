@@ -16,6 +16,7 @@ interface DeliveredAuthenticationEmail {
 
 function authenticationWithMailbox(mailbox: DeliveredAuthenticationEmail[]) {
 	return createAuthentication(env, {
+		observe: () => undefined,
 		runInBackground: undefined,
 		sendEmail: async (message) => {
 			if (message.text === undefined) {

@@ -98,7 +98,7 @@ vi.mock("../src/api", () => ({
 			state: () => "open" as CurrentDeckConnectionState,
 		};
 	}),
-	registerAccount: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
+	registerAccount: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	requestPasswordReset: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	resumeOAuthAuthorization,
 	renamePushDevice,
@@ -715,7 +715,9 @@ describe("Better Auth account routes", () => {
 		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
 		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
-		expect(screen.getByRole("status").textContent).toBe("Email sent. Check your inbox.");
+		expect(screen.getByRole("status").textContent).toBe(
+			"If verification is available for that address, check its inbox for next steps.",
+		);
 		let finishResend: () => void = () => undefined;
 		vi.mocked(sendVerificationEmail).mockReturnValueOnce(
 			new Promise<void>((resolve) => {
@@ -734,7 +736,9 @@ describe("Better Auth account routes", () => {
 				["alice@example.com"],
 				["alice@example.com"],
 			]);
-			expect(screen.getByRole("status").textContent).toBe("Email sent. Check your inbox.");
+			expect(screen.getByRole("status").textContent).toBe(
+				"If verification is available for that address, check its inbox for next steps.",
+			);
 		});
 	});
 
@@ -749,7 +753,7 @@ describe("Better Auth account routes", () => {
 		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
 
 		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
-		expect(screen.getByRole("alert").textContent).toBe("We couldn't send the email. Try again.");
+		expect(screen.getByRole("alert").textContent).toBe("We couldn't submit that request. Try again.");
 		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
 	});
@@ -787,7 +791,7 @@ describe("Better Auth account routes", () => {
 		await waitFor(() => {
 			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com"]]);
 			expect(screen.getByRole("status").textContent).toBe(
-				"If that account exists, a recovery email was requested.",
+				"If recovery is available for that address, check its inbox for next steps.",
 			);
 		});
 

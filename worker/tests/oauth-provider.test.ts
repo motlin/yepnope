@@ -273,6 +273,7 @@ describe("Better Auth OAuth MCP provider", () => {
 	it("preserves a signed authorization request through sign-in and required email verification", async () => {
 		const mailbox: Array<{subject: string; text: string}> = [];
 		const authentication = createAuthentication(env, {
+			observe: () => undefined,
 			runInBackground: undefined,
 			sendEmail: async (message) => {
 				if (message.text === undefined) {
@@ -290,17 +291,7 @@ describe("Better Auth OAuth MCP provider", () => {
 			}),
 		);
 		expect({body: await signUp.json(), status: signUp.status}).toStrictEqual({
-			body: {
-				token: null,
-				user: {
-					createdAt: expect.any(String),
-					email,
-					emailVerified: false,
-					id: expect.any(String),
-					image: null,
-					updatedAt: expect.any(String),
-				},
-			},
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
 			status: 200,
 		});
 
@@ -338,8 +329,11 @@ describe("Better Auth OAuth MCP provider", () => {
 			}),
 		);
 		expect({body: await unverifiedSignIn.json(), status: unverifiedSignIn.status}).toStrictEqual({
-			body: {code: "EMAIL_NOT_VERIFIED", message: "Email not verified"},
-			status: 403,
+			body: {
+				code: "AUTHENTICATION_FAILED",
+				message: "Sign-in failed. Check your email and password, or recover your account.",
+			},
+			status: 401,
 		});
 		expect(mailbox).toHaveLength(1);
 		const verification = await authentication.handler(
@@ -570,6 +564,7 @@ describe("Better Auth OAuth MCP provider", () => {
 
 	it("configures explicit endpoint abuse controls", () => {
 		const authentication = createAuthentication(env, {
+			observe: () => undefined,
 			runInBackground: undefined,
 			sendEmail: async () => Promise.resolve(),
 		});

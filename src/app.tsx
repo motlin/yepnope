@@ -504,14 +504,14 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 		<AccountPanel title="Check your email">
 			{delivery === "accepted" ? (
 				<p className="form-success" role="status">
-					Email sent. Check your inbox.
+					If verification is available for that address, check its inbox for next steps.
 				</p>
 			) : delivery === "failed" ? (
 				<p className="form-error" role="alert">
-					We couldn&apos;t send the email. Try again.
+					We couldn&apos;t submit that request. Try again.
 				</p>
 			) : (
-				<p>Enter your account email to send a verification link.</p>
+				<p>Enter your email to request verification instructions.</p>
 			)}
 			{verificationError !== null && (
 				<p className="form-error" role="alert">
@@ -570,7 +570,7 @@ function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 
 	return (
 		<AccountPanel title="Reset your password">
-			<p>We’ll email a recovery link if an account exists for this address.</p>
+			<p>Enter your email to request account recovery instructions.</p>
 			<form className="account-form" onSubmit={(event) => void submit(event)}>
 				<label>
 					Email
@@ -587,7 +587,7 @@ function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 				</label>
 				{sent && (
 					<p className="form-success" role="status">
-						If that account exists, a recovery email was requested.
+						If recovery is available for that address, check its inbox for next steps.
 					</p>
 				)}
 				{error !== null && (

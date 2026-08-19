@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {
+	ApiResponseError,
 	consumePasswordResetToken,
 	CurrentDeckConnectionState,
 	fetchAccountDevices,
@@ -168,10 +169,17 @@ describe("account registration", () => {
 	});
 
 	it("sends only the email and password authentication fields", async () => {
-		const fetchMock = vi.fn<typeof fetch>(async () => Promise.resolve(Response.json({user: sessionUser})));
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(
+				Response.json({
+					message: "If the request can be completed, check your inbox for next steps.",
+					status: true,
+				}),
+			),
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
-		expect(await registerAccount("alice@example.com", "example-password")).toStrictEqual(sessionUser);
+		await registerAccount("alice@example.com", "example-password");
 		expect(fetchMock.mock.calls).toStrictEqual([
 			[
 				"/api/auth/sign-up/email",
@@ -190,7 +198,14 @@ describe("account registration", () => {
 	});
 
 	it("sends verification links back to the authenticated deck", async () => {
-		const fetchMock = vi.fn<typeof fetch>(async () => Promise.resolve(Response.json({status: true})));
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(
+				Response.json({
+					message: "If the request can be completed, check your inbox for next steps.",
+					status: true,
+				}),
+			),
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		await sendVerificationEmail("alice@example.com");
@@ -211,7 +226,12 @@ describe("account registration", () => {
 		const fetchMock = vi.fn<typeof fetch>(async (input) => {
 			const path = String(input);
 			if (path === "/api/auth/request-password-reset") {
-				return Promise.resolve(Response.json({message: "Recovery email accepted", status: true}));
+				return Promise.resolve(
+					Response.json({
+						message: "If the request can be completed, check your inbox for next steps.",
+						status: true,
+					}),
+				);
 			}
 			if (path === "/api/auth/reset-password") {
 				return Promise.resolve(Response.json({status: true}));
@@ -254,6 +274,56 @@ describe("account registration", () => {
 					method: "POST",
 				},
 			],
+		]);
+	});
+
+	it("normalizes raw authentication failures before exposing them to the browser", async () => {
+		const rawFailures = [
+			Response.json({code: "USER_NOT_FOUND", message: "User not found"}, {status: 400}),
+			Response.json({code: "INVALID_PASSWORD", message: "Invalid password"}, {status: 401}),
+			Response.json({code: "EMAIL_NOT_VERIFIED", message: "Email not verified"}, {status: 403}),
+		];
+		const fetchMock = vi.fn<typeof fetch>(async () => {
+			const response = rawFailures.shift();
+			if (response === undefined) {
+				throw new Error("unexpected sign-in request");
+			}
+			return Promise.resolve(response);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const failures = [];
+		for (const attempt of [
+			async () => signIn("missing-alice@example.com", "example-password"),
+			async () => signIn("alice@example.com", "wrong-password"),
+			async () => signInForOAuth("unverified-alice@example.com", "example-password", "client_id=oauth-client"),
+		]) {
+			try {
+				await attempt();
+			} catch (caught) {
+				if (!(caught instanceof ApiResponseError)) {
+					throw caught;
+				}
+				failures.push({message: caught.message, name: caught.name, status: caught.status});
+			}
+		}
+
+		expect(failures).toStrictEqual([
+			{
+				message: "Sign-in failed. Check your email and password, or recover your account.",
+				name: "ApiResponseError",
+				status: 401,
+			},
+			{
+				message: "Sign-in failed. Check your email and password, or recover your account.",
+				name: "ApiResponseError",
+				status: 401,
+			},
+			{
+				message: "Sign-in failed. Check your email and password, or recover your account.",
+				name: "ApiResponseError",
+				status: 401,
+			},
 		]);
 	});
 });

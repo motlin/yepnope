@@ -628,7 +628,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await secondPage.getByRole("button", {name: "Send recovery email"}).click();
 		await expect(secondPage.getByRole("status")).toHaveText(
-			"If that account exists, a recovery email was requested.",
+			"If recovery is available for that address, check its inbox for next steps.",
 		);
 		await secondPage.goto(await mailboxLink(request, resetSubject));
 		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);

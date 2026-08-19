@@ -60,13 +60,24 @@ export async function fetchSession(): Promise<AuthenticationUser | null> {
 }
 
 const authenticatedResponseSchema = z.object({user: authenticationUserSchema});
+const PUBLIC_SIGN_IN_FAILURE_MESSAGE = "Sign-in failed. Check your email and password, or recover your account.";
+
+async function requestSignIn<Schema extends z.ZodType>(
+	body: Record<string, unknown>,
+	schema: Schema,
+): Promise<z.infer<Schema>> {
+	try {
+		return await requestJson("/api/auth/sign-in/email", jsonRequest(body), schema);
+	} catch (caught) {
+		if (caught instanceof ApiResponseError && [400, 401, 403].includes(caught.status)) {
+			throw new ApiResponseError(PUBLIC_SIGN_IN_FAILURE_MESSAGE, 401);
+		}
+		throw caught;
+	}
+}
 
 export async function signIn(email: string, password: string): Promise<AuthenticationUser> {
-	const result = await requestJson(
-		"/api/auth/sign-in/email",
-		jsonRequest({email, password}),
-		authenticatedResponseSchema,
-	);
+	const result = await requestSignIn({email, password}, authenticatedResponseSchema);
 	return result.user;
 }
 
@@ -81,14 +92,13 @@ function normalizedOAuthRedirectUrl(value: string): string {
 }
 
 export async function signInForOAuth(email: string, password: string, oauthQuery: string): Promise<string> {
-	const result = await requestJson(
-		"/api/auth/sign-in/email",
-		jsonRequest({
+	const result = await requestSignIn(
+		{
 			callbackURL: `/sign-in?${oauthQuery}`,
 			email,
 			oauth_query: oauthQuery,
 			password,
-		}),
+		},
 		oauthRedirectResponseSchema,
 	);
 	return normalizedOAuthRedirectUrl(result.url);
@@ -133,30 +143,35 @@ export async function submitOAuthConsent(oauthQuery: string, accept: boolean): P
 	return normalizedOAuthRedirectUrl(result.url);
 }
 
-export async function registerAccount(
-	email: string,
-	password: string,
-	callbackURL = "/verify-email",
-): Promise<AuthenticationUser> {
-	const result = await requestJson(
+export async function registerAccount(email: string, password: string, callbackURL = "/verify-email"): Promise<void> {
+	await requestJson(
 		"/api/auth/sign-up/email",
 		jsonRequest({email, password, callbackURL}),
-		authenticatedResponseSchema,
+		publicAuthenticationAcceptedResponseSchema,
 	);
-	return result.user;
 }
 
-const successResponseSchema = z.object({status: z.literal(true)});
+const publicAuthenticationAcceptedResponseSchema = z
+	.object({
+		message: z.literal("If the request can be completed, check your inbox for next steps."),
+		status: z.literal(true),
+	})
+	.strict();
+const successResponseSchema = z.object({status: z.literal(true)}).strict();
 
 export async function sendVerificationEmail(email: string, callbackURL = "/verify-email"): Promise<void> {
-	await requestJson("/api/auth/send-verification-email", jsonRequest({email, callbackURL}), successResponseSchema);
+	await requestJson(
+		"/api/auth/send-verification-email",
+		jsonRequest({email, callbackURL}),
+		publicAuthenticationAcceptedResponseSchema,
+	);
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
 	await requestJson(
 		"/api/auth/request-password-reset",
 		jsonRequest({email, redirectTo: "/reset-password"}),
-		z.object({status: z.literal(true), message: z.string()}),
+		publicAuthenticationAcceptedResponseSchema,
 	);
 }
 

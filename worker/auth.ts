@@ -24,8 +24,12 @@ import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountI
 
 const AUTHENTICATION_PATH = "/api/auth";
 const EMAIL_REGISTRATION_PATH = `${AUTHENTICATION_PATH}/sign-up/email`;
+const EMAIL_SIGN_IN_PATH = `${AUTHENTICATION_PATH}/sign-in/email`;
+const EMAIL_VERIFICATION_REQUEST_PATH = `${AUTHENTICATION_PATH}/send-verification-email`;
 const EMAIL_VERIFICATION_PATH = `${AUTHENTICATION_PATH}/verify-email`;
 const EMAIL_VERIFICATION_IDENTIFIER_PREFIX = "yepnope-email-verification:";
+const PASSWORD_RECOVERY_REQUEST_PATH = `${AUTHENTICATION_PATH}/request-password-reset`;
+const PUBLIC_AUTHENTICATION_RESPONSE_FLOOR_MILLISECONDS = 500;
 const AUTHENTICATION_TOKEN_EXPIRY_SECONDS = 60 * 60;
 const OAUTH_ACCESS_TOKEN_EXPIRY_SECONDS = 10 * 60;
 const OAUTH_AUTHORIZATION_CODE_EXPIRY_SECONDS = 5 * 60;
@@ -38,8 +42,29 @@ const emailRegistrationSchema = z
 	.object({
 		callbackURL: z.string().optional(),
 		email: z.email(),
+		password: z.string().min(8).max(128),
+		rememberMe: z.boolean().optional(),
+	})
+	.strict();
+const emailSignInSchema = z
+	.object({
+		callbackURL: z.string().optional(),
+		email: z.email(),
+		oauth_query: z.string().optional(),
 		password: z.string(),
 		rememberMe: z.boolean().optional(),
+	})
+	.strict();
+const emailVerificationRequestSchema = z
+	.object({
+		callbackURL: z.string().optional(),
+		email: z.email(),
+	})
+	.strict();
+const passwordRecoveryRequestSchema = z
+	.object({
+		email: z.email(),
+		redirectTo: z.string().optional(),
 	})
 	.strict();
 const dynamicClientRegistrationSchema = z
@@ -94,8 +119,149 @@ interface AuthenticationEmailCopy {
 }
 
 export interface AuthenticationDependencies {
+	observe: (observation: AuthenticationObservation) => void;
 	runInBackground: ((promise: Promise<unknown>) => void) | undefined;
 	sendEmail: (message: AuthenticationEmail) => Promise<void>;
+}
+
+export interface AuthenticationObservation {
+	event:
+		| "authentication_email_delivery_failed"
+		| "authentication_library_log"
+		| "public_authentication_response_normalized";
+	level: "debug" | "error" | "info" | "warn";
+	reason: string;
+	status: number | null;
+}
+
+async function sendAuthenticationEmail(
+	dependencies: AuthenticationDependencies,
+	message: AuthenticationEmail,
+	reason: PublicAuthenticationOperation,
+): Promise<void> {
+	try {
+		await dependencies.sendEmail(message);
+	} catch {
+		dependencies.observe({
+			event: "authentication_email_delivery_failed",
+			level: "error",
+			reason,
+			status: null,
+		});
+	}
+}
+
+enum PublicAuthenticationOperation {
+	Register = "register",
+	RequestPasswordRecovery = "request_password_recovery",
+	RequestVerification = "request_verification",
+	SignIn = "sign_in",
+}
+
+const PUBLIC_AUTHENTICATION_ACCEPTED_BODY = {
+	message: "If the request can be completed, check your inbox for next steps.",
+	status: true,
+} as const;
+const PUBLIC_SIGN_IN_FAILURE_BODY = {
+	code: "AUTHENTICATION_FAILED",
+	message: "Sign-in failed. Check your email and password, or recover your account.",
+} as const;
+
+function authenticationLibraryReason(message: string): string {
+	if (message.startsWith("Sign-up attempt for existing email:")) {
+		return "existing_registration";
+	}
+	switch (message) {
+		case "Invalid password":
+			return "invalid_password";
+		case "Password not found":
+			return "password_not_found";
+		case "Reset Password: User not found":
+			return "password_recovery_user_not_found";
+		case "User not found":
+			return "user_not_found";
+		default:
+			return "library_event";
+	}
+}
+
+async function publicAuthenticationOperation(request: Request): Promise<PublicAuthenticationOperation | null> {
+	if (request.method !== "POST") {
+		return null;
+	}
+	const body = await request
+		.clone()
+		.json()
+		.catch(() => null);
+	switch (new URL(request.url).pathname) {
+		case EMAIL_REGISTRATION_PATH:
+			return emailRegistrationSchema.safeParse(body).success ? PublicAuthenticationOperation.Register : null;
+		case EMAIL_SIGN_IN_PATH:
+			return emailSignInSchema.safeParse(body).success ? PublicAuthenticationOperation.SignIn : null;
+		case EMAIL_VERIFICATION_REQUEST_PATH:
+			return emailVerificationRequestSchema.safeParse(body).success
+				? PublicAuthenticationOperation.RequestVerification
+				: null;
+		case PASSWORD_RECOVERY_REQUEST_PATH:
+			return passwordRecoveryRequestSchema.safeParse(body).success
+				? PublicAuthenticationOperation.RequestPasswordRecovery
+				: null;
+		default:
+			return null;
+	}
+}
+
+async function waitForPublicAuthenticationResponseFloor(startedAt: number): Promise<void> {
+	const remainingMilliseconds = PUBLIC_AUTHENTICATION_RESPONSE_FLOOR_MILLISECONDS - (performance.now() - startedAt);
+	if (remainingMilliseconds > 0) {
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, remainingMilliseconds);
+		});
+	}
+}
+
+function publicAuthenticationResponse(operation: PublicAuthenticationOperation): Response {
+	const headers = {"Cache-Control": "no-store"};
+	return operation === PublicAuthenticationOperation.SignIn
+		? Response.json(PUBLIC_SIGN_IN_FAILURE_BODY, {headers, status: 401})
+		: Response.json(PUBLIC_AUTHENTICATION_ACCEPTED_BODY, {headers});
+}
+
+async function nonEnumeratingAuthenticationHandler(
+	handler: (request: Request) => Promise<Response>,
+	request: Request,
+	observe: AuthenticationDependencies["observe"],
+): Promise<Response> {
+	const operation = await publicAuthenticationOperation(request);
+	if (operation === null) {
+		return handler(request);
+	}
+	const startedAt = performance.now();
+	let response: Response;
+	try {
+		response = await handler(request);
+	} catch {
+		observe({
+			event: "public_authentication_response_normalized",
+			level: "error",
+			reason: operation,
+			status: null,
+		});
+		await waitForPublicAuthenticationResponseFloor(startedAt);
+		return publicAuthenticationResponse(operation);
+	}
+	if (operation === PublicAuthenticationOperation.SignIn && response.ok) {
+		await waitForPublicAuthenticationResponseFloor(startedAt);
+		return response;
+	}
+	observe({
+		event: "public_authentication_response_normalized",
+		level: response.ok ? "info" : "warn",
+		reason: operation,
+		status: response.status,
+	});
+	await waitForPublicAuthenticationResponseFloor(startedAt);
+	return publicAuthenticationResponse(operation);
 }
 
 async function nameFreeAuthenticationHandler(
@@ -281,6 +447,17 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 		basePath: AUTHENTICATION_PATH,
 		secret: environment.BETTER_AUTH_SECRET,
 		trustedOrigins: [environment.BETTER_AUTH_URL],
+		logger: {
+			level: "debug",
+			log: (level, message) => {
+				dependencies.observe({
+					event: "authentication_library_log",
+					level,
+					reason: authenticationLibraryReason(message),
+					status: null,
+				});
+			},
+		},
 		database: drizzleAdapter(database, {
 			provider: "sqlite",
 			schema: authenticationSchema,
@@ -331,13 +508,15 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 					value: user.id,
 					expiresAt: new Date(Date.now() + AUTHENTICATION_TOKEN_EXPIRY_SECONDS * 1_000),
 				});
-				await dependencies.sendEmail(
+				await sendAuthenticationEmail(
+					dependencies,
 					authenticationEmail(environment, user.email, url, {
 						actionLabel: "Verify email",
 						introduction: "Verify your email address to finish creating your YepNope account.",
 						preheader: "Verify your email to finish setting up YepNope.",
 						subject: "Verify your YepNope email",
 					}),
+					PublicAuthenticationOperation.RequestVerification,
 				);
 			},
 		},
@@ -348,13 +527,15 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 			revokeSessionsOnPasswordReset: true,
 			resetPasswordTokenExpiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
 			sendResetPassword: async ({user, url}) =>
-				dependencies.sendEmail(
+				sendAuthenticationEmail(
+					dependencies,
 					authenticationEmail(environment, user.email, url, {
 						actionLabel: "Reset password",
 						introduction: "Choose a new password for your YepNope account.",
 						preheader: "Reset your YepNope password securely.",
 						subject: "Reset your YepNope password",
 					}),
+					PublicAuthenticationOperation.RequestPasswordRecovery,
 				),
 		},
 		user: {
@@ -399,7 +580,12 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 				async (registrationRequest) =>
 					singleUseEmailVerificationHandler(
 						async (authenticationRequest) =>
-							nameFreeAuthenticationHandler(authentication.handler, authenticationRequest),
+							nonEnumeratingAuthenticationHandler(
+								async (publicRequest) =>
+									nameFreeAuthenticationHandler(authentication.handler, publicRequest),
+								authenticationRequest,
+								dependencies.observe,
+							),
 						registrationRequest,
 						environment.DB,
 					),
@@ -429,6 +615,9 @@ export function createWorkerAuthentication(
 	executionContext: ExecutionContext,
 ): ReturnType<typeof createAuthentication> {
 	return createAuthentication(environment, {
+		observe: (observation) => {
+			console.warn(JSON.stringify(observation));
+		},
 		runInBackground: (promise) => {
 			executionContext.waitUntil(promise);
 		},

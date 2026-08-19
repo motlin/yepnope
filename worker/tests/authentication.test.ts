@@ -1,7 +1,7 @@
 import {env} from "cloudflare:workers";
 import {SignJWT} from "jose";
 import {describe, expect, it} from "vitest";
-import {createAuthentication, hashToken} from "../auth";
+import {createAuthentication, hashToken, type AuthenticationObservation} from "../auth";
 import {API_ORIGIN, cookieFrom, emailLink, required, worker} from "./helpers";
 
 interface DeliveredEmail {
@@ -12,8 +12,11 @@ interface DeliveredEmail {
 	to: string | EmailAddress | (string | EmailAddress)[];
 }
 
-function createMailboxAuthentication(mailbox: DeliveredEmail[]) {
+function createMailboxAuthentication(mailbox: DeliveredEmail[], observations: AuthenticationObservation[] = []) {
 	return createAuthentication(env, {
+		observe: (observation) => {
+			observations.push(observation);
+		},
 		runInBackground: undefined,
 		sendEmail: async (message) => {
 			await Promise.resolve(
@@ -77,6 +80,22 @@ function postAuthentication(path: string, body: Record<string, string>, cookie?:
 	return new Request(`${API_ORIGIN}/api/auth/${path}`, {method: "POST", headers, body: JSON.stringify(body)});
 }
 
+async function timedPublicContract(responsePromise: Promise<Response>) {
+	const startedAt = performance.now();
+	const response = await responsePromise;
+	return {
+		contract: {
+			body: await response.json(),
+			cacheControl: response.headers.get("cache-control"),
+			contentType: response.headers.get("content-type"),
+			location: response.headers.get("location"),
+			setCookie: response.headers.get("set-cookie"),
+			status: response.status,
+		},
+		elapsedMilliseconds: performance.now() - startedAt,
+	};
+}
+
 describe("Better Auth account recovery", () => {
 	it("deduplicates concurrent account onboarding without minting browser credentials", async () => {
 		const authentication = createMailboxAuthentication([]);
@@ -109,17 +128,7 @@ describe("Better Auth account recovery", () => {
 		);
 
 		expect({body: await signUp.json(), status: signUp.status}).toStrictEqual({
-			body: {
-				token: null,
-				user: {
-					createdAt: expect.any(String),
-					email,
-					emailVerified: false,
-					id: expect.any(String),
-					image: null,
-					updatedAt: expect.any(String),
-				},
-			},
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
 			status: 200,
 		});
 		expect(await env.DB.prepare("SELECT email, name FROM user WHERE email = ?").bind(email).first()).toStrictEqual({
@@ -181,11 +190,255 @@ describe("Better Auth account recovery", () => {
 			{body: await existing.json(), status: existing.status},
 			{body: await missing.json(), status: missing.status},
 		]).toStrictEqual([
-			{body: {status: true}, status: 200},
-			{body: {status: true}, status: 200},
+			{
+				body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
+				status: 200,
+			},
+			{
+				body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
+				status: 200,
+			},
 		]);
 		expect(mailbox.map(({subject, to}) => ({subject, to}))).toStrictEqual([
 			{subject: "Verify your YepNope email", to: email},
+		]);
+	});
+
+	it("keeps every public account-state contract indistinguishable", async () => {
+		const mailbox: DeliveredEmail[] = [];
+		const authentication = createMailboxAuthentication(mailbox);
+		const password = "correct-horse-battery-staple";
+		const unverifiedEmail = "unverified-contract-alice@example.com";
+		const verifiedEmail = "verified-contract-alice@example.com";
+		const newRegistrationEmail = "new-registration-contract-alice@example.com";
+		const unknownEmail = "unknown-contract-alice@example.com";
+
+		for (const email of [unverifiedEmail, verifiedEmail]) {
+			await authentication.handler(postAuthentication("sign-up/email", {email, password}));
+		}
+		await authentication.handler(
+			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email: verifiedEmail}),
+		);
+		await authentication.handler(new Request(emailLink(required(mailbox[0], "verification email"))));
+		mailbox.length = 0;
+
+		const registrations = await Promise.all(
+			[newRegistrationEmail, unverifiedEmail, verifiedEmail].map(async (email) =>
+				timedPublicContract(authentication.handler(postAuthentication("sign-up/email", {email, password}))),
+			),
+		);
+		const acceptedContract = {
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
+			cacheControl: "no-store",
+			contentType: "application/json",
+			location: null,
+			setCookie: null,
+			status: 200,
+		};
+		expect(registrations.map(({contract}) => contract)).toStrictEqual([
+			acceptedContract,
+			acceptedContract,
+			acceptedContract,
+		]);
+
+		const signIns = await Promise.all(
+			[
+				{email: unknownEmail, password: "wrong-password"},
+				{email: unverifiedEmail, password: "wrong-password"},
+				{email: verifiedEmail, password: "wrong-password"},
+			].map(async (credentials) =>
+				timedPublicContract(authentication.handler(postAuthentication("sign-in/email", credentials))),
+			),
+		);
+		const signInFailureContract = {
+			body: {
+				code: "AUTHENTICATION_FAILED",
+				message: "Sign-in failed. Check your email and password, or recover your account.",
+			},
+			cacheControl: "no-store",
+			contentType: "application/json",
+			location: null,
+			setCookie: null,
+			status: 401,
+		};
+		expect(signIns.map(({contract}) => contract)).toStrictEqual([
+			signInFailureContract,
+			signInFailureContract,
+			signInFailureContract,
+		]);
+
+		const verificationRequests = await Promise.all(
+			[unknownEmail, unverifiedEmail, verifiedEmail].map(async (email) =>
+				timedPublicContract(
+					authentication.handler(
+						postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+					),
+				),
+			),
+		);
+		expect(verificationRequests.map(({contract}) => contract)).toStrictEqual([
+			acceptedContract,
+			acceptedContract,
+			acceptedContract,
+		]);
+		expect(mailbox.map(({subject, to}) => ({subject, to}))).toStrictEqual([
+			{subject: "Verify your YepNope email", to: unverifiedEmail},
+		]);
+		mailbox.length = 0;
+
+		const passwordRecoveryRequests = await Promise.all(
+			[unknownEmail, unverifiedEmail, verifiedEmail].map(async (email) =>
+				timedPublicContract(
+					authentication.handler(
+						postAuthentication("request-password-reset", {email, redirectTo: "/reset-password"}),
+					),
+				),
+			),
+		);
+		expect(passwordRecoveryRequests.map(({contract}) => contract)).toStrictEqual([
+			acceptedContract,
+			acceptedContract,
+			acceptedContract,
+		]);
+		expect(
+			mailbox
+				.map(({subject, to}) => ({subject, to}))
+				.sort((left, right) => String(left.to).localeCompare(String(right.to))),
+		).toStrictEqual([
+			{subject: "Reset your YepNope password", to: unverifiedEmail},
+			{subject: "Reset your YepNope password", to: verifiedEmail},
+		]);
+
+		const timings = [...registrations, ...signIns, ...verificationRequests, ...passwordRecoveryRequests].map(
+			({elapsedMilliseconds}) => elapsedMilliseconds,
+		);
+		expect(Math.min(...timings)).toBeGreaterThanOrEqual(450);
+		expect(Math.max(...timings) - Math.min(...timings)).toBeLessThan(500);
+	});
+
+	it("suppresses delivery failures without recording their sensitive details", async () => {
+		const email = "delivery-failure-alice@example.com";
+		const password = "correct-horse-battery-staple";
+		await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+		const observations: AuthenticationObservation[] = [];
+		const authentication = createAuthentication(env, {
+			observe: (observation) => {
+				observations.push(observation);
+			},
+			runInBackground: undefined,
+			sendEmail: async () =>
+				Promise.reject(
+					new Error("delivery failed for delivery-failure-alice@example.com with token test-secret"),
+				),
+		});
+		const responses = [
+			await timedPublicContract(
+				authentication.handler(
+					postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+				),
+			),
+			await timedPublicContract(
+				authentication.handler(
+					postAuthentication("request-password-reset", {email, redirectTo: "/reset-password"}),
+				),
+			),
+		];
+		const acceptedContract = {
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
+			cacheControl: "no-store",
+			contentType: "application/json",
+			location: null,
+			setCookie: null,
+			status: 200,
+		};
+
+		expect(responses.map(({contract}) => contract)).toStrictEqual([acceptedContract, acceptedContract]);
+		expect({
+			observations,
+			serializedContainsSensitiveMaterial:
+				JSON.stringify(observations).includes(email) || JSON.stringify(observations).includes("test-secret"),
+		}).toStrictEqual({
+			observations: [
+				{
+					event: "authentication_email_delivery_failed",
+					level: "error",
+					reason: "request_verification",
+					status: null,
+				},
+				{
+					event: "public_authentication_response_normalized",
+					level: "info",
+					reason: "request_verification",
+					status: 200,
+				},
+				{
+					event: "authentication_email_delivery_failed",
+					level: "error",
+					reason: "request_password_recovery",
+					status: null,
+				},
+				{
+					event: "public_authentication_response_normalized",
+					level: "info",
+					reason: "request_password_recovery",
+					status: 200,
+				},
+			],
+			serializedContainsSensitiveMaterial: false,
+		});
+	});
+
+	it("records only classified authentication observations", async () => {
+		const observations: AuthenticationObservation[] = [];
+		const authentication = createMailboxAuthentication([], observations);
+		const email = "observed-alice@example.com";
+		const password = "correct-horse-battery-staple";
+		await authentication.handler(postAuthentication("sign-up/email", {email, password}));
+		observations.length = 0;
+
+		await authentication.handler(postAuthentication("sign-up/email", {email, password}));
+		await authentication.handler(
+			postAuthentication("sign-in/email", {email: "missing-observed-alice@example.com", password}),
+		);
+		await authentication.handler(postAuthentication("sign-in/email", {email, password: "wrong-password"}));
+
+		expect(observations).toStrictEqual([
+			{
+				event: "authentication_library_log",
+				level: "info",
+				reason: "existing_registration",
+				status: null,
+			},
+			{
+				event: "public_authentication_response_normalized",
+				level: "info",
+				reason: "register",
+				status: 200,
+			},
+			{
+				event: "authentication_library_log",
+				level: "warn",
+				reason: "user_not_found",
+				status: null,
+			},
+			{
+				event: "public_authentication_response_normalized",
+				level: "warn",
+				reason: "sign_in",
+				status: 401,
+			},
+			{
+				event: "authentication_library_log",
+				level: "warn",
+				reason: "invalid_password",
+				status: null,
+			},
+			{
+				event: "public_authentication_response_normalized",
+				level: "warn",
+				reason: "sign_in",
+				status: 401,
+			},
 		]);
 	});
 
@@ -203,19 +456,8 @@ describe("Better Auth account recovery", () => {
 				password: originalPassword,
 			}),
 		);
-		const signUpBody = await signUp.json<{user: {id: string}}>();
-		expect({body: signUpBody, status: signUp.status}).toStrictEqual({
-			body: {
-				token: null,
-				user: {
-					createdAt: expect.any(String),
-					email,
-					emailVerified: false,
-					id: expect.any(String),
-					image: null,
-					updatedAt: expect.any(String),
-				},
-			},
+		expect({body: await signUp.json(), status: signUp.status}).toStrictEqual({
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
 			status: 200,
 		});
 		const registeredUser = await env.DB.prepare("SELECT id FROM user WHERE email = ?")
@@ -230,7 +472,7 @@ describe("Better Auth account recovery", () => {
 			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
 		);
 		expect({body: await verificationRequest.json(), status: verificationRequest.status}).toStrictEqual({
-			body: {status: true},
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
 			status: 200,
 		});
 		const verificationEmail = required(mailbox[0], "verification email");
@@ -304,8 +546,11 @@ describe("Better Auth account recovery", () => {
 			postAuthentication("sign-in/email", {email, password: originalPassword}),
 		);
 		expect({body: await beforeVerification.json(), status: beforeVerification.status}).toStrictEqual({
-			body: {code: "EMAIL_NOT_VERIFIED", message: "Email not verified"},
-			status: 403,
+			body: {
+				code: "AUTHENTICATION_FAILED",
+				message: "Sign-in failed. Check your email and password, or recover your account.",
+			},
+			status: 401,
 		});
 		const secondVerificationEmail = required(mailbox[1], "second verification email");
 		const secondVerificationUrl = emailLink(secondVerificationEmail);
@@ -420,7 +665,7 @@ describe("Better Auth account recovery", () => {
 			postAuthentication("request-password-reset", {email, redirectTo: "/reset-password"}),
 		);
 		expect({body: await resetRequest.json(), status: resetRequest.status}).toStrictEqual({
-			body: {message: "If this email exists in our system, check your email for the reset link", status: true},
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
 			status: 200,
 		});
 		const resetEmail = required(mailbox[2], "password reset email");
