@@ -69,7 +69,7 @@ body {
 }
 
 .afk-toggle,
-.machine-status {
+.account-status {
 	border: 1px solid var(--muted);
 	border-radius: 999px;
 	background: none;
@@ -79,12 +79,6 @@ body {
 	letter-spacing: 0.04em;
 	padding: 3px 10px;
 	cursor: pointer;
-}
-
-.machine-status.waiting {
-	border-color: #d9a557;
-	background: rgb(217 165 87 / 14%);
-	color: #e6bc79;
 }
 
 .afk-toggle.afk-off {
@@ -642,12 +636,6 @@ body {
 	font-size: 12px;
 }
 
-.managed-device .device-actions button.danger {
-	border: 1px solid rgb(229 72 77 / 55%);
-	background: rgb(229 72 77 / 12%);
-	color: #ffb4b7;
-}
-
 .device-rename,
 .device-rename label {
 	display: flex;
@@ -687,111 +675,56 @@ body {
 	font-weight: 650;
 }
 
-.pairing-result {
-	margin-top: 14px;
-	border: 1px solid #32353d;
-	border-radius: 12px;
-	background: #191a1f;
-	padding: 16px;
-}
-
-.hint .pairing-code-label {
-	margin-bottom: 8px;
-	color: #8f96a1;
-	font-size: 11px;
-	font-weight: 700;
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
-}
-
-.pairing-code-row {
+.install-steps {
 	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 14px 0;
+}
+
+.install-command {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: center;
-	justify-content: space-between;
-	gap: 16px;
+	gap: 8px 12px;
+	border: 1px solid #32353d;
+	border-radius: 10px;
+	background: #191a1f;
+	padding: 10px 12px;
 }
 
-.pairing-code {
+.install-command strong,
+.install-command code {
+	display: block;
+}
+
+.install-command strong {
+	margin-bottom: 5px;
+	color: #d7dae0;
+	font-size: 12px;
+}
+
+.install-command code {
+	overflow-wrap: anywhere;
+	color: #eceef2;
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
-	font-size: clamp(32px, 7vw, 42px);
-	font-weight: 750;
-	letter-spacing: 0.16em;
-	line-height: 1.1;
-	color: #eceef2 !important;
-	outline-offset: 5px;
+	font-size: 12px;
+	line-height: 1.45;
 	user-select: text;
-	cursor: text;
 }
 
-.hint button.pairing-copy-again {
-	flex: 0 0 auto;
-	border: 1px solid #41454e;
-	background: transparent;
-	color: #aeb4be;
-	font-size: 12px;
-	font-weight: 500;
-	padding: 6px 9px;
-}
-
-.hint button.pairing-copy-again:hover {
-	border-color: #626873;
-	background: rgb(255 255 255 / 4%);
-	color: #d7dae0;
-}
-
-.hint button.pairing-copy-again:focus-visible,
-.pairing-code:focus-visible {
-	outline: 2px solid #8f96a1;
-}
-
-.hint .pairing-instruction {
-	margin-top: 14px;
-	color: #d7dae0;
-	font-weight: 550;
-}
-
-.hint .pairing-waiting {
-	margin: 10px 0 0;
-	color: #e6bc79;
-	font-weight: 650;
-}
-
-.hint .copy-status {
-	min-height: 1.4em;
-	margin-bottom: 2px;
-	color: #aeb4be;
-	font-size: 12px;
-}
-
-.hint .pairing-code-note {
-	margin: 0;
-	color: #777e89;
+.install-command small {
+	grid-column: 1 / -1;
+	color: #ffb4b7;
 	font-size: 11px;
 }
 
-.copy-toast {
-	position: fixed;
-	top: calc(14px + env(safe-area-inset-top));
-	left: 50%;
-	z-index: 10;
-	transform: translateX(-50%);
-	border: 1px solid rgb(46 184 114 / 55%);
-	border-radius: 999px;
-	background: #202d27;
-	box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
-	color: #dff8e9;
-	font-size: 14px;
-	font-weight: 600;
-	padding: 9px 14px;
-	white-space: nowrap;
-	animation: copy-toast-in 0.2s ease-out;
+.connected-clients a {
+	color: #b6f1d2;
 }
 
-@keyframes copy-toast-in {
-	from {
-		opacity: 0;
-		transform: translate(-50%, -8px);
-	}
+.refresh-devices {
+	margin-top: 12px;
 }
 
 .settings .back {

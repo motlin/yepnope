@@ -1,4 +1,11 @@
-import {authenticateBrowserSession, authenticateRequest, createWorkerAuthentication, MCP_RESOURCE_PATH} from "./auth";
+import {
+	authenticateBrowserAccount,
+	authenticateBrowserSession,
+	authenticateRequest,
+	createWorkerAuthentication,
+	hashToken,
+	MCP_RESOURCE_PATH,
+} from "./auth";
 import {
 	getConnectedMcpClientAuthorizationState,
 	listConnectedMcpClients,
@@ -125,13 +132,20 @@ export default {
 				(machineManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE")) ||
 				(pushDeviceManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE"))
 			) {
-				const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-				if (accountUserId === null) {
+				const browserAccount = await authenticateBrowserAccount(request, env, executionContext);
+				if (browserAccount === null) {
 					return new Response(null, {status: 401});
 				}
+				const accountUserId = browserAccount.userId;
 				const accountStub = env.USER_DO.getByName(accountUserId);
 				if (url.pathname === "/api/v1/account/devices") {
-					return listAccountDevices(env.DB, accountStub, accountUserId, mcpResource(env));
+					return listAccountDevices(
+						env.DB,
+						accountStub,
+						accountUserId,
+						browserAccount.sessionId,
+						mcpResource(env),
+					);
 				}
 				if (connectedMcpClientManagementMatch !== null) {
 					return manageConnectedMcpClient(
@@ -306,17 +320,90 @@ async function subscribePush(request: Request, stub: DurableObjectStub<UserDurab
 	return Response.json({status: "ok"});
 }
 
+interface BrowserSessionRow {
+	id: string;
+	created_at: number;
+	updated_at: number;
+	expires_at: number;
+	user_agent: string | null;
+}
+
+function browserSessionDisplayName(userAgent: string | null): string {
+	if (userAgent === null) {
+		return "Browser session";
+	}
+	const browser = userAgent.includes("Edg/")
+		? "Edge"
+		: userAgent.includes("Firefox/")
+			? "Firefox"
+			: userAgent.includes("Chrome/") || userAgent.includes("CriOS/")
+				? "Chrome"
+				: userAgent.includes("Safari/")
+					? "Safari"
+					: "Browser";
+	const platform = /iPhone|iPod/.test(userAgent)
+		? "iPhone"
+		: userAgent.includes("iPad")
+			? "iPad"
+			: userAgent.includes("Android")
+				? "Android"
+				: /Macintosh|Mac OS X/.test(userAgent)
+					? "macOS"
+					: userAgent.includes("Windows")
+						? "Windows"
+						: userAgent.includes("Linux")
+							? "Linux"
+							: "unknown platform";
+	return `${browser} on ${platform}`;
+}
+
+async function listBrowserSessions(
+	database: D1Database,
+	userId: string,
+	currentSessionId: string,
+): Promise<
+	Array<{
+		id: string;
+		display_name: string;
+		created_at: number;
+		last_active_at: number;
+		expires_at: number;
+		current: boolean;
+	}>
+> {
+	const sessions = await database
+		.prepare(
+			"SELECT id, created_at, updated_at, expires_at, user_agent FROM session " +
+				"WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC, id",
+		)
+		.bind(userId, Date.now())
+		.all<BrowserSessionRow>();
+	return Promise.all(
+		sessions.results.map(async (session) => ({
+			id: await hashToken(`browser-session\0${userId}\0${session.id}`),
+			display_name: browserSessionDisplayName(session.user_agent),
+			created_at: session.created_at,
+			last_active_at: session.updated_at,
+			expires_at: session.expires_at,
+			current: session.id === currentSessionId,
+		})),
+	);
+}
+
 async function listAccountDevices(
 	database: D1Database,
 	stub: DurableObjectStub<UserDurableObject>,
 	userId: string,
+	currentSessionId: string,
 	resource: string,
 ): Promise<Response> {
-	const [connectedMcpClients, pushDevices] = await Promise.all([
+	const [browserSessions, connectedMcpClients, pushDevices] = await Promise.all([
+		listBrowserSessions(database, userId, currentSessionId),
 		listConnectedMcpClients(database, userId, resource),
 		stub.listPushDevices(),
 	]);
 	return Response.json({
+		browser_sessions: browserSessions,
 		connected_mcp_clients: connectedMcpClients.map((client) => ({
 			id: client.id,
 			display_name: client.displayName,

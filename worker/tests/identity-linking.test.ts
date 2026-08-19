@@ -259,7 +259,32 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		const devicesAfterClaim = await worker.fetch(`${API_ORIGIN}/api/v1/account/devices`, {
 			headers: {Cookie: session.cookie},
 		});
-		expect(await devicesAfterClaim.json()).toStrictEqual({connected_mcp_clients: [], push_devices: []});
+		const sessionResponse = await worker.fetch(`${API_ORIGIN}/api/auth/get-session`, {
+			headers: {Cookie: session.cookie},
+		});
+		const sessionId = (await sessionResponse.json<{session: {id: string}}>()).session.id;
+		const browserSession = await env.DB.prepare(
+			"SELECT created_at, updated_at, expires_at FROM session WHERE id = ?",
+		)
+			.bind(sessionId)
+			.first<{created_at: number; updated_at: number; expires_at: number}>();
+		if (browserSession === null) {
+			throw new Error("missing current browser session");
+		}
+		expect(await devicesAfterClaim.json()).toStrictEqual({
+			browser_sessions: [
+				{
+					id: await hashToken(`browser-session\0${session.userId}\0${sessionId}`),
+					display_name: "Browser on unknown platform",
+					created_at: browserSession.created_at,
+					last_active_at: browserSession.updated_at,
+					expires_at: browserSession.expires_at,
+					current: true,
+				},
+			],
+			connected_mcp_clients: [],
+			push_devices: [],
+		});
 		socket.close();
 	});
 

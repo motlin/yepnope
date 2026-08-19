@@ -6,7 +6,6 @@ import {
 	type Page,
 	type WebSocketRoute,
 } from "playwright/test";
-import {runPairCommand} from "../../shim/pair";
 
 const email = "alice-browser-test@example.com";
 const originalPassword = "browser-test-original-password";
@@ -56,34 +55,10 @@ async function closeContexts(contexts: BrowserContext[]): Promise<void> {
 	await Promise.all(contexts.map(async (context) => context.close()));
 }
 
-async function claimWithShim(request: APIRequestContext, code: string): Promise<string> {
-	const originalFetch = globalThis.fetch;
-	globalThis.fetch = async (input, init) => {
-		if (typeof init?.body !== "string") {
-			throw new Error("shim pairing request body must be JSON text");
-		}
-		const response = await request.fetch(String(input), {
-			method: init.method ?? "GET",
-			headers: Object.fromEntries(new Headers(init.headers).entries()),
-			data: init.body,
-		});
-		return new Response(await response.text(), {headers: response.headers(), status: response.status()});
-	};
-	try {
-		const output = await runPairCommand([code, "--label", "Browser test CLI"], {
-			baseUrl: "https://127.0.0.1:4173",
-		});
-		const token = /export YEPNOPE_TOKEN=(\S+)/.exec(output)?.[1];
-		if (token === undefined) {
-			throw new Error("shim pairing output did not include a machine token");
-		}
-		return token;
-	} finally {
-		globalThis.fetch = originalFetch;
-	}
-}
-
-test("identity registration, recovery, pairing, answers, revocation, and deletion", async ({browser, request}) => {
+test("identity registration, recovery, connected clients, answers, revocation, and deletion", async ({
+	browser,
+	request,
+}) => {
 	const contexts: BrowserContext[] = [];
 	try {
 		const firstContext = await browser.newContext({ignoreHTTPSErrors: true});
@@ -156,69 +131,35 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		const userId = await sessionUserId(firstPage);
 		expect(userId).toBe(verifiedUserId);
 
-		await firstContext.grantPermissions(["clipboard-read", "clipboard-write"]);
-		await firstPage.getByRole("button", {name: "Generate and copy pairing code"}).click();
-		await expect(firstPage.locator(".copy-status")).toHaveText("Copied to clipboard.");
-		await expect(firstPage.getByRole("status")).toHaveText("Waiting for your CLI to claim this code.");
-		const pairingCode = await firstPage.locator("code.pairing-code").textContent();
-		if (pairingCode === null) {
-			throw new Error("pairing code was not rendered");
-		}
-		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
-		await expect(firstPage.getByRole("button", {name: "Waiting for CLI"})).toBeVisible();
-		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
-		await expect(
-			firstPage.getByText("Your question queue is empty. New questions will appear here when they arrive."),
-		).toBeVisible();
-		await expect(firstPage.locator(".card, .actions")).toHaveCount(0);
-
 		const secondContext = await browser.newContext({ignoreHTTPSErrors: true});
 		contexts.push(secondContext);
 		const secondPage = await secondContext.newPage();
 		await signIn(secondPage, originalPassword);
-		await expect(secondPage.getByRole("heading", {name: "Waiting for your CLI"})).toBeVisible();
-		await expect(secondPage.getByText(/A pairing code is waiting for a CLI to claim it/)).toBeVisible();
-
-		const expired = await request.post("/api/__e2e__/expire-pairing", {data: {code: pairingCode}});
-		expect({body: await expired.json(), status: expired.status()}).toStrictEqual({
-			body: {status: "expired"},
-			status: 200,
-		});
-		await expect(firstPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
-		await expect(secondPage.getByRole("heading", {name: "Connect a CLI"})).toBeVisible();
-
-		await firstPage.getByRole("button", {name: "Connect an MCP client"}).click();
-		await firstPage.getByRole("button", {name: "Generate and copy pairing code"}).click();
-		await expect(firstPage.getByRole("status")).toHaveText("Waiting for your CLI to claim this code.");
-		const claimablePairingCode = await firstPage.locator("code.pairing-code").textContent();
-		if (claimablePairingCode === null) {
-			throw new Error("replacement pairing code was not rendered");
-		}
-		await secondPage.reload();
-		await expect(secondPage.getByRole("heading", {name: "Waiting for your CLI"})).toBeVisible();
-		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
-		const machineToken = await claimWithShim(request, claimablePairingCode);
-		await expect(firstPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
-		await secondPage.reload();
-		await expect(secondPage.getByRole("heading", {name: "Connect another CLI"})).toBeVisible();
 		await expect(secondPage.getByText("No connected MCP clients.")).toBeVisible();
+		await expect(secondPage.getByRole("heading", {name: "Signed-in browsers"})).toBeVisible();
+		await expect(secondPage.getByRole("listitem").filter({hasText: "This browser"})).toHaveCount(1);
 		const authorization = await request.post("/api/__e2e__/authorize-mcp-client", {data: {user_id: userId}});
 		expect({body: await authorization.json(), status: authorization.status()}).toStrictEqual({
 			body: {status: "authorized"},
 			status: 200,
 		});
-		await expect(firstPage.getByRole("button", {name: "MCP client connected"})).toBeVisible();
+		await expect(firstPage.getByText("Browser test MCP client")).toBeVisible();
 		await secondPage.reload();
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
-		await firstPage.reload();
-		await expect(firstPage.getByRole("button", {name: "MCP client connected"})).toBeVisible();
+		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
+		await expect(firstPage.getByRole("button", {name: "1 MCP client authorized"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
 		await expect(firstPage.getByRole("button", {name: "AFK off"})).toHaveAttribute("aria-pressed", "false");
 
 		await firstPage.getByRole("button", {name: "AFK off"}).click();
 		await expect(firstPage.getByRole("button", {name: "AFK on"})).toHaveAttribute("aria-pressed", "true");
-		const created = await request.post("/api/v1/questions", {
-			headers: {Authorization: `Bearer ${machineToken}`},
+		await expect
+			.poll(async () => {
+				const response = await firstPage.request.get("/api/v1/afk");
+				return {body: await response.json(), status: response.status()};
+			})
+			.toStrictEqual({body: {afk: true}, status: 200});
+		const created = await firstPage.request.post("/api/v1/questions", {
 			data: {
 				project: "Browser test",
 				questions: [
@@ -234,9 +175,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await answerCurrentCard(firstPage, "← Nope", "Defer the optional browser test?");
 		await answerCurrentCard(firstPage, "↓ Skip", "All caught up");
 
-		const summary = await request.get("/api/v1/activity-summary", {
-			headers: {Authorization: `Bearer ${machineToken}`},
-		});
+		const summary = await firstPage.request.get("/api/v1/activity-summary");
 		expect({body: await summary.json(), status: summary.status()}).toStrictEqual({
 			body: {
 				activity_summary: {
@@ -299,11 +238,10 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		const mcpClientRow = secondPage.getByRole("listitem").filter({hasText: "Browser test MCP client"});
 		await mcpClientRow.getByRole("button", {name: "Revoke"}).click();
 		await expect(mcpClientRow).toContainText("revoked");
-		await expect(secondPage.getByRole("heading", {name: "Connect another CLI"})).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		await expect(firstPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
-		const legacyAfk = await request.get("/api/v1/afk", {headers: {Authorization: `Bearer ${machineToken}`}});
-		expect({body: await legacyAfk.json(), status: legacyAfk.status()}).toStrictEqual({
+		const accountAfk = await firstPage.request.get("/api/v1/afk");
+		expect({body: await accountAfk.json(), status: accountAfk.status()}).toStrictEqual({
 			body: {afk: false},
 			status: 200,
 		});

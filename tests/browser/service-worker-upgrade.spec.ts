@@ -30,9 +30,6 @@ async function routeAuthenticatedApplication(page: Page): Promise<void> {
 		}),
 	);
 	await page.route("**/api/v1/afk", async (route) => fulfillJson(route, {afk: false}));
-	await page.route("**/api/v1/pair/status", async (route) =>
-		fulfillJson(route, {paired: true, machine_count: 1, pending_pairing_expires_at: null}),
-	);
 }
 
 test("activates version N+1 and stops version N JavaScript and its socket", async ({page}) => {

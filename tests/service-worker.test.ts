@@ -413,6 +413,7 @@ describe("service worker push notifications", () => {
 			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
 			maxActions: 2,
 			fetchQuestions: async () => Promise.resolve({ok: true}),
+			windowClients: [{id: "window-client-100", understandsVersionProtocol: true, url: "https://example.com/"}],
 		});
 
 		await harness.dispatchNotificationClick(
@@ -433,5 +434,10 @@ describe("service worker push notifications", () => {
 		]);
 		expect(callsFrom(harness.setAppBadge)).toStrictEqual([]);
 		expect(callsFrom(harness.clearAppBadge)).toStrictEqual([[]]);
+		const [windowClient] = harness.windowClients;
+		if (windowClient === undefined) {
+			throw new Error("Expected one open browser window");
+		}
+		expect(callsFrom(windowClient.postMessage)).toStrictEqual([[{type: "account-state-changed"}]]);
 	});
 });

@@ -70,9 +70,6 @@ async function routeAfkDeck(page: Page, afk: boolean | null): Promise<void> {
 		}
 		await fulfillJson(route, {afk: afk ?? false});
 	});
-	await page.route("**/api/v1/pair/status", async (route) =>
-		fulfillJson(route, {machine_count: 1, paired: true, pending_pairing_expires_at: null}),
-	);
 	await page.routeWebSocket("**/api/v1/current-deck/stream", (socket) => {
 		socket.send(
 			JSON.stringify({
@@ -84,7 +81,7 @@ async function routeAfkDeck(page: Page, afk: boolean | null): Promise<void> {
 		);
 	});
 	await page.goto("/");
-	await expect(page.getByRole("button", {name: "MCP client connected"})).toBeVisible();
+	await expect(page.getByRole("button", {name: "1 MCP client authorized"})).toBeVisible();
 	if (afk === null) {
 		await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
 	}
@@ -216,7 +213,7 @@ test("AFK checking is a calm busy disabled state", async ({page}) => {
 test("AFK toggle exposes a visible keyboard focus ring", async ({page}) => {
 	await routeAfkDeck(page, false);
 	await page.keyboard.press("Tab");
-	await expect(page.getByRole("button", {name: "MCP client connected"})).toBeFocused();
+	await expect(page.getByRole("button", {name: "1 MCP client authorized"})).toBeFocused();
 	await page.keyboard.press("Tab");
 	const toggle = page.getByRole("button", {name: "AFK off"});
 	await expect(toggle).toBeFocused();

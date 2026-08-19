@@ -4,6 +4,16 @@ import {APPLICATION_UPDATE_EVENT} from "./application-updates";
 
 // 🌐 Thin client for the Worker API. Same-origin in production; the dev server proxies /api.
 
+export class ApiResponseError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
+		this.name = "ApiResponseError";
+	}
+}
+
 async function requestJson<Schema extends z.ZodType>(
 	path: string,
 	init: RequestInit,
@@ -17,8 +27,9 @@ async function requestJson<Schema extends z.ZodType>(
 				.json()
 				.catch(() => null),
 		);
-		throw new Error(
+		throw new ApiResponseError(
 			error.success ? error.data.message : `${init.method ?? "GET"} ${path} failed with ${response.status}`,
+			response.status,
 		);
 	}
 	const body: unknown = await response.json();
@@ -149,48 +160,6 @@ export async function signOut(): Promise<void> {
 	await requestJson("/api/auth/sign-out", jsonRequest({}), z.object({success: z.literal(true)}));
 }
 
-const pairingStatusResponseSchema = z.object({
-	paired: z.boolean(),
-	machine_count: z.number().int().nonnegative(),
-	pending_pairing_expires_at: z.number().int().nullable(),
-});
-
-export interface PairingStatus {
-	paired: boolean;
-	machineCount: number;
-	pendingPairingExpiresAt: number | null;
-}
-
-function toPairingStatus(body: z.infer<typeof pairingStatusResponseSchema>): PairingStatus {
-	return {
-		paired: body.paired,
-		machineCount: body.machine_count,
-		pendingPairingExpiresAt: body.pending_pairing_expires_at,
-	};
-}
-
-const pairCodeResponseSchema = z.object({
-	code: z.string(),
-	expires_at: z.number(),
-	pairing: pairingStatusResponseSchema,
-});
-
-export interface IssuedPairingCode {
-	code: string;
-	expiresAt: number;
-	pairingStatus: PairingStatus;
-}
-
-export async function issuePairingCode(): Promise<IssuedPairingCode> {
-	const body = await requestJson("/api/v1/pair/code", {method: "POST"}, pairCodeResponseSchema);
-	return {code: body.code, expiresAt: body.expires_at, pairingStatus: toPairingStatus(body.pairing)};
-}
-
-export async function fetchPairingStatus(): Promise<PairingStatus> {
-	const body = await requestJson("/api/v1/pair/status", {}, pairingStatusResponseSchema);
-	return toPairingStatus(body);
-}
-
 const legacyIdentityClaimResponseSchema = z.object({
 	status: z.literal("claimed"),
 	already_claimed: z.boolean(),
@@ -220,7 +189,17 @@ const managedPushDeviceSchema = z.object({
 	created_at: z.number(),
 });
 
+const managedBrowserSessionSchema = z.object({
+	id: z.string(),
+	display_name: z.string(),
+	created_at: z.number(),
+	last_active_at: z.number(),
+	expires_at: z.number(),
+	current: z.boolean(),
+});
+
 const accountDevicesResponseSchema = z.object({
+	browser_sessions: z.array(managedBrowserSessionSchema),
 	connected_mcp_clients: z.array(managedConnectedMcpClientSchema),
 	push_devices: z.array(managedPushDeviceSchema),
 });
@@ -241,7 +220,17 @@ export interface ManagedPushDevice {
 	createdAt: number;
 }
 
+export interface ManagedBrowserSession {
+	id: string;
+	displayName: string;
+	createdAt: number;
+	lastActiveAt: number;
+	expiresAt: number;
+	current: boolean;
+}
+
 export interface AccountDevices {
+	browserSessions: ManagedBrowserSession[];
 	connectedMcpClients: ManagedConnectedMcpClient[];
 	pushDevices: ManagedPushDevice[];
 }
@@ -249,6 +238,14 @@ export interface AccountDevices {
 export async function fetchAccountDevices(): Promise<AccountDevices> {
 	const body = await requestJson("/api/v1/account/devices", {}, accountDevicesResponseSchema);
 	return {
+		browserSessions: body.browser_sessions.map((browserSession) => ({
+			id: browserSession.id,
+			displayName: browserSession.display_name,
+			createdAt: browserSession.created_at,
+			lastActiveAt: browserSession.last_active_at,
+			expiresAt: browserSession.expires_at,
+			current: browserSession.current,
+		})),
 		connectedMcpClients: body.connected_mcp_clients.map((client) => ({
 			id: client.id,
 			displayName: client.display_name,
@@ -373,7 +370,7 @@ async function revalidateCurrentDeckStreamAccess(): Promise<StreamAccess> {
 		return StreamAccess.SignedOut;
 	}
 	const response = await fetch("/api/v1/current-deck/stream", {credentials: "same-origin"});
-	if (response.status === 401) {
+	if (response.status === 401 || response.status === 403) {
 		return StreamAccess.SignedOut;
 	}
 	if ([404, 405, 410, 501].includes(response.status)) {

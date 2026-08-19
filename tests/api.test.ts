@@ -2,6 +2,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {
 	CurrentDeckConnectionState,
+	fetchAccountDevices,
 	fetchOAuthClient,
 	openCurrentDeckStream,
 	registerAccount,
@@ -103,6 +104,66 @@ afterEach(() => {
 });
 
 describe("account registration", () => {
+	it("maps redacted MCP clients, browser sessions, and push subscriptions separately", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(
+				Response.json({
+					browser_sessions: [
+						{
+							id: "browser-session-management-id",
+							display_name: "Chrome on Linux",
+							created_at: 946_684_800_000,
+							last_active_at: 946_771_200_000,
+							expires_at: 947_289_600_000,
+							current: true,
+						},
+					],
+					connected_mcp_clients: [
+						{
+							id: "connected-client-management-id",
+							display_name: "Codex",
+							authorized_at: 946_684_800_000,
+							last_used_at: 946_771_200_000,
+							granted_scopes: ["openid", "yepnope:questions"],
+							status: "active",
+							revoked_at: null,
+						},
+					],
+					push_devices: [
+						{id: "push-subscription-management-id", label: "Alice browser", created_at: 946_684_800_000},
+					],
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect(await fetchAccountDevices()).toStrictEqual({
+			browserSessions: [
+				{
+					id: "browser-session-management-id",
+					displayName: "Chrome on Linux",
+					createdAt: 946_684_800_000,
+					lastActiveAt: 946_771_200_000,
+					expiresAt: 947_289_600_000,
+					current: true,
+				},
+			],
+			connectedMcpClients: [
+				{
+					id: "connected-client-management-id",
+					displayName: "Codex",
+					authorizedAt: 946_684_800_000,
+					lastUsedAt: 946_771_200_000,
+					grantedScopes: ["openid", "yepnope:questions"],
+					status: "active",
+					revokedAt: null,
+				},
+			],
+			pushDevices: [{id: "push-subscription-management-id", label: "Alice browser", createdAt: 946_684_800_000}],
+		});
+		expect(fetchMock.mock.calls).toStrictEqual([["/api/v1/account/devices", {credentials: "same-origin"}]]);
+	});
+
 	it("sends only the email and password authentication fields", async () => {
 		const fetchMock = vi.fn<typeof fetch>(async () => Promise.resolve(Response.json({user: sessionUser})));
 		vi.stubGlobal("fetch", fetchMock);
@@ -300,6 +361,43 @@ describe("openCurrentDeckStream", () => {
 		}).toStrictEqual({
 			connections: 2,
 			sessionChecks: [["/api/auth/get-session", {credentials: "same-origin"}]],
+			state: CurrentDeckConnectionState.Stopped,
+		});
+		expect(onSignedOut.mock.calls).toStrictEqual([[]]);
+	});
+
+	it.each([401, 403])("stops after stream access revalidation returns %i", async (status) => {
+		const fetchMock = vi.fn<typeof fetch>(async (input) => {
+			await Promise.resolve();
+			return String(input) === "/api/auth/get-session"
+				? Response.json({user: sessionUser})
+				: new Response(null, {status});
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const onSignedOut = vi.fn<() => void>();
+		const stream = openCurrentDeckStream(() => undefined, {
+			initialReconnectDelayMilliseconds: 100,
+			maximumConsecutiveFailures: 4,
+			onSignedOut,
+			random: () => 0.5,
+			sessionRevalidationFailureCount: 2,
+		});
+
+		latestSocket().close();
+		await vi.advanceTimersByTimeAsync(100);
+		latestSocket().close();
+		await vi.advanceTimersByTimeAsync(10_000);
+
+		expect({
+			connections: FakeWebSocket.instances.length,
+			sessionChecks: fetchMock.mock.calls,
+			state: stream.state(),
+		}).toStrictEqual({
+			connections: 2,
+			sessionChecks: [
+				["/api/auth/get-session", {credentials: "same-origin"}],
+				["/api/v1/current-deck/stream", {credentials: "same-origin"}],
+			],
 			state: CurrentDeckConnectionState.Stopped,
 		});
 		expect(onSignedOut.mock.calls).toStrictEqual([[]]);

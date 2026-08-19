@@ -5,10 +5,9 @@ import type {
 	AccountDevices,
 	AuthenticationUser,
 	CurrentDeckConnectionState,
+	CurrentDeckStream,
 	LiveApplicationState,
 	OAuthClientSummary,
-	PairingStatus,
-	CurrentDeckStream,
 } from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
@@ -31,7 +30,21 @@ const alice: AuthenticationUser = {
 	emailVerified: true,
 };
 
+const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
+const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
+
 const fetchSession = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser | null>>());
+const ApiResponseError = vi.hoisted(
+	() =>
+		class extends Error {
+			constructor(
+				message: string,
+				readonly status: number,
+			) {
+				super(message);
+			}
+		},
+);
 const fetchOAuthClient = vi.hoisted(() =>
 	vi.fn<(_clientId: string) => Promise<OAuthClientSummary>>(async () =>
 		Promise.resolve({id: "oauth-client", name: "Codex", uri: null}),
@@ -43,7 +56,9 @@ const signInForOAuth = vi.hoisted(() =>
 );
 const submitOAuthConsent = vi.hoisted(() => vi.fn<(_oauthQuery: string, _accept: boolean) => Promise<string>>());
 const fetchAccountDevices = vi.hoisted(() =>
-	vi.fn<() => Promise<AccountDevices>>(async () => Promise.resolve({connectedMcpClients: [], pushDevices: []})),
+	vi.fn<() => Promise<AccountDevices>>(async () =>
+		Promise.resolve({browserSessions: [], connectedMcpClients: [], pushDevices: []}),
+	),
 );
 const claimLegacyIdentity = vi.hoisted(() => vi.fn<(_token: string) => Promise<void>>(async () => Promise.resolve()));
 const renamePushDevice = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
@@ -52,11 +67,6 @@ const revokeConnectedMcpClient = vi.hoisted(() =>
 );
 const revokePushDevice = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>());
 
-const fetchPairingStatus = vi.hoisted(() =>
-	vi.fn<() => Promise<PairingStatus>>(async () =>
-		Promise.resolve({paired: true, machineCount: 1, pendingPairingExpiresAt: null}),
-	),
-);
 const fetchAfk = vi.hoisted(() => vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)));
 const updateAfk = vi.hoisted(() => vi.fn<(afk: boolean) => Promise<boolean>>(async (afk) => Promise.resolve(afk)));
 
@@ -66,13 +76,12 @@ const closeStream = vi.fn<() => void>();
 const refreshStream = vi.fn<() => void>();
 
 vi.mock("../src/api", () => ({
+	ApiResponseError,
 	claimLegacyIdentity,
 	fetchAccountDevices,
 	fetchAfk,
-	fetchPairingStatus,
 	fetchOAuthClient,
 	fetchSession,
-	issuePairingCode: vi.fn<() => Promise<import("../src/api").IssuedPairingCode>>(),
 	openCurrentDeckStream: vi.fn<(onState: (state: LiveApplicationState) => void) => CurrentDeckStream>((onState) => {
 		publishApplicationState = onState;
 		publishQuestions = (questions) => {
@@ -115,7 +124,6 @@ vi.mock("../src/push", () => ({
 
 import {App} from "../src/app";
 import {
-	issuePairingCode,
 	registerAccount,
 	requestPasswordReset,
 	resetPassword,
@@ -152,10 +160,9 @@ beforeEach(() => {
 	refreshStream.mockClear();
 	vi.mocked(isIos).mockReturnValue(false);
 	vi.mocked(isStandalone).mockReturnValue(false);
-	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
 	fetchOAuthClient.mockResolvedValue({id: "oauth-client", name: "Codex", uri: null});
 	fetchSession.mockResolvedValue(alice);
-	fetchAccountDevices.mockResolvedValue({connectedMcpClients: [], pushDevices: []});
+	fetchAccountDevices.mockResolvedValue({browserSessions: [], connectedMcpClients: [], pushDevices: []});
 	renamePushDevice.mockResolvedValue(undefined);
 	revokeConnectedMcpClient.mockResolvedValue(0);
 	revokePushDevice.mockResolvedValue(undefined);
@@ -278,104 +285,8 @@ describe("App live question synchronization", () => {
 		});
 	});
 
-	it("keeps legacy pairing status separate from connected-client live state", async () => {
-		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
-		const expiresAt = Date.now() + 60_000;
-		vi.mocked(issuePairingCode).mockResolvedValue({
-			code: "ABC234",
-			expiresAt,
-			pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: expiresAt},
-		});
-		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
-		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
-
-		render(<App />);
-		await waitFor(() => {
-			expect(publishQuestions).toBeTypeOf("function");
-		});
-		act(() => {
-			publishApplicationState?.({
-				afk: false,
-				connectedMcpClientCount: 0,
-				currentDeck: [],
-			});
-		});
-
-		expect(
-			(await screen.findByRole("button", {name: "Connect an MCP client"})).getAttribute("aria-pressed"),
-		).toBeNull();
-		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
-
-		fireEvent.click(screen.getByRole("button", {name: "Connect an MCP client"}));
-		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
-		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
-		expect(await screen.findByText("ABC234")).toBeDefined();
-		expect({
-			heading: screen.getByRole("heading", {name: "Waiting for your CLI"}).textContent,
-			queueConfirmation: screen.queryByText(/all caught up/i),
-			status: screen.getByRole("status").textContent,
-		}).toStrictEqual({
-			heading: "Waiting for your CLI",
-			queueConfirmation: null,
-			status: "Waiting for your CLI to claim this code.",
-		});
-		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
-		expect(screen.getByRole("button", {name: "Waiting for CLI"}).textContent).toBe("Waiting for CLI");
-		expect(
-			screen.getByText("Your question queue is empty. New questions will appear here when they arrive.")
-				.textContent,
-		).toBe("Your question queue is empty. New questions will appear here when they arrive.");
-		fireEvent.click(screen.getByRole("button", {name: "Waiting for CLI"}));
-
-		fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
-		act(() => {
-			publishApplicationState?.({
-				afk: false,
-				connectedMcpClientCount: 1,
-				currentDeck: [],
-			});
-		});
-		await waitFor(() => {
-			expect(screen.getByRole("heading", {name: "Connect a CLI"}).textContent).toBe("Connect a CLI");
-		});
-		expect({
-			code: screen.queryByText("ABC234"),
-			generateButton: screen.getByRole("button", {name: "Generate and copy pairing code"}).textContent,
-			heading: screen.getByRole("heading", {name: "Connect a CLI"}).textContent,
-			repeatCopyButton: screen.queryByRole("button", {name: "Copy pairing code again"}),
-		}).toStrictEqual({
-			code: null,
-			generateButton: "Generate and copy pairing code",
-			heading: "Connect a CLI",
-			repeatCopyButton: null,
-		});
-		act(() => {
-			publishApplicationState?.({
-				afk: false,
-				connectedMcpClientCount: 1,
-				currentDeck: [],
-			});
-		});
-		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
-
-		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
-		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
-		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
-	});
-
-	it("uses a bounded fallback while a pushed pairing result may be missed", async () => {
-		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
-		const expiresAt = Date.now() + 60_000;
-		vi.mocked(issuePairingCode).mockResolvedValue({
-			code: "JKM789",
-			expiresAt,
-			pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: expiresAt},
-		});
-		Object.defineProperty(navigator, "clipboard", {
-			configurable: true,
-			value: {writeText: vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve())},
-		});
-
+	it("refreshes connected-client settings when the live account state changes", async () => {
+		fetchAccountDevices.mockResolvedValueOnce({browserSessions: [], connectedMcpClients: [], pushDevices: []});
 		render(<App />);
 		await waitFor(() => {
 			expect(publishApplicationState).toBeTypeOf("function");
@@ -388,60 +299,27 @@ describe("App live question synchronization", () => {
 			});
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Connect an MCP client"}));
-		vi.useFakeTimers();
-		await act(async () => {
-			fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
-			await Promise.resolve();
-		});
-		expect(screen.getByRole("status").textContent).toBe("Waiting for your CLI to claim this code.");
-		const callsBeforeFallback = fetchPairingStatus.mock.calls.length;
-		fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
-
-		await act(async () => vi.advanceTimersByTimeAsync(4_999));
-		expect(fetchPairingStatus.mock.calls).toHaveLength(callsBeforeFallback);
-		await act(async () => vi.advanceTimersByTimeAsync(1));
-		expect(fetchPairingStatus.mock.calls).toHaveLength(callsBeforeFallback + 1);
-		expect(screen.getByRole("status").textContent).toBe("✓ CLI connected");
-		await act(async () => vi.advanceTimersByTimeAsync(20_000));
-		expect(fetchPairingStatus.mock.calls).toHaveLength(callsBeforeFallback + 1);
-	});
-
-	it("shows pairing immediately when the live state reports that the last machine was revoked", async () => {
-		render(<App />);
-		await waitFor(() => {
-			expect(publishApplicationState).toBeTypeOf("function");
+		expect(await screen.findByText("No connected MCP clients.")).toBeDefined();
+		fetchAccountDevices.mockResolvedValue({
+			browserSessions: [],
+			connectedMcpClients: [
+				{
+					id: "a".repeat(64),
+					displayName: "Codex on Alice laptop",
+					authorizedAt: Date.UTC(2000, 0, 1),
+					lastUsedAt: Date.UTC(2000, 0, 2),
+					grantedScopes: ["openid", "yepnope:questions"],
+					status: "active",
+					revokedAt: null,
+				},
+			],
+			pushDevices: [],
 		});
 		act(() => {
-			publishApplicationState?.({
-				afk: true,
-				connectedMcpClientCount: 1,
-				currentDeck: [],
-			});
+			publishApplicationState?.({afk: false, connectedMcpClientCount: 1, currentDeck: []});
 		});
-		expect(screen.getByRole("button", {name: "AFK on"}).getAttribute("aria-pressed")).toBe("true");
-
-		act(() => {
-			publishApplicationState?.({
-				afk: false,
-				connectedMcpClientCount: 0,
-				currentDeck: [],
-			});
-		});
-		expect({
-			headerPairingControls: [...document.querySelectorAll(".app-header .afk-toggle")].map(
-				(control) => control.textContent,
-			),
-			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pathname: "/"});
-
-		fireEvent.click(screen.getByRole("button", {name: "Connect an MCP client"}));
-		expect({
-			headerPairingControls: [...document.querySelectorAll(".app-header .afk-toggle")].map(
-				(control) => control.textContent,
-			),
-			pairingHeading: screen.getByRole("heading", {name: "Connect another CLI"}).textContent,
-			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pairingHeading: "Connect another CLI", pathname: "/settings"});
+		expect(await screen.findByText("Codex on Alice laptop")).toBeDefined();
+		expect(fetchAccountDevices.mock.calls.length).toBeGreaterThanOrEqual(2);
 	});
 
 	it("exposes distinct connection-checking, AFK-off, and AFK-on states", async () => {
@@ -455,7 +333,7 @@ describe("App live question synchronization", () => {
 
 		render(<App />);
 
-		const checking = await screen.findByRole("button", {name: "Checking CLI…"});
+		const checking = await screen.findByRole("button", {name: "Checking account…"});
 		expect({
 			ariaPressed: checking.getAttribute("aria-pressed"),
 			className: checking.className,
@@ -464,9 +342,9 @@ describe("App live question synchronization", () => {
 			type: checking.getAttribute("type"),
 		}).toStrictEqual({
 			ariaPressed: null,
-			className: "machine-status",
+			className: "account-status",
 			disabled: true,
-			text: "Checking CLI…",
+			text: "Checking account…",
 			type: "button",
 		});
 
@@ -525,7 +403,7 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(document.querySelector(".app-header")?.textContent).toBe("MCP client connectedAFK on⚙");
+		expect(document.querySelector(".app-header")?.textContent).toBe("1 MCP client authorizedAFK on⚙");
 	});
 
 	it("opens settings directly from its route", async () => {
@@ -538,11 +416,28 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(screen.getByRole("heading", {name: "Notifications"})).toBeDefined();
+		expect(screen.getByRole("heading", {name: "Connected MCP clients"})).toBeDefined();
+		expect(screen.getByRole("heading", {name: "Signed-in browsers"})).toBeDefined();
+		expect(screen.getByRole("heading", {name: "Browser notifications"})).toBeDefined();
 		expect(screen.getByRole("button", {name: "Close settings"})).toBeDefined();
 	});
 
-	it("requires iPhone installation before notifications or pairing", async () => {
+	it.each([401, 403])("ends account refresh after an authenticated request returns %i", async (status) => {
+		window.history.replaceState({}, "", "/settings");
+		fetchAccountDevices.mockRejectedValueOnce(new ApiResponseError("Session expired", status));
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", {name: "Sign in"})).toBeDefined();
+		});
+		expect({deviceRequests: fetchAccountDevices.mock.calls, path: window.location.pathname}).toStrictEqual({
+			deviceRequests: [[]],
+			path: "/",
+		});
+	});
+
+	it("requires iPhone installation before browser notifications without hiding MCP setup", async () => {
 		vi.mocked(isIos).mockReturnValue(true);
 		vi.mocked(isStandalone).mockReturnValue(false);
 
@@ -557,16 +452,11 @@ describe("App live question synchronization", () => {
 
 		expect(screen.getByRole("heading", {name: "Install first"})).toBeDefined();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
-		expect(screen.queryByRole("button", {name: "Generate and copy pairing code"})).toBeNull();
-		expect(screen.getByText(/pairing and notifications use the same app identity/i)).toBeDefined();
+		expect(screen.getByText(CODEX_ADD_COMMAND)).toBeDefined();
+		expect(document.body.textContent.toLowerCase()).not.toContain("pair");
 	});
 
-	it("automatically copies and selects a generated pairing code", async () => {
-		vi.mocked(issuePairingCode).mockResolvedValue({
-			code: "ABC234",
-			expiresAt: 2_000_000_000_000,
-			pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: 2_000_000_000_000},
-		});
+	it("shows and copies current Codex remote MCP setup commands", async () => {
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
@@ -578,76 +468,26 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
-
-		const code = await screen.findByText("ABC234");
-		const copyAgain = screen.getByRole("button", {name: "Copy pairing code again"});
+		const copyButtons = screen.getAllByRole("button", {name: "Copy"});
+		fireEvent.click(copyButtons[0] ?? document.body);
+		fireEvent.click(copyButtons[1] ?? document.body);
 		await waitFor(() => {
-			expect({
-				code: {
-					ariaLabelledBy: code.getAttribute("aria-labelledby"),
-					className: code.className,
-					tabIndex: code.getAttribute("tabindex"),
-					tagName: code.tagName,
-					text: code.textContent,
-				},
-				copyAgain: {
-					className: copyAgain.className,
-					tabIndex: copyAgain.getAttribute("tabindex"),
-					text: copyAgain.textContent,
-					type: copyAgain.getAttribute("type"),
-				},
-				copyCalls: writeText.mock.calls,
-				instruction: screen.getByText("Paste this code into the CLI you want to connect.").textContent,
-				label: screen.getByText("Pairing code").textContent,
-				note: screen.getByText("Expires in ten minutes and works once.").textContent,
-				selection: window.getSelection()?.toString(),
-				status: screen.getByRole("status").textContent,
-				copyStatus: document.querySelector(".copy-status")?.textContent,
-			}).toStrictEqual({
-				code: {
-					ariaLabelledBy: "pairing-code-label",
-					className: "pairing-code",
-					tabIndex: "0",
-					tagName: "CODE",
-					text: "ABC234",
-				},
-				copyAgain: {
-					className: "pairing-copy-again",
-					tabIndex: null,
-					text: "Copy again",
-					type: "button",
-				},
-				copyCalls: [["ABC234"]],
-				instruction: "Paste this code into the CLI you want to connect.",
-				label: "Pairing code",
-				note: "Expires in ten minutes and works once.",
-				selection: "ABC234",
-				status: "Waiting for your CLI to claim this code.",
-				copyStatus: "Copied to clipboard.",
-			});
+			expect(writeText.mock.calls).toStrictEqual([[CODEX_ADD_COMMAND], [CODEX_LOGIN_COMMAND]]);
 		});
-
-		copyAgain.focus();
-		window.getSelection()?.removeAllRanges();
-		fireEvent.focus(code);
-		expect(window.getSelection()?.toString()).toBe("ABC234");
-		code.focus();
-		expect(document.activeElement).toBe(code);
-		copyAgain.focus();
-		expect(document.activeElement).toBe(copyAgain);
-		fireEvent.click(copyAgain);
-		await waitFor(() => {
-			expect(writeText.mock.calls).toStrictEqual([["ABC234"], ["ABC234"]]);
+		expect({
+			addCommand: screen.getByText(CODEX_ADD_COMMAND).tagName,
+			loginCommand: screen.getByText(CODEX_LOGIN_COMMAND).tagName,
+			copiedButtons: screen.getAllByRole("button", {name: "Copied"}).length,
+			docsUrl: screen.getByRole("link", {name: "Open the official Codex MCP instructions"}).getAttribute("href"),
+		}).toStrictEqual({
+			addCommand: "CODE",
+			loginCommand: "CODE",
+			copiedButtons: 2,
+			docsUrl: "https://developers.openai.com/codex/mcp/",
 		});
 	});
 
-	it("keeps the selected code available when clipboard access is blocked", async () => {
-		vi.mocked(issuePairingCode).mockResolvedValue({
-			code: "DEF456",
-			expiresAt: 2_000_000_000_000,
-			pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: 2_000_000_000_000},
-		});
+	it("keeps setup commands selectable when clipboard access is blocked", async () => {
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () =>
 			Promise.reject(new Error("Clipboard permission denied")),
 		);
@@ -661,110 +501,17 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
-
-		const code = await screen.findByText("DEF456");
+		fireEvent.click(screen.getAllByRole("button", {name: "Copy"})[0] ?? document.body);
 		await waitFor(() => {
-			expect({
-				copyCalls: writeText.mock.calls,
-				selection: window.getSelection()?.toString(),
-				status: document.querySelector(".copy-status")?.textContent,
-			}).toStrictEqual({
-				copyCalls: [["DEF456"]],
-				selection: "DEF456",
-				status: "Clipboard access is blocked. Copy the selected code manually.",
-			});
+			expect(screen.getByRole("alert").textContent).toBe("Copy is blocked. Select the command manually.");
 		});
-
-		window.getSelection()?.removeAllRanges();
-		fireEvent.click(screen.getByRole("button", {name: "Copy pairing code again"}));
-		await waitFor(() => {
-			expect({
-				copyCalls: writeText.mock.calls,
-				selectedCode: window.getSelection()?.toString(),
-				visibleCode: code.textContent,
-			}).toStrictEqual({
-				copyCalls: [["DEF456"], ["DEF456"]],
-				selectedCode: "DEF456",
-				visibleCode: "DEF456",
-			});
+		expect({
+			copyCalls: writeText.mock.calls,
+			command: screen.getByText(CODEX_ADD_COMMAND).textContent,
+		}).toStrictEqual({
+			copyCalls: [[CODEX_ADD_COMMAND]],
+			command: CODEX_ADD_COMMAND,
 		});
-	});
-
-	it("replaces an expired pairing code with a clear retry state", async () => {
-		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
-		vi.mocked(issuePairingCode).mockResolvedValue({
-			code: "GHI678",
-			expiresAt: 0,
-			pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: 0},
-		});
-		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
-		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
-
-		render(<App />);
-		await waitFor(() => {
-			expect(publishQuestions).toBeTypeOf("function");
-		});
-		act(() => {
-			publishQuestions?.([]);
-		});
-		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
-		expect((await screen.findByText("GHI678")).textContent).toBe("GHI678");
-
-		await waitFor(
-			() => {
-				expect({
-					code: screen.queryByText("GHI678"),
-					copyAgain: screen.queryByRole("button", {name: "Copy pairing code again"}),
-					message: screen.getByText("That code expired. Generate a new one to try again.").textContent,
-					retry: screen.getByRole("button", {name: "Generate and copy pairing code"}).textContent,
-				}).toStrictEqual({
-					code: null,
-					copyAgain: null,
-					message: "That code expired. Generate a new one to try again.",
-					retry: "Generate and copy pairing code",
-				});
-			},
-			{timeout: 2_000},
-		);
-	});
-
-	it("starts an async clipboard write during the generate-button activation", async () => {
-		let resolvePairing: ((pairing: import("../src/api").IssuedPairingCode) => void) | undefined;
-		vi.mocked(issuePairingCode).mockImplementation(
-			async () =>
-				new Promise((resolve) => {
-					resolvePairing = resolve;
-				}),
-		);
-		class TestClipboardItem {
-			constructor(readonly content: Record<string, Promise<Blob>>) {}
-		}
-		vi.stubGlobal("ClipboardItem", TestClipboardItem);
-		const write = vi.fn<(_items: ClipboardItem[]) => Promise<void>>(async () => Promise.resolve());
-		Object.defineProperty(navigator, "clipboard", {
-			configurable: true,
-			value: {write, writeText: vi.fn<(text: string) => Promise<void>>()},
-		});
-
-		render(<App />);
-		await waitFor(() => {
-			expect(publishQuestions).toBeTypeOf("function");
-		});
-		act(() => {
-			publishQuestions?.([]);
-		});
-		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
-
-		expect(write.mock.calls).toHaveLength(1);
-		resolvePairing?.({
-			code: "XYZ789",
-			expiresAt: 2_000_000_000_000,
-			pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: 2_000_000_000_000},
-		});
-		expect(await screen.findByText("XYZ789")).toBeDefined();
 	});
 
 	it("discloses readable content, the lack of end-to-end encryption, and seven-day retention", async () => {
@@ -838,7 +585,7 @@ describe("Better Auth account routes", () => {
 			answerButtons: [...container.querySelectorAll(".actions button")].map((button) => button.textContent),
 			cards: [...container.querySelectorAll(".card")].map((card) => card.textContent),
 			deckText: container.querySelector(".deck")?.textContent,
-			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
 			),
 			openedStream: publishQuestions !== undefined,
@@ -847,59 +594,58 @@ describe("Better Auth account routes", () => {
 			answerButtons: [],
 			cards: [],
 			deckText: "All caught upYour question queue is empty. New questions will appear here when they arrive.",
-			headerPairingControls: [],
+			headerAfkControls: [],
 			openedStream: false,
 			storedCredentials: [],
 		});
 	});
 
-	it("keeps the pairing header control off account routes reached from the signed-out deck", async () => {
+	it("keeps the AFK header control off account routes reached from the signed-out deck", async () => {
 		fetchSession.mockResolvedValue(null);
 		const {container} = render(<App />);
 
 		fireEvent.click(await screen.findByRole("button", {name: "Sign in"}));
 		expect({
-			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
 			),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pathname: "/sign-in"});
+		}).toStrictEqual({headerAfkControls: [], pathname: "/sign-in"});
 
 		fireEvent.click(screen.getByRole("button", {name: "Create an account"}));
 		expect({
-			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
 			),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pathname: "/register"});
+		}).toStrictEqual({headerAfkControls: [], pathname: "/register"});
 
 		fireEvent.click(screen.getByRole("button", {name: "Already have an account?"}));
 		fireEvent.click(screen.getByRole("button", {name: "Forgot password?"}));
 		expect({
-			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
 			),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pathname: "/forgot-password"});
+		}).toStrictEqual({headerAfkControls: [], pathname: "/forgot-password"});
 
 		window.history.pushState({}, "", "/reset-password?token=test-recovery-token");
 		fireEvent.popState(window);
 		expect({
-			headerPairingControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
+			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
 			),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pathname: "/reset-password"});
+		}).toStrictEqual({headerAfkControls: [], pathname: "/reset-password"});
 	});
 
-	it("requires an account before pairing or enabling notifications", async () => {
+	it("requires an account before authorizing MCP clients or enabling notifications", async () => {
 		fetchSession.mockResolvedValue(null);
 		window.history.replaceState({}, "", "/settings");
 
 		render(<App />);
 
-		expect(await screen.findByText(/CLI connections belong to your account/i)).toBeDefined();
-		expect(screen.queryByRole("button", {name: "Generate and copy pairing code"})).toBeNull();
+		expect(await screen.findByText("Sign in before authorizing a client.")).toBeDefined();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
 		expect(screen.getAllByRole("button", {name: /sign in/i}).map((button) => button.textContent)).toStrictEqual([
 			"Sign in",
@@ -1021,6 +767,7 @@ describe("Better Auth account routes", () => {
 
 	it("revokes connected MCP clients separately from browser notification devices", async () => {
 		let accountDevices: AccountDevices = {
+			browserSessions: [],
 			connectedMcpClients: [
 				{
 					id: "a".repeat(64),
@@ -1050,6 +797,12 @@ describe("Better Auth account routes", () => {
 		if (clientRow === null) {
 			throw new Error("missing connected MCP client row");
 		}
+		expect([
+			clientRow.textContent.includes("Not used yet"),
+			clientRow.textContent.includes(
+				"Granted scopes: Ask questions (yepnope:questions), Manage AFK routing (yepnope:afk)",
+			),
+		]).toStrictEqual([true, true]);
 		expect(within(clientRow).queryByRole("button", {name: "Rename"})).toBeNull();
 
 		const pushRow = screen.getByText("Alice phone").closest("li");

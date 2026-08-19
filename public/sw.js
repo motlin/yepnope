@@ -151,7 +151,7 @@ async function showBatchNotification(payload) {
 async function refreshOpenClients() {
 	const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true});
 	for (const client of windows) {
-		client.postMessage({type: "refresh"});
+		client.postMessage({type: "account-state-changed"});
 	}
 	return windows;
 }

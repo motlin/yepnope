@@ -14,11 +14,18 @@ async function routeSettingsData(page: Page): Promise<void> {
 		}),
 	);
 	await page.route("**/api/v1/afk", async (route) => fulfillJson(route, {afk: false}));
-	await page.route("**/api/v1/pair/status", async (route) =>
-		fulfillJson(route, {machine_count: 1, paired: true, pending_pairing_expires_at: null}),
-	);
 	await page.route("**/api/v1/account/devices", async (route) =>
 		fulfillJson(route, {
+			browser_sessions: [
+				{
+					id: "browser-session-management-id",
+					display_name: "Safari on iPhone",
+					created_at: 946_684_800_000,
+					last_active_at: 946_771_200_000,
+					expires_at: 947_289_600_000,
+					current: true,
+				},
+			],
 			connected_mcp_clients: [
 				{
 					id: "connected-mcp-client-management-id",
@@ -45,28 +52,11 @@ async function routeSettingsData(page: Page): Promise<void> {
 	});
 }
 
-async function routePairingCode(page: Page): Promise<void> {
-	await page.route("**/api/v1/pair/code", async (route) =>
-		fulfillJson(route, {
-			code: "ABC234",
-			expires_at: 2_000_000_000_000,
-			pairing: {machine_count: 1, paired: true, pending_pairing_expires_at: 2_000_000_000_000},
-		}),
-	);
-}
-
 async function openSettings(page: Page): Promise<void> {
 	await routeSettingsData(page);
 	await page.goto("/settings");
 	await expect(page.getByRole("heading", {name: "Privacy and retention"})).toBeVisible();
 	await expect(page.getByRole("button", {name: "Back to the deck"})).toBeVisible();
-}
-
-async function generatePairingCode(page: Page): Promise<void> {
-	await routePairingCode(page);
-	await openSettings(page);
-	await page.getByRole("button", {name: "Generate and copy pairing code"}).click();
-	await expect(page.locator("code.pairing-code")).toHaveText("ABC234");
 }
 
 async function assertViewportScrollsSettings(page: Page): Promise<void> {
@@ -179,79 +169,27 @@ test("settings keeps phone-width padding and full-page scrolling", async ({brows
 	}
 });
 
-test("generated pairing code leads the desktop result after copy feedback clears", async ({browser}) => {
+test("settings separates account access, MCP clients, and browser notifications", async ({browser}) => {
 	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
 	const page = await context.newPage();
 	try {
-		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-		await generatePairingCode(page);
-		await expect(page.locator(".copy-status")).toHaveText("Copied to clipboard.");
-		await expect(page.locator(".copy-status")).toBeEmpty();
-		await expect(page.getByRole("status")).toHaveText("Waiting for your CLI to claim this code.");
-		await expect(page.getByText("Pairing code", {exact: true})).toBeVisible();
-		await expect(page.getByText("Paste this code into the CLI you want to connect.")).toBeVisible();
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "pairing-code-generated.png")});
+		await openSettings(page);
+		await expect(page.getByRole("heading", {name: "Connected MCP clients"})).toBeVisible();
+		await expect(page.getByRole("heading", {name: "Signed-in browsers"})).toBeVisible();
+		await expect(page.getByRole("heading", {name: "Browser notifications"})).toBeVisible();
+		await expect(page.getByText("Alice laptop")).toBeVisible();
+		await expect(page.getByText("Safari on iPhone · This browser")).toBeVisible();
+		await expect(page.getByText("Alice phone")).toBeVisible();
+		await expect(page.getByText("codex mcp add yepnope --url https://yepnope.app/mcp")).toBeVisible();
+		await expect(page.getByText("codex mcp login yepnope")).toBeVisible();
+		expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("pair");
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-account-access.png")});
 	} finally {
 		await context.close();
 	}
 });
 
-test("copied pairing code keeps the repeat-copy control visually neutral", async ({browser}) => {
-	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
-	const page = await context.newPage();
-	try {
-		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-		await generatePairingCode(page);
-		await expect(page.locator(".copy-status")).toHaveText("Copied to clipboard.");
-		const copyAgain = page.getByRole("button", {name: "Copy pairing code again"});
-		expect(
-			await copyAgain.evaluate((element) => {
-				const style = getComputedStyle(element);
-				return {
-					backgroundColor: style.backgroundColor,
-					borderColor: style.borderColor,
-					color: style.color,
-					fontSize: style.fontSize,
-				};
-			}),
-		).toStrictEqual({
-			backgroundColor: "rgba(0, 0, 0, 0)",
-			borderColor: "rgb(65, 69, 78)",
-			color: "rgb(174, 180, 190)",
-			fontSize: "12px",
-		});
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "pairing-code-copied.png")});
-	} finally {
-		await context.close();
-	}
-});
-
-test("blocked clipboard access leaves a selected manual-copy fallback", async ({browser}) => {
-	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
-	await context.addInitScript(() => {
-		const blockedClipboard = {
-			write: async () => Promise.reject(new DOMException("Clipboard access blocked", "NotAllowedError")),
-			writeText: async () => Promise.reject(new DOMException("Clipboard access blocked", "NotAllowedError")),
-		};
-		Object.defineProperty(navigator, "clipboard", {configurable: true, value: blockedClipboard});
-	});
-	const page = await context.newPage();
-	try {
-		await generatePairingCode(page);
-		await expect(page.locator(".copy-status")).toHaveText(
-			"Clipboard access is blocked. Copy the selected code manually.",
-		);
-		expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("ABC234");
-		await page.screenshot({
-			fullPage: true,
-			path: resolve(screenshotDirectory, "pairing-code-clipboard-blocked.png"),
-		});
-	} finally {
-		await context.close();
-	}
-});
-
-test("pairing code remains dominant at a narrow mobile width", async ({browser}) => {
+test("Codex install commands stay copyable within a narrow mobile width", async ({browser}) => {
 	const context = await browser.newContext({
 		ignoreHTTPSErrors: true,
 		isMobile: true,
@@ -260,24 +198,27 @@ test("pairing code remains dominant at a narrow mobile width", async ({browser})
 	const page = await context.newPage();
 	try {
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-		await generatePairingCode(page);
-		const codeBounds = await page.locator("code.pairing-code").boundingBox();
-		const resultBounds = await page.locator(".pairing-result").boundingBox();
-		if (codeBounds === null || resultBounds === null) {
-			throw new Error("responsive pairing bounds are missing");
+		await openSettings(page);
+		const command = page.getByText("codex mcp add yepnope --url https://yepnope.app/mcp");
+		const commandBounds = await command.boundingBox();
+		const containerBounds = await command.locator("xpath=../..").boundingBox();
+		if (commandBounds === null || containerBounds === null) {
+			throw new Error("responsive command bounds are missing");
 		}
 		expect({
-			resultLeft: resultBounds.x,
-			resultRight: resultBounds.x + resultBounds.width,
+			containerLeft: containerBounds.x,
+			containerRight: containerBounds.x + containerBounds.width,
 			viewportWidth: 390,
 		}).toStrictEqual({
-			resultLeft: 33,
-			resultRight: 357,
+			containerLeft: 33,
+			containerRight: 357,
 			viewportWidth: 390,
 		});
-		expect(codeBounds.x).toBeGreaterThanOrEqual(resultBounds.x);
-		expect(codeBounds.x + codeBounds.width).toBeLessThanOrEqual(resultBounds.x + resultBounds.width);
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "pairing-code-narrow-mobile.png")});
+		expect(commandBounds.x).toBeGreaterThanOrEqual(containerBounds.x);
+		expect(commandBounds.x + commandBounds.width).toBeLessThanOrEqual(containerBounds.x + containerBounds.width);
+		await command.locator("xpath=../../button").click();
+		await expect(command.locator("xpath=../../button")).toHaveText("Copied");
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-codex-mobile.png")});
 	} finally {
 		await context.close();
 	}

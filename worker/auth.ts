@@ -490,8 +490,21 @@ export async function authenticateBrowserSession(
 	environment: Env,
 	executionContext: ExecutionContext,
 ): Promise<string | null> {
+	return (await authenticateBrowserAccount(request, environment, executionContext))?.userId ?? null;
+}
+
+export interface AuthenticatedBrowserAccount {
+	sessionId: string;
+	userId: string;
+}
+
+export async function authenticateBrowserAccount(
+	request: Request,
+	environment: Env,
+	executionContext: ExecutionContext,
+): Promise<AuthenticatedBrowserAccount | null> {
 	const session = await createWorkerAuthentication(environment, executionContext).api.getSession({
 		headers: request.headers,
 	});
-	return session?.user.emailVerified === true ? session.user.id : null;
+	return session?.user.emailVerified === true ? {sessionId: session.session.id, userId: session.user.id} : null;
 }

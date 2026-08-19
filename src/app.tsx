@@ -4,9 +4,7 @@ import {
 	fetchAccountDevices,
 	fetchAfk,
 	fetchOAuthClient,
-	fetchPairingStatus,
 	fetchSession,
-	issuePairingCode,
 	openCurrentDeckStream,
 	registerAccount,
 	requestPasswordReset,
@@ -22,12 +20,11 @@ import {
 	submitAnswer,
 	submitOAuthConsent,
 	updateAfk,
+	ApiResponseError,
 	type AuthenticationUser,
 	type AccountDevices,
 	type CurrentDeckStream,
-	type IssuedPairingCode,
 	type OAuthClientSummary,
-	type PairingStatus,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {migrateLegacyIdentity} from "./legacy-token";
@@ -71,41 +68,32 @@ function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
 interface AfkToggleProps {
 	afk: boolean | null;
 	connectedMcpClientCount: number | null;
-	pairingStatus: PairingStatus | null;
 	signedIn: boolean;
-	onPair: () => void;
+	onOpenSettings: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({
-	afk,
-	connectedMcpClientCount,
-	pairingStatus,
-	signedIn,
-	onPair,
-	onToggle,
-}: AfkToggleProps): ReactElement {
+function AfkToggle({afk, connectedMcpClientCount, signedIn, onOpenSettings, onToggle}: AfkToggleProps): ReactElement {
 	if (!signedIn) {
 		return (
-			<button type="button" className="machine-status" onClick={onPair}>
+			<button type="button" className="account-status" onClick={onOpenSettings}>
 				Sign in
 			</button>
 		);
 	}
-	if (connectedMcpClientCount === null || pairingStatus === null) {
+	if (connectedMcpClientCount === null) {
 		return (
-			<button type="button" className="machine-status" disabled>
-				Checking CLI…
+			<button type="button" className="account-status" disabled>
+				Checking account…
 			</button>
 		);
 	}
-	const waiting = pairingStatus.pendingPairingExpiresAt !== null;
 	const clientLabel =
-		connectedMcpClientCount === 1 ? "MCP client connected" : `${connectedMcpClientCount} MCP clients connected`;
+		connectedMcpClientCount === 1 ? "1 MCP client authorized" : `${connectedMcpClientCount} MCP clients authorized`;
 	if (connectedMcpClientCount === 0) {
 		return (
-			<button type="button" className={waiting ? "machine-status waiting" : "machine-status"} onClick={onPair}>
-				{waiting ? "Waiting for CLI" : "Connect an MCP client"}
+			<button type="button" className="account-status" onClick={onOpenSettings}>
+				Connect an MCP client
 			</button>
 		);
 	}
@@ -114,8 +102,8 @@ function AfkToggle({
 	const afkClassName = checking ? "afk-toggle afk-checking" : enabled ? "afk-toggle afk-on" : "afk-toggle afk-off";
 	return (
 		<>
-			<button type="button" className={waiting ? "machine-status waiting" : "machine-status"} onClick={onPair}>
-				{waiting ? `${clientLabel} · waiting for another` : clientLabel}
+			<button type="button" className="account-status" onClick={onOpenSettings}>
+				{clientLabel}
 			</button>
 			<button
 				type="button"
@@ -133,12 +121,11 @@ function AfkToggle({
 
 interface SettingsProps {
 	session: AuthenticationUser | null;
-	pairingStatus: PairingStatus | null;
+	connectedMcpClientCount: number | null;
 	onBack: () => void;
 	onSignIn: () => void;
 	onRegister: () => void;
 	onSignedOut: () => void;
-	onPairingStatusChange: (status: PairingStatus) => void;
 }
 
 type AppView =
@@ -217,8 +204,8 @@ function followOAuthRedirect(url: string): void {
 	window.location.assign(target.href);
 }
 
-const PAIRING_STATUS_FALLBACK_MILLISECONDS = 5_000;
-const COPY_FEEDBACK_MILLISECONDS = 2_000;
+const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
+const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
 
 interface AccountRouteProps {
 	onNavigate: (view: AppView) => void;
@@ -282,7 +269,7 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps
 		<AccountPanel title="Sign in">
 			<p>
 				{oauthQuery === null
-					? "Sign in to recover your machines, questions, and settings on this browser."
+					? "Sign in to recover your questions and settings on this browser."
 					: "Sign in with your verified YepNope account to continue authorizing this MCP client."}
 			</p>
 			<form className="account-form" onSubmit={(event) => void submit(event)}>
@@ -697,6 +684,12 @@ function isOAuthCapability(scope: string): scope is keyof typeof OAUTH_CAPABILIT
 	return Object.hasOwn(OAUTH_CAPABILITIES, scope);
 }
 
+function grantedScopeSummary(scopes: string[]): string {
+	return scopes
+		.map((scope) => (isOAuthCapability(scope) ? `${OAUTH_CAPABILITIES[scope].label} (${scope})` : scope))
+		.join(", ");
+}
+
 function OAuthConsent(): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
 	const parameters = new URLSearchParams(oauthQuery ?? "");
@@ -801,14 +794,13 @@ function OAuthConsent(): ReactElement {
 }
 
 interface ManagedDeviceRowProps {
-	createdAt: number;
 	label: string;
-	lastUsedText: string;
+	metadata: string;
 	onRename?: (label: string) => Promise<void>;
-	onRevoke: () => Promise<void>;
+	onRevoke?: () => Promise<void>;
 }
 
-function ManagedDeviceRow({createdAt, label, lastUsedText, onRename, onRevoke}: ManagedDeviceRowProps): ReactElement {
+function ManagedDeviceRow({label, metadata, onRename, onRevoke}: ManagedDeviceRowProps): ReactElement {
 	const [editing, setEditing] = useState(false);
 	const [nextLabel, setNextLabel] = useState(label);
 	const [busy, setBusy] = useState(false);
@@ -864,128 +856,121 @@ function ManagedDeviceRow({createdAt, label, lastUsedText, onRename, onRevoke}: 
 				<>
 					<div>
 						<strong>{label}</strong>
-						<small>
-							Added {new Date(createdAt).toLocaleString()} · {lastUsedText}
-						</small>
+						<small>{metadata}</small>
 					</div>
-					<div className="device-actions">
-						{onRename !== undefined && (
-							<button
-								type="button"
-								className="secondary"
-								onClick={() => {
-									setEditing(true);
-								}}
-							>
-								Rename
-							</button>
-						)}
-						<button
-							type="button"
-							className="danger"
-							disabled={busy}
-							onClick={() => {
-								setBusy(true);
-								void onRevoke().finally(() => {
-									setBusy(false);
-								});
-							}}
-						>
-							Revoke
-						</button>
-					</div>
+					{(onRename !== undefined || onRevoke !== undefined) && (
+						<div className="device-actions">
+							{onRename !== undefined && (
+								<button
+									type="button"
+									className="secondary"
+									onClick={() => {
+										setEditing(true);
+									}}
+								>
+									Rename
+								</button>
+							)}
+							{onRevoke !== undefined && (
+								<button
+									type="button"
+									className="secondary"
+									disabled={busy}
+									onClick={() => {
+										setBusy(true);
+										void onRevoke().finally(() => {
+											setBusy(false);
+										});
+									}}
+								>
+									Revoke
+								</button>
+							)}
+						</div>
+					)}
 				</>
 			)}
 		</li>
 	);
 }
 
+interface InstallCommandProps {
+	command: string;
+	label: string;
+}
+
+function InstallCommand({command, label}: InstallCommandProps): ReactElement {
+	const [copyState, setCopyState] = useState<"copied" | "error" | "idle">("idle");
+	return (
+		<div className="install-command">
+			<div>
+				<strong>{label}</strong>
+				<code>{command}</code>
+			</div>
+			<button
+				type="button"
+				className="secondary"
+				onClick={() => {
+					void navigator.clipboard.writeText(command).then(
+						() => {
+							setCopyState("copied");
+						},
+						() => {
+							setCopyState("error");
+						},
+					);
+				}}
+			>
+				{copyState === "copied" ? "Copied" : "Copy"}
+			</button>
+			{copyState === "error" && <small role="alert">Copy is blocked. Select the command manually.</small>}
+		</div>
+	);
+}
+
 function Settings({
 	session,
-	pairingStatus,
+	connectedMcpClientCount,
 	onBack,
 	onSignIn,
 	onRegister,
 	onSignedOut,
-	onPairingStatusChange,
 }: SettingsProps): ReactElement {
 	const requiresIosInstall = isIos() && !isStandalone();
-	const [pairing, setPairing] = useState<IssuedPairingCode | null>(null);
-	const [pairingBaseline, setPairingBaseline] = useState<number | null>(null);
-	const [pairingOutcome, setPairingOutcome] = useState<"connected" | "expired" | null>(null);
-	const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
-	const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
 	const [accountError, setAccountError] = useState<string | null>(null);
 	const [accountDevices, setAccountDevices] = useState<AccountDevices | null>(null);
 	const [devicesError, setDevicesError] = useState<string | null>(null);
+	const [devicesLoading, setDevicesLoading] = useState(false);
 	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">(
 		"Notification" in window && Notification.permission === "granted" ? "subscribed" : "idle",
 	);
-	const pairingCode = useRef<HTMLElement | null>(null);
-	const selectPairingCode = useCallback((): void => {
-		const element = pairingCode.current;
-		const selection = window.getSelection();
-		if (element === null || selection === null) {
-			return;
-		}
-		const range = document.createRange();
-		range.selectNodeContents(element);
-		selection.removeAllRanges();
-		selection.addRange(range);
-	}, []);
+	const onSignedOutRef = useRef(onSignedOut);
+	onSignedOutRef.current = onSignedOut;
 
 	const reloadDevices = useCallback(async (): Promise<void> => {
 		if (session === null) {
 			setAccountDevices(null);
 			return;
 		}
+		setDevicesLoading(true);
 		try {
 			setAccountDevices(await fetchAccountDevices());
 			setDevicesError(null);
 		} catch (caught) {
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+				setAccountDevices(null);
+				onSignedOutRef.current();
+				return;
+			}
 			setDevicesError(errorMessage(caught));
+		} finally {
+			setDevicesLoading(false);
 		}
 	}, [session]);
 
 	useEffect(() => {
 		void reloadDevices();
-	}, [pairingStatus?.machineCount, reloadDevices]);
-
-	useEffect(() => {
-		if (pairing === null) {
-			return;
-		}
-		selectPairingCode();
-	}, [pairing, selectPairingCode]);
-
-	useEffect(() => {
-		if (copyState !== "copied") {
-			return undefined;
-		}
-		const timer = window.setTimeout(() => {
-			setCopyState("idle");
-		}, COPY_FEEDBACK_MILLISECONDS);
-		return () => {
-			window.clearTimeout(timer);
-		};
-	}, [copyState]);
-
-	useEffect(() => {
-		if (pairing === null || pairingBaseline === null || pairingStatus === null) {
-			return;
-		}
-		if (pairingStatus.machineCount > pairingBaseline) {
-			setPairing(null);
-			setPairingBaseline(null);
-			setPairingOutcome("connected");
-			setCopyState("idle");
-		} else if (pairingStatus.pendingPairingExpiresAt === null) {
-			setPairing(null);
-			setPairingBaseline(null);
-			setPairingOutcome("expired");
-			setCopyState("idle");
-		}
-	}, [pairing, pairingBaseline, pairingStatus]);
+	}, [connectedMcpClientCount, reloadDevices]);
 
 	async function runDeviceAction(action: () => Promise<void>): Promise<void> {
 		setDevicesError(null);
@@ -993,51 +978,11 @@ function Settings({
 			await action();
 			await reloadDevices();
 		} catch (caught) {
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+				onSignedOutRef.current();
+				return;
+			}
 			setDevicesError(errorMessage(caught));
-		}
-	}
-
-	async function copyIssuedPairingCode(issued: Promise<IssuedPairingCode>): Promise<void> {
-		if (typeof ClipboardItem !== "undefined" && typeof navigator.clipboard.write === "function") {
-			const content = issued.then(({code}) => new Blob([code], {type: "text/plain"}));
-			return navigator.clipboard.write([new ClipboardItem({"text/plain": content})]);
-		}
-		return issued.then(async ({code}) => navigator.clipboard.writeText(code));
-	}
-
-	async function generatePairingCode(): Promise<void> {
-		setIsGeneratingPairing(true);
-		setPairingOutcome(null);
-		const issued = issuePairingCode();
-		const copied = copyIssuedPairingCode(issued).then(
-			() => true,
-			() => false,
-		);
-		try {
-			const [nextPairing, copiedSuccessfully] = await Promise.all([issued, copied]);
-			onPairingStatusChange(nextPairing.pairingStatus);
-			setPairingBaseline(nextPairing.pairingStatus.machineCount);
-			setPairing(nextPairing);
-			setCopyState(copiedSuccessfully ? "copied" : "error");
-		} catch {
-			await copied;
-			setPairing(null);
-			setCopyState("idle");
-		} finally {
-			setIsGeneratingPairing(false);
-		}
-	}
-
-	async function copyPairingCode(): Promise<void> {
-		if (pairing === null) {
-			return;
-		}
-		try {
-			await navigator.clipboard.writeText(pairing.code);
-			setCopyState("copied");
-		} catch {
-			setCopyState("error");
-			selectPairingCode();
 		}
 	}
 
@@ -1047,10 +992,7 @@ function Settings({
 				<h3>Account</h3>
 				{session === null ? (
 					<>
-						<p>
-							Sign in to connect CLIs, receive live questions, and recover your account on another
-							browser.
-						</p>
+						<p>Sign in to receive live questions and use the same account on every browser.</p>
 						<div className="settings-actions">
 							<button type="button" onClick={onSignIn}>
 								Sign in
@@ -1084,9 +1026,96 @@ function Settings({
 					</>
 				)}
 			</div>
+			<div className="hint connected-clients">
+				<h3>Connected MCP clients</h3>
+				<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>
+				<div className="install-steps">
+					<InstallCommand command={CODEX_ADD_COMMAND} label="1. Add YepNope to Codex" />
+					<InstallCommand command={CODEX_LOGIN_COMMAND} label="2. Sign in when Codex requests it" />
+				</div>
+				<p>
+					Codex opens YepNope in your browser for account sign-in and consent. If authorization does not open
+					automatically, run the login command. No token or browser cookie belongs in Codex configuration.
+				</p>
+				<p>
+					<a href="https://developers.openai.com/codex/mcp/" target="_blank" rel="noreferrer">
+						Open the official Codex MCP instructions
+					</a>
+				</p>
+				{session === null ? (
+					<>
+						<p>Sign in before authorizing a client.</p>
+						<button type="button" onClick={onSignIn}>
+							Sign in
+						</button>
+					</>
+				) : accountDevices === null ? (
+					<p>{devicesLoading ? "Loading connected clients…" : "Connected clients are unavailable."}</p>
+				) : accountDevices.connectedMcpClients.length === 0 ? (
+					<p>No connected MCP clients.</p>
+				) : (
+					<ul className="device-list">
+						{accountDevices.connectedMcpClients.map((client) => (
+							<ManagedDeviceRow
+								key={client.id}
+								label={client.displayName}
+								metadata={`Authorized ${new Date(client.authorizedAt).toLocaleString()} · ${client.lastUsedAt === null ? "Not used yet" : `Last used ${new Date(client.lastUsedAt).toLocaleString()}`} · Granted scopes: ${grantedScopeSummary(client.grantedScopes)} · ${client.status}`}
+								onRevoke={async () =>
+									runDeviceAction(async () => {
+										await revokeConnectedMcpClient(client.id);
+									})
+								}
+							/>
+						))}
+					</ul>
+				)}
+				{session !== null && (
+					<button
+						type="button"
+						className="secondary refresh-devices"
+						disabled={devicesLoading}
+						onClick={() => void reloadDevices()}
+					>
+						{devicesLoading ? "Refreshing…" : "Refresh connected clients"}
+					</button>
+				)}
+				{devicesError !== null && (
+					<p className="form-error" role="alert">
+						{devicesError}
+					</p>
+				)}
+			</div>
+			<div className="hint">
+				<h3>Signed-in browsers</h3>
+				<p>
+					Another phone or browser signs into this same YepNope account directly; no setup codes are needed.
+					Browser sessions do not authorize MCP clients or receive notifications by themselves.
+				</p>
+				{session === null ? (
+					<p>Sign in to see active browser sessions.</p>
+				) : accountDevices === null ? (
+					<p>Loading browser sessions…</p>
+				) : accountDevices.browserSessions.length === 0 ? (
+					<p>No active browser sessions.</p>
+				) : (
+					<ul className="device-list">
+						{accountDevices.browserSessions.map((browserSession) => (
+							<ManagedDeviceRow
+								key={browserSession.id}
+								label={`${browserSession.displayName}${browserSession.current ? " · This browser" : ""}`}
+								metadata={`Signed in ${new Date(browserSession.createdAt).toLocaleString()} · Last active ${new Date(browserSession.lastActiveAt).toLocaleString()} · Expires ${new Date(browserSession.expiresAt).toLocaleString()}`}
+							/>
+						))}
+					</ul>
+				)}
+			</div>
 			<IosInstallHint required={requiresIosInstall} />
 			<div className="hint">
-				<h3>Notifications</h3>
+				<h3>Browser notifications</h3>
+				<p>
+					Enabling notifications registers only this browser's push subscription. It does not sign in another
+					browser or authorize an MCP client.
+				</p>
 				{session === null ? (
 					<>
 						<p>Sign in before enabling notifications.</p>
@@ -1097,10 +1126,9 @@ function Settings({
 				) : requiresIosInstall ? (
 					<p>Available after you open the installed Home Screen app.</p>
 				) : pushState === "subscribed" ? (
-					<p>Enabled. One notification per batch of questions.</p>
+					<p>Enabled on this browser. One notification is sent per batch of questions.</p>
 				) : (
 					<>
-						<p>Get one notification per batch of questions, then swipe.</p>
 						<button
 							type="button"
 							onClick={() => {
@@ -1124,141 +1152,22 @@ function Settings({
 						{pushState === "error" && <p>Could not subscribe. Try again.</p>}
 					</>
 				)}
-			</div>
-			{session !== null && (
-				<div className="hint">
-					<h3>Connections</h3>
-					<p>OAuth-authorized MCP clients and browser notifications are managed separately.</p>
-					<h4>Connected MCP clients</h4>
-					{accountDevices === null ? (
-						<p>Loading connections…</p>
-					) : accountDevices.connectedMcpClients.length === 0 ? (
-						<p>No connected MCP clients.</p>
-					) : (
-						<ul className="device-list">
-							{accountDevices.connectedMcpClients.map((client) => (
-								<ManagedDeviceRow
-									key={client.id}
-									createdAt={client.authorizedAt}
-									label={client.displayName}
-									lastUsedText={
-										client.lastUsedAt === null
-											? `${client.status} · ${client.grantedScopes.join(", ")}`
-											: `Last used ${new Date(client.lastUsedAt).toLocaleString()}`
-									}
-									onRevoke={async () =>
-										runDeviceAction(async () => {
-											await revokeConnectedMcpClient(client.id);
-										})
-									}
-								/>
-							))}
-						</ul>
-					)}
-					<h4>Browser notifications</h4>
-					{accountDevices !== null && accountDevices.pushDevices.length === 0 ? (
-						<p>No browsers receive notifications.</p>
-					) : (
-						<ul className="device-list">
-							{accountDevices?.pushDevices.map((device) => (
-								<ManagedDeviceRow
-									key={device.id}
-									createdAt={device.createdAt}
-									label={device.label}
-									lastUsedText="Receives push notifications"
-									onRename={async (label) =>
-										runDeviceAction(async () => renamePushDevice(device.id, label))
-									}
-									onRevoke={async () => runDeviceAction(async () => revokePushDevice(device.id))}
-								/>
-							))}
-						</ul>
-					)}
-					{devicesError !== null && (
-						<p className="form-error" role="alert">
-							{devicesError}
-						</p>
-					)}
-				</div>
-			)}
-			<div className="hint">
-				<h3>
-					{pairing !== null || (pairingStatus !== null && pairingStatus.pendingPairingExpiresAt !== null)
-						? "Waiting for your CLI"
-						: pairingStatus?.paired === true
-							? "Connect another CLI"
-							: "Connect a CLI"}
-				</h3>
-				{session === null ? (
-					<>
-						<p>CLI connections belong to your account, so you need to sign in first.</p>
-						<button type="button" onClick={onSignIn}>
-							Sign in
-						</button>
-					</>
-				) : requiresIosInstall ? (
-					<p>
-						Install first, then generate the code from the Home Screen app so pairing and notifications use
-						the same app identity.
-					</p>
-				) : pairingOutcome === "connected" ? (
-					<div className="copy-toast" role="status">
-						✓ CLI connected
-					</div>
-				) : null}
-				{session === null || requiresIosInstall ? null : pairing === null ? (
-					<>
-						<p>
-							{pairingOutcome === "expired"
-								? "That code expired. Generate a new one to try again."
-								: pairingStatus !== null && pairingStatus.pendingPairingExpiresAt !== null
-									? "A pairing code is waiting for a CLI to claim it. Generate a new code if you no longer have it."
-									: pairingStatus?.paired === true
-										? `${pairingStatus.machineCount === 1 ? "One CLI is" : `${pairingStatus.machineCount} CLIs are`} connected. Generate another code to connect another CLI.`
-										: "You are signed in, but no CLI is connected. Generate a code, then paste it into the CLI."}
-						</p>
-						<button type="button" disabled={isGeneratingPairing} onClick={() => void generatePairingCode()}>
-							{isGeneratingPairing
-								? "Generating…"
-								: pairingStatus !== null && pairingStatus.pendingPairingExpiresAt !== null
-									? "Generate a new pairing code"
-									: "Generate and copy pairing code"}
-						</button>
-					</>
+				{session !== null && accountDevices !== null && accountDevices.pushDevices.length === 0 ? (
+					<p>No browsers receive notifications.</p>
 				) : (
-					<div className="pairing-result">
-						<p id="pairing-code-label" className="pairing-code-label">
-							Pairing code
-						</p>
-						<div className="pairing-code-row">
-							<code
-								ref={pairingCode}
-								className="pairing-code"
-								aria-labelledby="pairing-code-label"
-								tabIndex={0}
-								onFocus={selectPairingCode}
-							>
-								{pairing.code}
-							</code>
-							<button
-								type="button"
-								className="pairing-copy-again"
-								aria-label="Copy pairing code again"
-								onClick={() => void copyPairingCode()}
-							>
-								Copy again
-							</button>
-						</div>
-						<p className="pairing-instruction">Paste this code into the CLI you want to connect.</p>
-						<p className="pairing-waiting" role="status">
-							Waiting for your CLI to claim this code.
-						</p>
-						<p className="copy-status" aria-live="polite">
-							{copyState === "copied" && "Copied to clipboard."}
-							{copyState === "error" && "Clipboard access is blocked. Copy the selected code manually."}
-						</p>
-						<p className="pairing-code-note">Expires in ten minutes and works once.</p>
-					</div>
+					<ul className="device-list">
+						{accountDevices?.pushDevices.map((device) => (
+							<ManagedDeviceRow
+								key={device.id}
+								label={device.label}
+								metadata={`Notifications enabled ${new Date(device.createdAt).toLocaleString()}`}
+								onRename={async (label) =>
+									runDeviceAction(async () => renamePushDevice(device.id, label))
+								}
+								onRevoke={async () => runDeviceAction(async () => revokePushDevice(device.id))}
+							/>
+						))}
+					</ul>
 				)}
 			</div>
 			<div className="hint">
@@ -1282,16 +1191,10 @@ export function App(): ReactElement {
 	const [currentQuestions, setCurrentQuestions] = useState<DeckQuestion[]>([]);
 	const [afk, setAfkState] = useState<boolean | null>(null);
 	const [connectedMcpClientCount, setConnectedMcpClientCount] = useState<number | null>(null);
-	const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const [registrationEmail, setRegistrationEmail] = useState("");
 	const [verificationDelivery, setVerificationDelivery] = useState<VerificationDelivery>("idle");
 	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
-	const pairingStatusGeneration = useRef(0);
-	const applyPairingStatus = useCallback((status: PairingStatus): void => {
-		pairingStatusGeneration.current += 1;
-		setPairingStatus(status);
-	}, []);
 
 	useEffect(() => {
 		function onPopState(): void {
@@ -1382,23 +1285,6 @@ export function App(): ReactElement {
 		});
 	}, [session]);
 
-	const refreshPairingStatus = useCallback(() => {
-		if (session === null) {
-			return;
-		}
-		const generation = pairingStatusGeneration.current;
-		fetchPairingStatus().then(
-			(status) => {
-				if (pairingStatusGeneration.current === generation) {
-					applyPairingStatus(status);
-				}
-			},
-			() => {
-				// Keep the last known pairing state and retry on the next refresh.
-			},
-		);
-	}, [applyPairingStatus, session]);
-
 	useEffect(() => {
 		if (session === null) {
 			return;
@@ -1409,27 +1295,23 @@ export function App(): ReactElement {
 					return;
 				}
 				refreshAfk();
-				refreshPairingStatus();
 				currentDeckStream.current?.refresh();
 			},
 			() => {
 				// Keep the credential so the signed-in user can retry the explicit claim.
 			},
 		);
-	}, [refreshAfk, refreshPairingStatus, session]);
+	}, [refreshAfk, session]);
 
 	useEffect(() => {
 		if (session === null) {
 			setCurrentQuestions([]);
 			setAfkState(null);
 			setConnectedMcpClientCount(null);
-			pairingStatusGeneration.current += 1;
-			setPairingStatus(null);
 			updateBadge(0);
 			return undefined;
 		}
 		refreshAfk();
-		refreshPairingStatus();
 		const stream = openCurrentDeckStream(
 			(state) => {
 				setAfkState(state.afk);
@@ -1448,19 +1330,17 @@ export function App(): ReactElement {
 			if (document.visibilityState === "visible") {
 				stream.refresh();
 				refreshAfk();
-				refreshPairingStatus();
 			}
 		}
 		function onServiceWorkerMessage(event: MessageEvent<unknown>): void {
 			if (typeof event.data !== "object" || event.data === null || !("type" in event.data)) {
 				return;
 			}
-			if (event.data.type !== "refresh") {
+			if (event.data.type !== "account-state-changed") {
 				return;
 			}
 			stream.refresh();
 			refreshAfk();
-			refreshPairingStatus();
 		}
 		document.addEventListener("visibilitychange", onVisible);
 		const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
@@ -1473,51 +1353,7 @@ export function App(): ReactElement {
 			document.removeEventListener("visibilitychange", onVisible);
 			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
 		};
-	}, [applyPairingStatus, refreshAfk, refreshPairingStatus, session, view]);
-
-	useEffect(() => {
-		if (session === null || pairingStatus?.pendingPairingExpiresAt === null || pairingStatus === null) {
-			return undefined;
-		}
-		const pendingPairingExpiresAt = pairingStatus.pendingPairingExpiresAt;
-		let cancelled = false;
-		let timer: number | undefined;
-		function scheduleRefresh(): void {
-			const remaining = Math.max(0, pendingPairingExpiresAt - Date.now());
-			timer = window.setTimeout(
-				() => void refreshPendingPairing(),
-				Math.min(PAIRING_STATUS_FALLBACK_MILLISECONDS, remaining),
-			);
-		}
-		async function refreshPendingPairing(): Promise<void> {
-			const expired = Date.now() >= pendingPairingExpiresAt;
-			const generation = pairingStatusGeneration.current;
-			try {
-				const status = await fetchPairingStatus();
-				if (!cancelled && pairingStatusGeneration.current === generation) {
-					applyPairingStatus(status);
-				}
-			} catch {
-				if (!cancelled && expired && pairingStatusGeneration.current === generation) {
-					pairingStatusGeneration.current += 1;
-					setPairingStatus((current) =>
-						current?.pendingPairingExpiresAt === pendingPairingExpiresAt
-							? {...current, pendingPairingExpiresAt: null}
-							: current,
-					);
-				} else if (!cancelled && pairingStatusGeneration.current === generation) {
-					scheduleRefresh();
-				}
-			}
-		}
-		scheduleRefresh();
-		return () => {
-			cancelled = true;
-			if (timer !== undefined) {
-				window.clearTimeout(timer);
-			}
-		};
-	}, [applyPairingStatus, pairingStatus, session]);
+	}, [refreshAfk, session, view]);
 
 	function onAnswer(questionId: string, disposition: Disposition): void {
 		if (session === null) {
@@ -1553,7 +1389,7 @@ export function App(): ReactElement {
 				return (
 					<Settings
 						session={session}
-						pairingStatus={pairingStatus}
+						connectedMcpClientCount={connectedMcpClientCount}
 						onBack={() => {
 							navigate("deck");
 						}}
@@ -1568,7 +1404,6 @@ export function App(): ReactElement {
 							setSession(null);
 							navigate("deck");
 						}}
-						onPairingStatusChange={applyPairingStatus}
 					/>
 				);
 			case "sign-in":
@@ -1632,9 +1467,8 @@ export function App(): ReactElement {
 						<AfkToggle
 							afk={afk}
 							connectedMcpClientCount={connectedMcpClientCount}
-							pairingStatus={pairingStatus}
 							signedIn={session !== null}
-							onPair={() => {
+							onOpenSettings={() => {
 								navigate(session === null ? "sign-in" : "settings");
 							}}
 							onToggle={onToggleAfk}

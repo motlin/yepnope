@@ -146,23 +146,6 @@ async function authorizeMcpClientResponse(request: Request, environment: Applica
 	return Response.json({status: "authorized"});
 }
 
-async function expirePairingResponse(request: Request, environment: ApplicationEnvironment): Promise<Response> {
-	const parsed = z.object({code: z.string()}).safeParse(await request.json());
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
-	}
-	const pairing = await environment.DB.prepare("SELECT user_id FROM pairing_codes WHERE code = ?")
-		.bind(parsed.data.code)
-		.first<{user_id: string}>();
-	if (pairing === null) {
-		return new Response(null, {status: 404});
-	}
-	await environment.DB.prepare("UPDATE pairing_codes SET expires_at = ? WHERE code = ?")
-		.bind(Date.now() - 1, parsed.data.code)
-		.run();
-	return Response.json({status: "expired"});
-}
-
 export default {
 	async fetch(request, environment, executionContext): Promise<Response> {
 		const url = new URL(request.url);
@@ -174,9 +157,6 @@ export default {
 		}
 		if (url.pathname === "/api/__e2e__/deleted-account" && request.method === "POST") {
 			return deletedAccountResponse(request, environment);
-		}
-		if (url.pathname === "/api/__e2e__/expire-pairing" && request.method === "POST") {
-			return expirePairingResponse(request, environment);
 		}
 		if (url.pathname === "/api/__e2e__/authorize-mcp-client" && request.method === "POST") {
 			return authorizeMcpClientResponse(request, environment);

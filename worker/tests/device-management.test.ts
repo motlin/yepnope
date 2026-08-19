@@ -3,7 +3,7 @@ import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
 import {hashToken} from "../auth";
 import type {UserDurableObject} from "../user-do";
-import {API_ORIGIN, createVerifiedBrowserSession, nextMessage, required, worker} from "./helpers";
+import {API_ORIGIN, cookieFrom, createVerifiedBrowserSession, nextMessage, required, worker} from "./helpers";
 import {seedOAuthMcpClient} from "./oauth-client-helpers";
 
 const AUTHORIZED_AT = Date.UTC(2000, 0, 1);
@@ -66,10 +66,34 @@ describe("connected MCP client and browser notification management", () => {
 			.run();
 		const secondBrowserSession = await worker.fetch(`${API_ORIGIN}/api/auth/sign-in/email`, {
 			method: "POST",
-			headers: {"Content-Type": "application/json", Origin: API_ORIGIN},
+			headers: {
+				"Content-Type": "application/json",
+				Origin: API_ORIGIN,
+				"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0",
+			},
 			body: JSON.stringify({email, password: "correct-horse-battery-staple"}),
 		});
 		expect(secondBrowserSession.status).toBe(200);
+		const firstSessionResponse = await worker.fetch(`${API_ORIGIN}/api/auth/get-session`, {
+			headers: {Cookie: session.cookie},
+		});
+		const secondSessionResponse = await worker.fetch(`${API_ORIGIN}/api/auth/get-session`, {
+			headers: {Cookie: cookieFrom(secondBrowserSession)},
+		});
+		const firstSessionId = (await firstSessionResponse.json<{session: {id: string}}>()).session.id;
+		const secondSessionId = (await secondSessionResponse.json<{session: {id: string}}>()).session.id;
+		const sessionExpiry = Date.UTC(2050, 0, 1);
+		await env.DB.batch([
+			env.DB.prepare(
+				"UPDATE session SET created_at = ?, updated_at = ?, expires_at = ?, user_agent = ? WHERE id = ?",
+			).bind(Date.UTC(2000, 0, 1), Date.UTC(2000, 0, 2), sessionExpiry, "TestBrowser/1.0", firstSessionId),
+			env.DB.prepare("UPDATE session SET created_at = ?, updated_at = ?, expires_at = ? WHERE id = ?").bind(
+				Date.UTC(2000, 0, 3),
+				Date.UTC(2000, 0, 4),
+				sessionExpiry,
+				secondSessionId,
+			),
+		]);
 		const endpoint = "https://push.example.com/send/alice-browser";
 		const pushDeviceId = await seedPushDevice(session.userId, endpoint, "Alice browser");
 
@@ -77,6 +101,24 @@ describe("connected MCP client and browser notification management", () => {
 		const body = await response.json();
 		expect({body, status: response.status}).toStrictEqual({
 			body: {
+				browser_sessions: [
+					{
+						id: await hashToken(`browser-session\0${session.userId}\0${secondSessionId}`),
+						display_name: "Chrome on Windows",
+						created_at: Date.UTC(2000, 0, 3),
+						last_active_at: Date.UTC(2000, 0, 4),
+						expires_at: sessionExpiry,
+						current: false,
+					},
+					{
+						id: await hashToken(`browser-session\0${session.userId}\0${firstSessionId}`),
+						display_name: "Browser on unknown platform",
+						created_at: Date.UTC(2000, 0, 1),
+						last_active_at: Date.UTC(2000, 0, 2),
+						expires_at: sessionExpiry,
+						current: true,
+					},
+				],
 				connected_mcp_clients: [
 					{
 						id: client.managementId,
@@ -100,10 +142,12 @@ describe("connected MCP client and browser notification management", () => {
 		const serialized = JSON.stringify(body);
 		expect([
 			serialized.includes(client.clientId),
+			serialized.includes(firstSessionId),
+			serialized.includes(secondSessionId),
 			serialized.includes("stored-test-refresh-token"),
 			serialized.includes(endpoint),
 			serialized.includes("fake-auth-secret"),
-		]).toStrictEqual([false, false, false, false]);
+		]).toStrictEqual([false, false, false, false, false, false]);
 	});
 
 	it("revokes clients independently, rejects cross-account IDs, and broadcasts last-client AFK shutdown", async () => {
