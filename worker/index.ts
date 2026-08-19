@@ -16,13 +16,6 @@ import {claimLegacyIdentity} from "./identity-linking";
 import {cleanupExpiredIdentityRecords} from "./identity-lifecycle";
 import {handleRemoteMcpRequest} from "./mcp";
 import {
-	createObservationContext,
-	emitObservation,
-	observeEnvironment,
-	observeHttpExchange,
-	observeRedactedHttpExchange,
-} from "./observability";
-import {
 	claimPairingCode,
 	createPairingCode,
 	getPairingStatus,
@@ -55,14 +48,6 @@ const ROOT_AUTHENTICATION_METADATA_PATHS = new Set([
 	"/.well-known/oauth-protected-resource",
 	"/.well-known/oauth-protected-resource/mcp",
 ]);
-const REDACTED_APPLICATION_PATHS = new Set([
-	"/api/v1/answers",
-	"/api/v1/current-deck",
-	CURRENT_DECK_STREAM_PATH,
-	"/api/v1/hook",
-	"/api/v1/questions",
-]);
-
 export default {
 	async fetch(request, environment, executionContext): Promise<Response> {
 		const url = new URL(request.url);
@@ -74,175 +59,134 @@ export default {
 			return new Response(null, {status: 413});
 		}
 
-		const observationContext = createObservationContext("worker.main");
-		const env = observeEnvironment(environment, observationContext);
-		const observeExchange =
-			url.pathname === "/mcp" ||
+		const env = environment;
+		if (url.pathname === "/mcp") {
+			return handleRemoteMcpRequest(request, environment, executionContext);
+		}
+		if (
 			url.pathname === "/api/auth" ||
 			url.pathname.startsWith("/api/auth/") ||
-			REDACTED_APPLICATION_PATHS.has(url.pathname) ||
-			STREAM_PATH.test(url.pathname)
-				? observeRedactedHttpExchange
-				: observeHttpExchange;
-		return observeExchange(observationContext, request, async (request) => {
-			if (url.pathname === "/mcp") {
-				return handleRemoteMcpRequest(request, environment, executionContext, observationContext);
-			}
-			if (
-				url.pathname === "/api/auth" ||
-				url.pathname.startsWith("/api/auth/") ||
-				ROOT_AUTHENTICATION_METADATA_PATHS.has(url.pathname)
-			) {
-				return createWorkerAuthentication(env, executionContext).handler(request);
-			}
+			ROOT_AUTHENTICATION_METADATA_PATHS.has(url.pathname)
+		) {
+			return createWorkerAuthentication(env, executionContext).handler(request);
+		}
 
-			// 🤝 Machine claims and the VAPID key are the only unauthenticated application routes.
-			if (url.pathname === "/api/v1/pair/claim" && request.method === "POST") {
-				return claimPairing(request, env);
-			}
-			if (url.pathname === "/api/v1/push/public-key" && request.method === "GET") {
-				return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});
-			}
-			if (url.pathname === "/api/v1/pair/code" && request.method === "POST") {
-				const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-				if (accountUserId === null) {
-					return new Response(null, {status: 401});
-				}
-				const issued = await createPairingCode(env.DB, accountUserId);
-				const pairingStatus = await getPairingStatus(env.DB, accountUserId);
-				return Response.json(
-					{code: issued.code, expires_at: issued.expiresAt, pairing: pairingStatusResponse(pairingStatus)},
-					{status: 201},
-				);
-			}
-			if (url.pathname === "/api/v1/pair/new" && request.method === "POST") {
-				const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-				return accountUserId === null ? new Response(null, {status: 401}) : Response.json({status: "ready"});
-			}
-			if (url.pathname === "/api/v1/pair/status" && request.method === "GET") {
-				const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-				if (accountUserId === null) {
-					return new Response(null, {status: 401});
-				}
-				const pairingStatus = await getPairingStatus(env.DB, accountUserId);
-				return Response.json(pairingStatusResponse(pairingStatus));
-			}
-			if (url.pathname === "/api/v1/account/claim-legacy" && request.method === "POST") {
-				const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-				if (accountUserId === null) {
-					return new Response(null, {status: 401});
-				}
-				return claimLegacyBrowserIdentity(request, env, accountUserId);
-			}
-			const machineManagementMatch = MACHINE_MANAGEMENT_PATH.exec(url.pathname);
-			const connectedMcpClientManagementMatch = CONNECTED_MCP_CLIENT_MANAGEMENT_PATH.exec(url.pathname);
-			const pushDeviceManagementMatch = PUSH_DEVICE_MANAGEMENT_PATH.exec(url.pathname);
-			if (
-				(url.pathname === "/api/v1/account/devices" && request.method === "GET") ||
-				(connectedMcpClientManagementMatch !== null && request.method === "DELETE") ||
-				(machineManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE")) ||
-				(pushDeviceManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE"))
-			) {
-				const browserAccount = await authenticateBrowserAccount(request, env, executionContext);
-				if (browserAccount === null) {
-					return new Response(null, {status: 401});
-				}
-				const accountUserId = browserAccount.userId;
-				const accountStub = env.USER_DO.getByName(accountUserId);
-				if (url.pathname === "/api/v1/account/devices") {
-					return listAccountDevices(
-						env.DB,
-						accountStub,
-						accountUserId,
-						browserAccount.sessionId,
-						mcpResource(env),
-					);
-				}
-				if (connectedMcpClientManagementMatch !== null) {
-					return manageConnectedMcpClient(
-						env,
-						accountUserId,
-						connectedMcpClientManagementMatch[1],
-						observationContext,
-					);
-				}
-				if (machineManagementMatch !== null) {
-					return manageMachine(request, env, accountUserId, machineManagementMatch[1]);
-				}
-				return managePushDevice(request, accountStub, pushDeviceManagementMatch?.[1]);
-			}
-
-			const userId = await authenticateRequest(request, env, executionContext);
-			if (userId === null) {
+		// 🤝 Machine claims and the VAPID key are the only unauthenticated application routes.
+		if (url.pathname === "/api/v1/pair/claim" && request.method === "POST") {
+			return claimPairing(request, env);
+		}
+		if (url.pathname === "/api/v1/push/public-key" && request.method === "GET") {
+			return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});
+		}
+		if (url.pathname === "/api/v1/pair/code" && request.method === "POST") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			if (accountUserId === null) {
 				return new Response(null, {status: 401});
 			}
-			const stub = env.USER_DO.getByName(userId);
-
-			if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST") {
-				return subscribePush(request, stub);
+			const issued = await createPairingCode(env.DB, accountUserId);
+			const pairingStatus = await getPairingStatus(env.DB, accountUserId);
+			return Response.json(
+				{code: issued.code, expires_at: issued.expiresAt, pairing: pairingStatusResponse(pairingStatus)},
+				{status: 201},
+			);
+		}
+		if (url.pathname === "/api/v1/pair/new" && request.method === "POST") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			return accountUserId === null ? new Response(null, {status: 401}) : Response.json({status: "ready"});
+		}
+		if (url.pathname === "/api/v1/pair/status" && request.method === "GET") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			if (accountUserId === null) {
+				return new Response(null, {status: 401});
 			}
-			if (
-				request.method === "GET" &&
-				(url.pathname === CURRENT_DECK_STREAM_PATH || STREAM_PATH.test(url.pathname))
-			) {
-				if (url.pathname === CURRENT_DECK_STREAM_PATH) {
-					const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
-					return stub.fetch(withConnectedMcpClientAuthorizationState(request, authorizationState));
-				}
-				return stub.fetch(request);
+			const pairingStatus = await getPairingStatus(env.DB, accountUserId);
+			return Response.json(pairingStatusResponse(pairingStatus));
+		}
+		if (url.pathname === "/api/v1/account/claim-legacy" && request.method === "POST") {
+			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
+			if (accountUserId === null) {
+				return new Response(null, {status: 401});
 			}
-			if (url.pathname === "/api/v1/hook" && request.method === "POST") {
-				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
-				return handleHookEvent(
-					request,
-					stub,
-					authorizationState.activeClientCount > 0,
-					executionContext,
-					observationContext,
+			return claimLegacyBrowserIdentity(request, env, accountUserId);
+		}
+		const machineManagementMatch = MACHINE_MANAGEMENT_PATH.exec(url.pathname);
+		const connectedMcpClientManagementMatch = CONNECTED_MCP_CLIENT_MANAGEMENT_PATH.exec(url.pathname);
+		const pushDeviceManagementMatch = PUSH_DEVICE_MANAGEMENT_PATH.exec(url.pathname);
+		if (
+			(url.pathname === "/api/v1/account/devices" && request.method === "GET") ||
+			(connectedMcpClientManagementMatch !== null && request.method === "DELETE") ||
+			(machineManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE")) ||
+			(pushDeviceManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE"))
+		) {
+			const browserAccount = await authenticateBrowserAccount(request, env, executionContext);
+			if (browserAccount === null) {
+				return new Response(null, {status: 401});
+			}
+			const accountUserId = browserAccount.userId;
+			const accountStub = env.USER_DO.getByName(accountUserId);
+			if (url.pathname === "/api/v1/account/devices") {
+				return listAccountDevices(
+					env.DB,
+					accountStub,
+					accountUserId,
+					browserAccount.sessionId,
+					mcpResource(env),
 				);
 			}
-			if (url.pathname === "/api/v1/afk" && request.method === "GET") {
+			if (connectedMcpClientManagementMatch !== null) {
+				return manageConnectedMcpClient(env, accountUserId, connectedMcpClientManagementMatch[1]);
+			}
+			if (machineManagementMatch !== null) {
+				return manageMachine(request, env, accountUserId, machineManagementMatch[1]);
+			}
+			return managePushDevice(request, accountStub, pushDeviceManagementMatch?.[1]);
+		}
+
+		const userId = await authenticateRequest(request, env, executionContext);
+		if (userId === null) {
+			return new Response(null, {status: 401});
+		}
+		const stub = env.USER_DO.getByName(userId);
+
+		if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST") {
+			return subscribePush(request, stub);
+		}
+		if (request.method === "GET" && (url.pathname === CURRENT_DECK_STREAM_PATH || STREAM_PATH.test(url.pathname))) {
+			if (url.pathname === CURRENT_DECK_STREAM_PATH) {
 				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
-				return Response.json({afk: await stub.getAfk(authorizationState.activeClientCount > 0)});
+				return stub.fetch(withConnectedMcpClientAuthorizationState(request, authorizationState));
 			}
-			if (url.pathname === "/api/v1/afk" && request.method === "PUT") {
-				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
-				return setAfk(request, stub, authorizationState.activeClientCount > 0);
-			}
-			if (url.pathname === "/api/v1/questions" && request.method === "POST") {
-				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
-				return createQuestions(request, stub, authorizationState.activeClientCount > 0, executionContext);
-			}
-			if (url.pathname === "/api/v1/current-deck" && request.method === "GET") {
-				return currentDeck(stub);
-			}
-			if (url.pathname === "/api/v1/activity-summary" && request.method === "GET") {
-				return Response.json({activity_summary: await stub.getActivitySummary()});
-			}
-			if (url.pathname === "/api/v1/answers" && request.method === "POST") {
-				return submitAnswers(request, stub);
-			}
-			return new Response(null, {status: 404});
-		});
+			return stub.fetch(request);
+		}
+		if (url.pathname === "/api/v1/hook" && request.method === "POST") {
+			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+			return handleHookEvent(request, stub, authorizationState.activeClientCount > 0, executionContext);
+		}
+		if (url.pathname === "/api/v1/afk" && request.method === "GET") {
+			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+			return Response.json({afk: await stub.getAfk(authorizationState.activeClientCount > 0)});
+		}
+		if (url.pathname === "/api/v1/afk" && request.method === "PUT") {
+			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+			return setAfk(request, stub, authorizationState.activeClientCount > 0);
+		}
+		if (url.pathname === "/api/v1/questions" && request.method === "POST") {
+			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+			return createQuestions(request, stub, authorizationState.activeClientCount > 0, executionContext);
+		}
+		if (url.pathname === "/api/v1/current-deck" && request.method === "GET") {
+			return currentDeck(stub);
+		}
+		if (url.pathname === "/api/v1/activity-summary" && request.method === "GET") {
+			return Response.json({activity_summary: await stub.getActivitySummary()});
+		}
+		if (url.pathname === "/api/v1/answers" && request.method === "POST") {
+			return submitAnswers(request, stub);
+		}
+		return new Response(null, {status: 404});
 	},
-	scheduled(controller, environment, executionContext): void {
-		const observationContext = createObservationContext("worker.main.scheduled");
-		const env = observeEnvironment(environment, observationContext);
-		emitObservation(observationContext, "scheduled", "input", {
-			cron: controller.cron,
-			scheduledTime: controller.scheduledTime,
-		});
-		executionContext.waitUntil(
-			cleanupExpiredIdentityRecords(env.DB, env.USER_DO, Date.now()).then(
-				(result) => {
-					emitObservation(observationContext, "scheduled", "output", result);
-				},
-				(error: unknown) => {
-					emitObservation(observationContext, "scheduled", "failure", error, "error");
-					throw error;
-				},
-			),
-		);
+	scheduled(_controller, environment, executionContext): void {
+		executionContext.waitUntil(cleanupExpiredIdentityRecords(environment.DB, environment.USER_DO, Date.now()));
 	},
 } satisfies ExportedHandler<Env>;
 
@@ -436,7 +380,6 @@ async function manageConnectedMcpClient(
 	environment: Env,
 	userId: string,
 	connectedMcpClientId: string | undefined,
-	observationContext: ReturnType<typeof createObservationContext>,
 ): Promise<Response> {
 	if (connectedMcpClientId === undefined) {
 		return new Response(null, {status: 404});
@@ -453,10 +396,6 @@ async function manageConnectedMcpClient(
 		return new Response(null, {status: 404});
 	}
 	const authorizationState = await connectedMcpClientAuthorizationState(environment, userId);
-	emitObservation(observationContext, "connected_mcp_client.revoke", "output", {
-		activeConnectedMcpClientCount: authorizationState.activeClientCount,
-		connectedMcpClientManagementId: connectedMcpClientId,
-	});
 	return Response.json({status: "ok", connected_mcp_client_count: authorizationState.activeClientCount});
 }
 

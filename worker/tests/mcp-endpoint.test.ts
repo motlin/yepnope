@@ -4,8 +4,7 @@ import {decodeJwt} from "jose";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {createWorkerAuthentication, MCP_RESOURCE_PATH, OAUTH_SCOPES} from "../auth";
 import {handleRemoteMcpRequest, type RemoteMcpTiming} from "../mcp";
-import {createObservationContext} from "../observability";
-import type {CurrentQuestion} from "../user-do";
+import type {CurrentQuestion, UserDurableObject} from "../user-do";
 import {TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA} from "../../shim/tool";
 import {API_ORIGIN, createVerifiedBrowserSession, required, worker} from "./helpers";
 
@@ -191,13 +190,7 @@ async function responseMessage(response: Response): Promise<unknown> {
 }
 
 async function remoteResponse(request: Request, timing: RemoteMcpTiming = TEST_TIMING): Promise<Response> {
-	return handleRemoteMcpRequest(
-		request,
-		env,
-		createExecutionContext(),
-		createObservationContext("worker.test.mcp"),
-		timing,
-	);
+	return handleRemoteMcpRequest(request, env, createExecutionContext(), timing);
 }
 
 async function waitForQuestionCount(userId: string, count: number): Promise<CurrentQuestion[]> {
@@ -210,6 +203,29 @@ async function waitForQuestionCount(userId: string, count: number): Promise<Curr
 		}
 		if (Date.now() >= deadline) {
 			throw new Error(`expected ${String(count)} outstanding questions, found ${String(questions.length)}`);
+		}
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, 5);
+		});
+	}
+}
+
+async function closeAnswerSocket(stub: DurableObjectStub<UserDurableObject>, batchId: string): Promise<void> {
+	const deadline = Date.now() + 2_000;
+	for (;;) {
+		const closed = await runInDurableObject(stub, (_instance, state) => {
+			const socket = state.getWebSockets(batchId)[0];
+			if (socket === undefined) {
+				return false;
+			}
+			socket.close(1012, "test reconnect");
+			return true;
+		});
+		if (closed) {
+			return;
+		}
+		if (Date.now() >= deadline) {
+			throw new Error("missing initial MCP answer socket");
 		}
 		await new Promise<void>((resolve) => {
 			setTimeout(resolve, 5);
@@ -444,10 +460,7 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		const responsePromise = remoteResponse(askRequest(grant.accessToken), TEST_TIMING);
 		const questions = await waitForQuestionCount(grant.userId, 3);
 		const batchId = required(questions[0], "first question").batchId;
-		await runInDurableObject(stub, (_instance, state) => {
-			const socket = required(state.getWebSockets(batchId)[0], "initial MCP answer socket");
-			socket.close(1012, "test reconnect");
-		});
+		await closeAnswerSocket(stub, batchId);
 		await new Promise<void>((resolve) => {
 			setTimeout(resolve, 30);
 		});
@@ -496,27 +509,6 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			skip: 0,
 			total_questions: 3,
 			yep: 0,
-		});
-	});
-
-	it("redacts the authorization value and MCP body from Worker HTTP observations", async () => {
-		const grant = await issueGrant("mcp-redaction-alice@example.com");
-		const logs: string[] = [];
-		vi.spyOn(console, "log").mockImplementation((line: unknown) => {
-			logs.push(String(line));
-		});
-		await responseMessage(await worker.fetch(askRequest(grant.accessToken)));
-		const serialized = logs.join("\n");
-		expect({
-			containsAuthorizationValue: serialized.includes(grant.accessToken),
-			containsQuestionBody: serialized.includes("The release candidate passed validation."),
-			containsQuestionTitle: serialized.includes("Ship it?"),
-			hasRedactedBody: serialized.includes('"redacted"') && serialized.includes('"value":true'),
-		}).toStrictEqual({
-			containsAuthorizationValue: false,
-			containsQuestionBody: false,
-			containsQuestionTitle: false,
-			hasRedactedBody: true,
 		});
 	});
 });

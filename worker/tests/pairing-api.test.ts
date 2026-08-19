@@ -1,14 +1,12 @@
 import {env} from "cloudflare:workers";
-import {describe, expect, it, vi} from "vitest";
+import {describe, expect, it} from "vitest";
 import {hashToken} from "../auth";
 import {
 	MACHINE_TOKEN_ENCODED_CHARACTERS,
 	MACHINE_TOKEN_PATTERN,
 	MACHINE_TOKEN_PREFIX,
 	MACHINE_TOKEN_RANDOM_BYTES,
-	MACHINE_TOKEN_REDACTION,
 } from "../machine-token";
-import {decodedObservationData, reconstructObservation} from "../observability";
 import {PAIRING_CODE_TTL_MILLISECONDS} from "../validation";
 import {base64UrlDecode} from "../webcrypto";
 import {
@@ -159,32 +157,10 @@ describe("POST /api/v1/pair/claim", () => {
 		const session = await createVerifiedBrowserSession();
 		const issued = await requestPairingCode(session.cookie);
 
-		const observationLines: string[] = [];
-		const consoleLog = vi.spyOn(console, "log").mockImplementation((line: unknown) => {
-			if (typeof line === "string") {
-				observationLines.push(line);
-			}
-		});
 		const claimStartedAt = Date.now();
-		const {claimed, machine} = await (async () => {
-			try {
-				const claimed = await claimPairingCode(issued.code, "Alice's laptop");
-				const machine = await claimed.json<{token: string; credential_type: string}>();
-				return {claimed, machine};
-			} finally {
-				consoleLog.mockRestore();
-			}
-		})();
+		const claimed = await claimPairingCode(issued.code, "Alice's laptop");
+		const machine = await claimed.json<{token: string; credential_type: string}>();
 		const encodedToken = machine.token.slice(MACHINE_TOKEN_PREFIX.length);
-		const claimResponseObservations = observationLines
-			.filter((line) => {
-				const event = JSON.parse(line) as {operation: string};
-				return event.operation === "http.response";
-			})
-			.map((line) => decodedObservationData(reconstructObservation([line]))) as Array<{
-			body: ArrayBuffer;
-			status: number;
-		}>;
 		expect({
 			claim: {body: machine.credential_type, status: claimed.status},
 			format: {
@@ -193,10 +169,6 @@ describe("POST /api/v1/pair/claim", () => {
 				matchesContract: MACHINE_TOKEN_PATTERN.test(machine.token),
 				prefix: machine.token.slice(0, MACHINE_TOKEN_PREFIX.length),
 			},
-			observedResponses: claimResponseObservations.map(({body, status}) => ({
-				body: new TextDecoder().decode(body),
-				status,
-			})),
 		}).toStrictEqual({
 			claim: {body: "machine", status: 201},
 			format: {
@@ -205,12 +177,6 @@ describe("POST /api/v1/pair/claim", () => {
 				matchesContract: true,
 				prefix: MACHINE_TOKEN_PREFIX,
 			},
-			observedResponses: [
-				{
-					body: JSON.stringify({token: MACHINE_TOKEN_REDACTION, credential_type: "machine"}),
-					status: 201,
-				},
-			],
 		});
 
 		const stored = await env.DB.prepare(

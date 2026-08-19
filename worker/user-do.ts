@@ -16,14 +16,6 @@ import {
 } from "./db/do-schema";
 import migrationBundle from "./migrations/do/migrations.js";
 import {hashToken} from "./auth";
-import {
-	createObservationContext,
-	emitObservation,
-	observeDurableObjectState,
-	observeHttpExchange,
-	observeWebSocketFrame,
-	type ObservationContext,
-} from "./observability";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
 import {
 	dispositionSchema,
@@ -162,16 +154,10 @@ function findRowConflict<Row extends object>(
 
 export class UserDurableObject extends DurableObject<Env> {
 	private readonly database: DrizzleSqliteDODatabase;
-	private readonly observationContext: ObservationContext;
 	private initialization: Promise<void> | undefined;
 
 	constructor(ctx: DurableObjectState<Record<never, never>>, env: Env) {
 		super(ctx, env);
-		this.observationContext = {
-			...createObservationContext("durable_object.user"),
-			objectId: ctx.id.toString(),
-		};
-		this.ctx = observeDurableObjectState(ctx, this.observationContext);
 		this.database = drizzle(this.ctx.storage);
 	}
 
@@ -494,23 +480,8 @@ export class UserDurableObject extends DurableObject<Env> {
 	pushTransport: (
 		endpoint: string,
 		request: {headers: Record<string, string>; body: Uint8Array},
-	) => number | Promise<number> = async (endpoint, request) => {
-		emitObservation(this.observationContext, "push.request", "input", {endpoint, request});
-		try {
-			const response = await fetch(endpoint, {method: "POST", headers: request.headers, body: request.body});
-			const result = {
-				status: response.status,
-				statusText: response.statusText,
-				headers: Array.from(response.headers.entries()),
-				body: response.body === null ? null : await response.clone().arrayBuffer(),
-			};
-			emitObservation(this.observationContext, "push.response", "output", result);
-			return response.status;
-		} catch (error) {
-			emitObservation(this.observationContext, "push.request", "failure", {endpoint, request, error}, "error");
-			throw error;
-		}
-	};
+	) => number | Promise<number> = async (endpoint, request) =>
+		(await fetch(endpoint, {method: "POST", headers: request.headers, body: request.body})).status;
 
 	async registerDevice(subscription: PushSubscription, label: string): Promise<void> {
 		await this.initialize();
@@ -602,12 +573,9 @@ export class UserDurableObject extends DurableObject<Env> {
 			});
 			// 🚧 An unreachable push service must not fail the whole loop or the waitUntil.
 			let status = 0;
-			emitObservation(this.observationContext, "push.transport", "input", request);
 			try {
 				status = await this.pushTransport(request.endpoint, {headers: request.headers, body: request.body});
-				emitObservation(this.observationContext, "push.transport", "output", {status});
-			} catch (error) {
-				emitObservation(this.observationContext, "push.transport", "failure", {request, error}, "error");
+			} catch {
 				status = 0;
 			}
 			if (status === 404 || status === 410) {
@@ -623,121 +591,101 @@ export class UserDurableObject extends DurableObject<Env> {
 	}
 
 	override async fetch(request: Request): Promise<Response> {
-		return observeHttpExchange(this.observationContext, request, async (request) => {
-			await this.initialize();
-			const url = new URL(request.url);
-			if (url.pathname === "/api/v1/current-deck/stream") {
-				if (request.headers.get("Upgrade") !== "websocket") {
-					return new Response(null, {status: 426});
-				}
-				const connectedMcpClientAuthorizationState = connectedMcpClientAuthorizationStateSchema.safeParse(
-					JSON.parse(
-						request.headers.get("X-YepNope-Connected-Mcp-Client-Authorization") ?? "null",
-					) as unknown,
-				);
-				if (!connectedMcpClientAuthorizationState.success) {
-					return new Response(null, {status: 400});
-				}
-				const pair = new WebSocketPair();
-				this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
-				pair[1].serializeAttachment({
-					connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationState.data,
-				} satisfies CurrentDeckSocketAttachment);
-				await this.sendCurrentDeckState(pair[1], connectedMcpClientAuthorizationState.data);
-				return new Response(null, {status: 101, webSocket: pair[0]});
-			}
-			const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
-			if (match === null) {
-				return new Response(null, {status: 404});
-			}
+		await this.initialize();
+		const url = new URL(request.url);
+		if (url.pathname === "/api/v1/current-deck/stream") {
 			if (request.headers.get("Upgrade") !== "websocket") {
 				return new Response(null, {status: 426});
 			}
-			const batchId = match[1];
-			if (batchId === undefined || !(await this.batchExists(batchId))) {
-				return new Response(null, {status: 404});
+			const connectedMcpClientAuthorizationState = connectedMcpClientAuthorizationStateSchema.safeParse(
+				JSON.parse(request.headers.get("X-YepNope-Connected-Mcp-Client-Authorization") ?? "null") as unknown,
+			);
+			if (!connectedMcpClientAuthorizationState.success) {
+				return new Response(null, {status: 400});
 			}
 			const pair = new WebSocketPair();
-			// 😴 Hibernation API: a held-open HTTP request is not hibernation eligible (spec §4.4).
-			this.ctx.acceptWebSocket(pair[1], [batchId]);
-			await this.sendCurrentState(pair[1], batchId);
+			this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
+			pair[1].serializeAttachment({
+				connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationState.data,
+			} satisfies CurrentDeckSocketAttachment);
+			await this.sendCurrentDeckState(pair[1], connectedMcpClientAuthorizationState.data);
 			return new Response(null, {status: 101, webSocket: pair[0]});
-		});
+		}
+		const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
+		if (match === null) {
+			return new Response(null, {status: 404});
+		}
+		if (request.headers.get("Upgrade") !== "websocket") {
+			return new Response(null, {status: 426});
+		}
+		const batchId = match[1];
+		if (batchId === undefined || !(await this.batchExists(batchId))) {
+			return new Response(null, {status: 404});
+		}
+		const pair = new WebSocketPair();
+		// 😴 Hibernation API: a held-open HTTP request is not hibernation eligible (spec §4.4).
+		this.ctx.acceptWebSocket(pair[1], [batchId]);
+		await this.sendCurrentState(pair[1], batchId);
+		return new Response(null, {status: 101, webSocket: pair[0]});
 	}
 
 	// 💓 Any inbound frame is a heartbeat (batch identifier option C in .llm/decisions.md).
-	override async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
-		observeWebSocketFrame(this.observationContext, "inbound", message);
-		try {
-			await this.initialize();
-			const batchId = this.ctx.getTags(socket)[0];
-			if (batchId === CURRENT_DECK_SOCKET_TAG) {
-				await this.sendCurrentDeckState(socket, this.getSocketConnectedMcpClientAuthorizationState(socket));
-				return;
-			}
-			if (batchId === undefined || !(await this.batchExists(batchId))) {
-				this.sendWebSocketFrame(
-					socket,
-					errorFrame(batchId ?? "unknown", {}, "unknown_batch", "this batch no longer exists"),
-				);
-				socket.close(1008, "unknown batch");
-				return;
-			}
-			this.assertWritable();
-			await this.database.update(batches).set({lastHeartbeatAt: Date.now()}).where(eq(batches.id, batchId));
-			await this.sendCurrentState(socket, batchId);
-		} catch (error) {
-			emitObservation(this.observationContext, "websocket.message", "failure", error, "error");
-			throw error;
+	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void> {
+		await this.initialize();
+		const batchId = this.ctx.getTags(socket)[0];
+		if (batchId === CURRENT_DECK_SOCKET_TAG) {
+			await this.sendCurrentDeckState(socket, this.getSocketConnectedMcpClientAuthorizationState(socket));
+			return;
 		}
+		if (batchId === undefined || !(await this.batchExists(batchId))) {
+			this.sendWebSocketFrame(
+				socket,
+				errorFrame(batchId ?? "unknown", {}, "unknown_batch", "this batch no longer exists"),
+			);
+			socket.close(1008, "unknown batch");
+			return;
+		}
+		this.assertWritable();
+		await this.database.update(batches).set({lastHeartbeatAt: Date.now()}).where(eq(batches.id, batchId));
+		await this.sendCurrentState(socket, batchId);
 	}
 
 	// 🗑️ The single DO alarm serves two deadlines: 7 day retention (spec §13.1) and
 	// heartbeat-and-delete retraction (option C in .llm/decisions.md, spec §5).
 	override async alarm(): Promise<void> {
-		emitObservation(this.observationContext, "do.alarm", "input", null);
-		try {
-			await this.initialize();
-			if (this.isMergeLocked()) {
-				emitObservation(this.observationContext, "do.alarm", "output", {mergeLocked: true});
-				return;
-			}
-			const now = Date.now();
-			const expired = await this.database
-				.select({id: batches.id})
-				.from(batches)
-				.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
-			await this.deleteBatches(
-				expired.map((row) => row.id),
-				TerminalActivityOutcome.Expired,
-				"batch_expired",
-				"this batch passed the 7 day retention limit",
-				"batch expired",
-			);
-			// 💀 Unanswered questions whose agent stopped heartbeating: retract rather than let the
-			// user answer into a void. Resolved batches keep their answers until retention so a
-			// returning agent can still collect them.
-			const stale = await this.database
-				.selectDistinct({id: batches.id})
-				.from(batches)
-				.innerJoin(questions, eq(questions.batchId, batches.id))
-				.leftJoin(answers, eq(answers.questionId, questions.id))
-				.where(
-					and(isNull(answers.questionId), lte(batches.lastHeartbeatAt, now - HEARTBEAT_GRACE_MILLISECONDS)),
-				);
-			await this.deleteBatches(
-				stale.map((row) => row.id),
-				TerminalActivityOutcome.Retracted,
-				"batch_retracted",
-				"the agent asking these questions stopped heartbeating",
-				"batch retracted",
-			);
-			await this.armNextDeadline();
-			emitObservation(this.observationContext, "do.alarm", "output", {mergeLocked: false});
-		} catch (error) {
-			emitObservation(this.observationContext, "do.alarm", "failure", error, "error");
-			throw error;
+		await this.initialize();
+		if (this.isMergeLocked()) {
+			return;
 		}
+		const now = Date.now();
+		const expired = await this.database
+			.select({id: batches.id})
+			.from(batches)
+			.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
+		await this.deleteBatches(
+			expired.map((row) => row.id),
+			TerminalActivityOutcome.Expired,
+			"batch_expired",
+			"this batch passed the 7 day retention limit",
+			"batch expired",
+		);
+		// 💀 Unanswered questions whose agent stopped heartbeating: retract rather than let the
+		// user answer into a void. Resolved batches keep their answers until retention so a
+		// returning agent can still collect them.
+		const stale = await this.database
+			.selectDistinct({id: batches.id})
+			.from(batches)
+			.innerJoin(questions, eq(questions.batchId, batches.id))
+			.leftJoin(answers, eq(answers.questionId, questions.id))
+			.where(and(isNull(answers.questionId), lte(batches.lastHeartbeatAt, now - HEARTBEAT_GRACE_MILLISECONDS)));
+		await this.deleteBatches(
+			stale.map((row) => row.id),
+			TerminalActivityOutcome.Retracted,
+			"batch_retracted",
+			"the agent asking these questions stopped heartbeating",
+			"batch retracted",
+		);
+		await this.armNextDeadline();
 	}
 
 	async prepareLegacyIdentityClaim(destinationUserId: string): Promise<LegacyIdentityPreparation> {
@@ -1039,7 +987,6 @@ export class UserDurableObject extends DurableObject<Env> {
 		if (socket.readyState !== WebSocket.OPEN) {
 			return;
 		}
-		observeWebSocketFrame(this.observationContext, "outbound", frame);
 		socket.send(frame);
 	}
 }

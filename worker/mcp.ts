@@ -3,7 +3,6 @@ import {createLocalJWKSet, jwtVerify} from "jose";
 import {z} from "zod";
 import {ASK_YEP_NOPE_STANDARD_SCHEMA, formatAskYepNopeResult, TOOL_DESCRIPTION, TOOL_NAME} from "../shim/tool";
 import {createWorkerAuthentication, MCP_RESOURCE_PATH, OAUTH_SCOPES} from "./auth";
-import {emitObservation, type ObservationContext} from "./observability";
 import {parseFrame, type DispositionMap} from "./protocol";
 import type {UserDurableObject} from "./user-do";
 import {findLengthViolations, RETENTION_MILLISECONDS, teachingRejection, type Disposition} from "./validation";
@@ -310,7 +309,6 @@ function createRemoteMcpServer(
 	stub: DurableObjectStub<UserDurableObject>,
 	grantedScopes: ReadonlySet<string>,
 	executionContext: ExecutionContext,
-	observationContext: ObservationContext,
 	timing: RemoteMcpTiming,
 	requestKey: string | null,
 ): McpServer {
@@ -319,20 +317,11 @@ function createRemoteMcpServer(
 		TOOL_NAME,
 		{description: TOOL_DESCRIPTION, inputSchema: ASK_YEP_NOPE_STANDARD_SCHEMA},
 		async (batch, context) => {
-			emitObservation(observationContext, "mcp.tool", "input", {
-				questionCount: batch.questions.length,
-				tool: TOOL_NAME,
-			});
 			const violations = findLengthViolations(batch.questions);
 			if (violations.length > 0) {
-				emitObservation(observationContext, "mcp.tool", "output", {
-					outcome: "validation_error",
-					tool: TOOL_NAME,
-				});
 				return textResult(teachingRejection(violations), true);
 			}
 			if (!(await stub.getAfk(true))) {
-				emitObservation(observationContext, "mcp.tool", "output", {outcome: "afk_off", tool: TOOL_NAME});
 				return textResult(
 					"The user is at their keyboard, so questions are not being routed to their phone. " +
 						"Use the AskUserQuestion tool instead of ask_yep_nope for this question.",
@@ -374,17 +363,11 @@ function createRemoteMcpServer(
 						return textResult("The batch resolved without one disposition per question.", true);
 					}
 					completed = true;
-					emitObservation(observationContext, "mcp.tool", "output", {
-						outcome: "answered",
-						questionCount: dispositions.length,
-						tool: TOOL_NAME,
-					});
 					return textResult(formatAskYepNopeResult(batch.questions, dispositions), false);
 				}
 				if (result.kind === "closed") {
 					throw new Error("answer stream loop returned an unresolved closed connection");
 				}
-				emitObservation(observationContext, "mcp.tool", "output", {outcome: result.code, tool: TOOL_NAME});
 				return textResult(result.message, true);
 			} finally {
 				clearInterval(progress);
@@ -408,11 +391,6 @@ function createRemoteMcpServer(
 				return textResult("This OAuth client does not have the yepnope:afk scope.", true);
 			}
 			const result = await stub.setAfk(afk, true);
-			emitObservation(observationContext, "mcp.tool", "output", {
-				afk,
-				outcome: result.status,
-				tool: AFK_TOOL_NAME,
-			});
 			if (result.status !== "updated") {
 				return textResult(result.message, true);
 			}
@@ -426,7 +404,6 @@ export async function handleRemoteMcpRequest(
 	request: Request,
 	environment: Env,
 	executionContext: ExecutionContext,
-	observationContext: ObservationContext,
 	timing: RemoteMcpTiming = DEFAULT_TIMING,
 ): Promise<Response> {
 	const resource = `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
@@ -434,7 +411,6 @@ export async function handleRemoteMcpRequest(
 	const authentication = createWorkerAuthentication(environment, executionContext);
 	const token = bearerToken(request);
 	if (token === null) {
-		emitObservation(observationContext, "mcp.authentication", "output", {outcome: "missing_token"});
 		return authorizationChallenge(resource, false);
 	}
 	let untrustedClaims: unknown;
@@ -447,21 +423,17 @@ export async function handleRemoteMcpRequest(
 		const verified = await jwtVerify(token, createLocalJWKSet(jwks), {audience: resource, issuer});
 		untrustedClaims = verified.payload;
 	} catch {
-		emitObservation(observationContext, "mcp.authentication", "output", {outcome: "invalid_token"});
 		return authorizationChallenge(resource, false);
 	}
 	const parsed = accessTokenClaimsSchema.safeParse(untrustedClaims);
 	if (!parsed.success) {
-		emitObservation(observationContext, "mcp.authentication", "output", {outcome: "invalid_claims"});
 		return authorizationChallenge(resource, false);
 	}
 	const grantedScopes = new Set(parsed.data.scope.split(" "));
 	if (!grantedScopes.has(QUESTION_SCOPE)) {
-		emitObservation(observationContext, "mcp.authentication", "output", {outcome: "insufficient_scope"});
 		return authorizationChallenge(resource, true);
 	}
 	if (!(await hasActiveGrant(environment.DB, parsed.data, resource))) {
-		emitObservation(observationContext, "mcp.authentication", "output", {outcome: "invalid_grant"});
 		return invalidGrantResponse(resource);
 	}
 	const message = mcpMessageSchema.safeParse(
@@ -479,10 +451,9 @@ export async function handleRemoteMcpRequest(
 			? mcpCancellationParamsSchema.safeParse(message.data.params)
 			: null;
 	if (cancellation?.success === true) {
-		const cancelled = await environment.USER_DO.getByName(parsed.data.sub).cancelMcpRequest(
+		await environment.USER_DO.getByName(parsed.data.sub).cancelMcpRequest(
 			`${parsed.data.client_id}:${parsed.data.sid}:${String(cancellation.data.requestId)}`,
 		);
-		emitObservation(observationContext, "mcp.cancellation", "output", {cancelled});
 	}
 	const handler = createMcpHandler(
 		() =>
@@ -490,12 +461,10 @@ export async function handleRemoteMcpRequest(
 				environment.USER_DO.getByName(parsed.data.sub),
 				grantedScopes,
 				executionContext,
-				observationContext,
 				timing,
 				requestKey,
 			),
 		{responseMode: "sse"},
 	);
-	emitObservation(observationContext, "mcp.authentication", "output", {outcome: "accepted"});
 	return handler.fetch(request);
 }

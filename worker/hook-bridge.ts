@@ -1,6 +1,5 @@
 import {z} from "zod";
 import {buildPermissionCard} from "./hook-cards";
-import {observeWebSocketFrame, type ObservationContext} from "./observability";
 import {parseFrame} from "./protocol";
 import type {UserDurableObject} from "./user-do";
 import type {Disposition} from "./validation";
@@ -70,7 +69,6 @@ async function waitForDisposition(
 	stub: DurableObjectStub<UserDurableObject>,
 	batchId: string,
 	questionId: string,
-	observationContext: ObservationContext,
 ): Promise<Disposition | null> {
 	const upgrade = await stub.fetch(`https://do/api/v1/questions/${batchId}/stream`, {
 		headers: {Upgrade: "websocket"},
@@ -80,18 +78,13 @@ async function waitForDisposition(
 		return null;
 	}
 	socket.accept();
-	return awaitResolution(socket, questionId, observationContext);
+	return awaitResolution(socket, questionId);
 }
 
-async function awaitResolution(
-	socket: WebSocket,
-	questionId: string,
-	observationContext: ObservationContext,
-): Promise<Disposition | null> {
+async function awaitResolution(socket: WebSocket, questionId: string): Promise<Disposition | null> {
 	return new Promise((resolve) => {
 		let settled = false;
 		const heartbeat = setInterval(() => {
-			observeWebSocketFrame(observationContext, "outbound", "beat");
 			socket.send("beat");
 		}, HEARTBEAT_INTERVAL_MILLISECONDS);
 		function finish(disposition: Disposition | null): void {
@@ -108,7 +101,6 @@ async function awaitResolution(
 			resolve(disposition);
 		}
 		socket.addEventListener("message", (event) => {
-			observeWebSocketFrame(observationContext, "inbound", event.data);
 			const frame = typeof event.data === "string" ? parseFrame(event.data) : null;
 			if (frame === null) {
 				return;
@@ -147,7 +139,6 @@ async function handlePermissionRequest(
 	stub: DurableObjectStub<UserDurableObject>,
 	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
-	observationContext: ObservationContext,
 ): Promise<Response> {
 	if (!(await stub.getAfk(hasActiveConnectedMcpClient))) {
 		return noDecision();
@@ -162,7 +153,7 @@ async function handlePermissionRequest(
 	if (questionId === undefined) {
 		return noDecision();
 	}
-	const disposition = await waitForDisposition(stub, created.batchId, questionId, observationContext);
+	const disposition = await waitForDisposition(stub, created.batchId, questionId);
 	if (disposition === "yep") {
 		return permissionDecision({behavior: "allow"});
 	}
@@ -179,7 +170,6 @@ export async function handleHookEvent(
 	stub: DurableObjectStub<UserDurableObject>,
 	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
-	observationContext: ObservationContext,
 ): Promise<Response> {
 	const parsed = hookEventSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
@@ -189,13 +179,7 @@ export async function handleHookEvent(
 		case "PreToolUse":
 			return handlePreToolUse(parsed.data, stub, hasActiveConnectedMcpClient);
 		case "PermissionRequest":
-			return handlePermissionRequest(
-				parsed.data,
-				stub,
-				hasActiveConnectedMcpClient,
-				executionContext,
-				observationContext,
-			);
+			return handlePermissionRequest(parsed.data, stub, hasActiveConnectedMcpClient, executionContext);
 		default:
 			return noDecision();
 	}

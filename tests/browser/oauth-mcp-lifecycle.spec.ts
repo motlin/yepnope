@@ -90,22 +90,6 @@ const protectedResourceMetadataSchema = z
 		scopes_supported: z.array(z.string()),
 	})
 	.loose();
-const observationAuditResponseSchema = z
-	.object({
-		dropped_event_count: z.number().int().nonnegative(),
-		event_count: z.number().int().nonnegative(),
-		forbidden_value_detected: z.boolean(),
-		forbidden_value_indices: z.array(z.number().int().nonnegative()),
-		forbidden_value_operations: z.array(
-			z.object({index: z.number().int().nonnegative(), operations: z.array(z.string())}).strict(),
-		),
-		maximum_line_bytes: z.number().int().nonnegative(),
-		mcp_exchange_event_count: z.number().int().nonnegative(),
-		oauth_exchange_event_count: z.number().int().nonnegative(),
-		redacted_body_event_count: z.number().int().nonnegative(),
-	})
-	.strict();
-
 async function codeChallenge(verifier: string): Promise<string> {
 	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
 	return Buffer.from(digest).toString("base64url");
@@ -356,7 +340,6 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 	const contexts: BrowserContext[] = [];
 	const clients: Client[] = [];
 	try {
-		await request.delete("/api/__e2e__/observations");
 		const [authorizationMetadataResponse, protectedResourceMetadataResponse] = await Promise.all([
 			request.get("/.well-known/oauth-authorization-server/api/auth"),
 			request.get("/.well-known/oauth-protected-resource/mcp"),
@@ -649,62 +632,6 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			body: {cleanup_completed: 1, identity_deleted: 1, machine_tokens: 0, oauth_clients: 0, users: 0},
 			status: 200,
 		});
-
-		const verificationToken = new URL(verificationLink).searchParams.get("token");
-		if (verificationToken === null) {
-			throw new Error("Verification email link is missing its token");
-		}
-		const observationAuditResponse = await request.post("/api/__e2e__/observations", {
-			data: {
-				forbidden_values: [
-					codeVerifier,
-					failedPkceVerifier,
-					`${failedPkceVerifier}-wrong`,
-					verificationToken,
-					sessionCookie.value,
-					code,
-					failedPkceCode,
-					secondCodeVerifier,
-					secondCode,
-					tokens.access_token,
-					tokens.refresh_token,
-					tokens.id_token,
-					secondTokens.access_token,
-					secondTokens.refresh_token,
-					secondTokens.id_token,
-					rotatedTokens.access_token,
-					rotatedTokens.refresh_token,
-					rotatedTokens.id_token,
-					"Route this test question?",
-					"The user is not AFK yet.",
-					...routedQuestions.flatMap(({title, body}) => [title, body]),
-					cancelledQuestion.title,
-					cancelledQuestion.body,
-					" -> YEP",
-					" -> NOPE",
-					" -> SKIPPED",
-				],
-			},
-		});
-		const observationAudit = observationAuditResponseSchema.parse(await observationAuditResponse.json());
-		expect({
-			droppedEventCount: observationAudit.dropped_event_count,
-			forbiddenValueDetected: observationAudit.forbidden_value_detected,
-			forbiddenValueIndices: observationAudit.forbidden_value_indices,
-			forbiddenValueOperations: observationAudit.forbidden_value_operations,
-			status: observationAuditResponse.status(),
-		}).toStrictEqual({
-			droppedEventCount: 0,
-			forbiddenValueDetected: false,
-			forbiddenValueIndices: [],
-			forbiddenValueOperations: [],
-			status: 200,
-		});
-		expect(observationAudit.event_count).toBeGreaterThan(0);
-		expect(observationAudit.maximum_line_bytes).toBeLessThanOrEqual(24 * 1024);
-		expect(observationAudit.mcp_exchange_event_count).toBeGreaterThan(0);
-		expect(observationAudit.oauth_exchange_event_count).toBeGreaterThan(0);
-		expect(observationAudit.redacted_body_event_count).toBeGreaterThan(0);
 	} finally {
 		await Promise.all(clients.map(async (client) => client.close().catch(() => undefined)));
 		await Promise.all(contexts.map(async (context) => context.close()));
