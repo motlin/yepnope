@@ -139,7 +139,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		const verificationPage = await verificationContext.newPage();
 		await verificationPage.goto(await mailboxLink(request, verificationSubject));
 		await expect(verificationPage).toHaveURL(/\/$/);
-		await expect(verificationPage.getByRole("button", {name: "Connect a CLI"})).toBeVisible();
+		await expect(verificationPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
 		await verificationPage.getByRole("button", {name: "Settings"}).click();
 		await expect(verificationPage.getByText(email)).toBeVisible();
 		const verifiedUserId = await sessionUserId(verificationPage);
@@ -184,24 +184,34 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 			body: {status: "expired"},
 			status: 200,
 		});
-		await expect(firstPage.getByRole("button", {name: "Connect a CLI"})).toBeVisible();
+		await expect(firstPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
 		await expect(secondPage.getByRole("heading", {name: "Connect a CLI"})).toBeVisible();
 
-		await firstPage.getByRole("button", {name: "Connect a CLI"}).click();
+		await firstPage.getByRole("button", {name: "Connect an MCP client"}).click();
 		await firstPage.getByRole("button", {name: "Generate and copy pairing code"}).click();
 		await expect(firstPage.getByRole("status")).toHaveText("Waiting for your CLI to claim this code.");
 		const claimablePairingCode = await firstPage.locator("code.pairing-code").textContent();
 		if (claimablePairingCode === null) {
 			throw new Error("replacement pairing code was not rendered");
 		}
+		await secondPage.reload();
 		await expect(secondPage.getByRole("heading", {name: "Waiting for your CLI"})).toBeVisible();
 		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
 		const machineToken = await claimWithShim(request, claimablePairingCode);
-		await expect(firstPage.getByRole("button", {name: "CLI connected"})).toBeVisible();
+		await expect(firstPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
+		await secondPage.reload();
 		await expect(secondPage.getByRole("heading", {name: "Connect another CLI"})).toBeVisible();
-		await expect(secondPage.getByText("Browser test CLI")).toBeVisible();
+		await expect(secondPage.getByText("No connected MCP clients.")).toBeVisible();
+		const authorization = await request.post("/api/__e2e__/authorize-mcp-client", {data: {user_id: userId}});
+		expect({body: await authorization.json(), status: authorization.status()}).toStrictEqual({
+			body: {status: "authorized"},
+			status: 200,
+		});
+		await expect(firstPage.getByRole("button", {name: "MCP client connected"})).toBeVisible();
+		await secondPage.reload();
+		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 		await firstPage.reload();
-		await expect(firstPage.getByRole("button", {name: "CLI connected"})).toBeVisible();
+		await expect(firstPage.getByRole("button", {name: "MCP client connected"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
 		await expect(firstPage.getByRole("button", {name: "AFK off"})).toHaveAttribute("aria-pressed", "false");
 
@@ -258,7 +268,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		contexts.splice(contexts.indexOf(failureContext), 1);
 
 		await expect(secondPage.getByText(email)).toBeVisible();
-		await expect(secondPage.getByText("Browser test CLI")).toBeVisible();
+		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 		await secondPage.getByRole("button", {name: "Sign out"}).click();
 		await expect(secondPage).toHaveURL(/\/$/);
 
@@ -283,18 +293,20 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await secondPage.getByLabel("Password").fill(replacementPassword);
 		await secondPage.getByRole("button", {name: "Sign in", exact: true}).click();
-		await expect(secondPage.getByText("Browser test CLI")).toBeVisible();
+		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 
-		const machineRow = secondPage.getByRole("listitem").filter({hasText: "Browser test CLI"});
-		await machineRow.getByRole("button", {name: "Revoke"}).click();
-		await expect(secondPage.getByText("No connected CLIs.")).toBeVisible();
-		await expect(secondPage.getByRole("heading", {name: "Connect a CLI"})).toBeVisible();
+		const mcpClientRow = secondPage.getByRole("listitem").filter({hasText: "Browser test MCP client"});
+		await mcpClientRow.getByRole("button", {name: "Revoke"}).click();
+		await expect(mcpClientRow).toContainText("revoked");
+		await expect(secondPage.getByRole("heading", {name: "Connect another CLI"})).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
-		await expect(firstPage.getByRole("button", {name: "Connect a CLI"})).toBeVisible();
-		expect((await request.get("/api/v1/afk", {headers: {Authorization: `Bearer ${machineToken}`}})).status()).toBe(
-			401,
-		);
+		await expect(firstPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
+		const legacyAfk = await request.get("/api/v1/afk", {headers: {Authorization: `Bearer ${machineToken}`}});
+		expect({body: await legacyAfk.json(), status: legacyAfk.status()}).toStrictEqual({
+			body: {afk: false},
+			status: 200,
+		});
 
 		const deletion = await secondPage.evaluate(async (password) => {
 			const response = await fetch("/api/auth/delete-user", {
@@ -311,7 +323,7 @@ test("identity registration, recovery, pairing, answers, revocation, and deletio
 
 		const deletedState = await request.post("/api/__e2e__/deleted-account", {data: {user_id: userId}});
 		expect({body: await deletedState.json(), status: deletedState.status()}).toStrictEqual({
-			body: {cleanup_completed: 1, identity_deleted: 1, machine_tokens: 0, users: 0},
+			body: {cleanup_completed: 1, identity_deleted: 1, machine_tokens: 0, oauth_clients: 0, users: 0},
 			status: 200,
 		});
 	} finally {

@@ -2,12 +2,19 @@ import {runDurableObjectAlarm, runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import {HEARTBEAT_GRACE_MILLISECONDS, RETENTION_MILLISECONDS} from "../validation";
-import {API_ORIGIN, createBatchOverHttp, postAnswers, registerMachineToken, required, worker} from "./helpers";
+import {
+	API_ORIGIN,
+	createBatchOverHttp,
+	postAnswers,
+	registerLegacyMachineWithConnectedMcpClient,
+	required,
+	worker,
+} from "./helpers";
 
 describe("current deck and activity summary", () => {
 	it("keeps durable outcomes consistent when current batches are answered, skipped, retracted, or expired", async () => {
 		const userId = "activity-all-outcomes";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const unauthorized = await worker.fetch(`${API_ORIGIN}/api/v1/activity-summary`);
 		expect({body: await unauthorized.text(), status: unauthorized.status}).toStrictEqual({body: "", status: 401});
 		const answered = await createBatchOverHttp(token, "answered", [{title: "Approve?", body: ""}]);

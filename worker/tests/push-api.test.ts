@@ -3,7 +3,13 @@ import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import type {UserDurableObject} from "../user-do";
 import {vapidPublicKeyFromJwk} from "../webpush";
-import {API_ORIGIN, createBatchOverHttp, registerMachineToken, required, worker} from "./helpers";
+import {
+	API_ORIGIN,
+	createBatchOverHttp,
+	registerLegacyMachineWithConnectedMcpClient,
+	required,
+	worker,
+} from "./helpers";
 import {createPushReceiver, type PushReceiver} from "./push-helpers";
 
 async function subscribe(token: string, receiver: PushReceiver): Promise<Response> {
@@ -58,7 +64,7 @@ describe("POST /api/v1/push/subscribe", () => {
 	});
 
 	it("rejects a malformed subscription", async () => {
-		const token = await registerMachineToken("push-malformed");
+		const token = await registerLegacyMachineWithConnectedMcpClient("push-malformed");
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/push/subscribe`, {
 			method: "POST",
 			headers: {Authorization: `Bearer ${token}`},
@@ -69,7 +75,7 @@ describe("POST /api/v1/push/subscribe", () => {
 
 	it("stores the device, deduplicated by endpoint", async () => {
 		const userId = "push-subscribe";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const receiver = await createPushReceiver("https://push.example.com/send/dedupe");
 		expect((await subscribe(token, receiver)).status).toBe(200);
 		expect((await subscribe(token, receiver)).status).toBe(200);
@@ -86,7 +92,7 @@ describe("POST /api/v1/push/subscribe", () => {
 describe("sendBatchPush", () => {
 	it("sends one push per batch with count, not question text", async () => {
 		const userId = "push-batch";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const receiver = await createPushReceiver("https://push.example.com/send/batch");
 		await subscribe(token, receiver);
 		const created = await createBatchOverHttp(token, "monorepo-migration", [
@@ -109,7 +115,7 @@ describe("sendBatchPush", () => {
 
 	it("keeps a single-question payload private", async () => {
 		const userId = "push-single";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const receiver = await createPushReceiver("https://push.example.com/send/single");
 		await subscribe(token, receiver);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: "the whole thing"}]);
@@ -126,7 +132,7 @@ describe("sendBatchPush", () => {
 
 	it.each([404, 410])("drops devices when the push service returns %i", async (staleStatus) => {
 		const userId = `push-gone-${staleStatus}`;
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const receiver = await createPushReceiver("https://push.example.com/send/gone");
 		await subscribe(token, receiver);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Still there?", body: ""}]);

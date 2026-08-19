@@ -184,6 +184,8 @@ describe("identity lifecycle", () => {
 		expect(await cleanupExpiredIdentityRecords(env.DB, env.USER_DO, now)).toStrictEqual({
 			expiredLegacyIdentities: 1,
 			expiredPairingCodes: 1,
+			inactiveOAuthAccessTokens: 0,
+			inactiveOAuthRefreshTokens: 0,
 			revokedTokens: 1,
 		});
 		expect(
@@ -218,6 +220,8 @@ describe("identity lifecycle", () => {
 		expect(await cleanupExpiredIdentityRecords(env.DB, env.USER_DO, now)).toStrictEqual({
 			expiredLegacyIdentities: 0,
 			expiredPairingCodes: 0,
+			inactiveOAuthAccessTokens: 0,
+			inactiveOAuthRefreshTokens: 0,
 			revokedTokens: 0,
 		});
 	});

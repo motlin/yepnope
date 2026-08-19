@@ -132,9 +132,9 @@ async function awaitResolution(
 async function handlePreToolUse(
 	event: HookEvent,
 	stub: DurableObjectStub<UserDurableObject>,
-	paired: boolean,
+	hasActiveConnectedMcpClient: boolean,
 ): Promise<Response> {
-	if (event.tool_name !== "AskUserQuestion" || !(await stub.getAfk(paired))) {
+	if (event.tool_name !== "AskUserQuestion" || !(await stub.getAfk(hasActiveConnectedMcpClient))) {
 		return noDecision();
 	}
 	return preToolUseDeny(ASK_USER_QUESTION_REDIRECT);
@@ -145,11 +145,11 @@ async function handlePreToolUse(
 async function handlePermissionRequest(
 	event: HookEvent,
 	stub: DurableObjectStub<UserDurableObject>,
-	paired: boolean,
+	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
 	observationContext: ObservationContext,
 ): Promise<Response> {
-	if (!(await stub.getAfk(paired))) {
+	if (!(await stub.getAfk(hasActiveConnectedMcpClient))) {
 		return noDecision();
 	}
 	const card = buildPermissionCard(event.tool_name ?? "unknown tool", event.tool_input, event.cwd);
@@ -177,7 +177,7 @@ async function handlePermissionRequest(
 export async function handleHookEvent(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
-	paired: boolean,
+	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
 	observationContext: ObservationContext,
 ): Promise<Response> {
@@ -187,9 +187,15 @@ export async function handleHookEvent(
 	}
 	switch (parsed.data.hook_event_name) {
 		case "PreToolUse":
-			return handlePreToolUse(parsed.data, stub, paired);
+			return handlePreToolUse(parsed.data, stub, hasActiveConnectedMcpClient);
 		case "PermissionRequest":
-			return handlePermissionRequest(parsed.data, stub, paired, executionContext, observationContext);
+			return handlePermissionRequest(
+				parsed.data,
+				stub,
+				hasActiveConnectedMcpClient,
+				executionContext,
+				observationContext,
+			);
 		default:
 			return noDecision();
 	}

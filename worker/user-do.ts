@@ -71,15 +71,12 @@ export interface CurrentQuestionPayload {
 export interface CurrentDeckState {
 	type: "current_deck";
 	afk: boolean;
-	paired: boolean;
-	machine_count: number;
-	pending_pairing_expires_at: number | null;
+	connected_mcp_client_count: number;
 	current_deck: CurrentQuestionPayload[];
 }
 
-export interface PairingStatus {
-	machineCount: number;
-	pendingPairingExpiresAt: number | null;
+interface ConnectedMcpClientAuthorizationState {
+	activeClientCount: number;
 }
 
 export interface ActivitySummary {
@@ -92,7 +89,9 @@ export interface ActivitySummary {
 	expired: number;
 }
 
-export type AfkUpdateResult = {status: "updated"; afk: boolean} | {status: "pairing_required"; message: string};
+export type AfkUpdateResult =
+	| {status: "updated"; afk: boolean}
+	| {status: "connected_mcp_client_required"; message: string};
 
 export interface SubmittedAnswer {
 	question_id: string;
@@ -136,14 +135,15 @@ enum TerminalActivityOutcome {
 }
 
 interface CurrentDeckSocketAttachment {
-	pairingStatus: PairingStatus;
+	connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState;
 }
 
-const pairingStatusSchema = z.object({
-	machineCount: z.number().int().nonnegative(),
-	pendingPairingExpiresAt: z.number().int().nullable(),
+const connectedMcpClientAuthorizationStateSchema = z.object({
+	activeClientCount: z.number().int().nonnegative(),
 });
-const currentDeckSocketAttachmentSchema = z.object({pairingStatus: pairingStatusSchema});
+const currentDeckSocketAttachmentSchema = z.object({
+	connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationStateSchema,
+});
 
 function findRowConflict<Row extends object>(
 	existingRows: Row[],
@@ -273,34 +273,41 @@ export class UserDurableObject extends DurableObject<Env> {
 		return true;
 	}
 
-	async getAfk(paired: boolean): Promise<boolean> {
+	async getAfk(hasActiveConnectedMcpClient: boolean): Promise<boolean> {
 		await this.initialize();
-		if (!paired) {
+		if (!hasActiveConnectedMcpClient) {
 			return false;
 		}
 		const rows = await this.database.select({afk: state.afk}).from(state).where(eq(state.id, STATE_ROW_ID));
 		return rows[0]?.afk ?? false;
 	}
 
-	async setAfk(afk: boolean, paired: boolean): Promise<AfkUpdateResult> {
+	async setAfk(afk: boolean, hasActiveConnectedMcpClient: boolean): Promise<AfkUpdateResult> {
 		await this.initialize();
 		this.assertWritable();
-		if (afk && !paired) {
-			return {status: "pairing_required", message: "Connect a CLI before turning AFK on."};
+		if (afk && !hasActiveConnectedMcpClient) {
+			return {
+				status: "connected_mcp_client_required",
+				message: "Authorize an MCP host or OAuth CLI client before turning AFK on.",
+			};
 		}
 		await this.database.update(state).set({afk}).where(eq(state.id, STATE_ROW_ID));
 		await this.broadcastCurrentDeckState();
 		return {status: "updated", afk};
 	}
 
-	async synchronizePairingState(pairingStatus: PairingStatus): Promise<void> {
+	async synchronizeConnectedMcpClientAuthorizationState(
+		connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState,
+	): Promise<void> {
 		await this.initialize();
 		this.assertWritable();
-		if (pairingStatus.machineCount === 0) {
+		if (connectedMcpClientAuthorizationState.activeClientCount === 0) {
 			await this.database.update(state).set({afk: false}).where(eq(state.id, STATE_ROW_ID));
 		}
 		for (const socket of this.ctx.getWebSockets(CURRENT_DECK_SOCKET_TAG)) {
-			socket.serializeAttachment({pairingStatus} satisfies CurrentDeckSocketAttachment);
+			socket.serializeAttachment({
+				connectedMcpClientAuthorizationState,
+			} satisfies CurrentDeckSocketAttachment);
 		}
 		await this.broadcastCurrentDeckState();
 	}
@@ -330,15 +337,15 @@ export class UserDurableObject extends DurableObject<Env> {
 		return rows;
 	}
 
-	async getCurrentDeckState(pairingStatus: PairingStatus): Promise<CurrentDeckState> {
+	async getCurrentDeckState(
+		connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState,
+	): Promise<CurrentDeckState> {
 		await this.initialize();
 		const outstanding = await this.getCurrentQuestions();
 		return {
 			type: "current_deck",
-			afk: await this.getAfk(pairingStatus.machineCount > 0),
-			paired: pairingStatus.machineCount > 0,
-			machine_count: pairingStatus.machineCount,
-			pending_pairing_expires_at: pairingStatus.pendingPairingExpiresAt,
+			afk: await this.getAfk(connectedMcpClientAuthorizationState.activeClientCount > 0),
+			connected_mcp_client_count: connectedMcpClientAuthorizationState.activeClientCount,
 			current_deck: outstanding.map((question) => ({
 				batch_id: question.batchId,
 				project: question.project,
@@ -593,16 +600,20 @@ export class UserDurableObject extends DurableObject<Env> {
 				if (request.headers.get("Upgrade") !== "websocket") {
 					return new Response(null, {status: 426});
 				}
-				const pairingStatus = pairingStatusSchema.safeParse(
-					JSON.parse(request.headers.get("X-YepNope-Pairing-Status") ?? "null") as unknown,
+				const connectedMcpClientAuthorizationState = connectedMcpClientAuthorizationStateSchema.safeParse(
+					JSON.parse(
+						request.headers.get("X-YepNope-Connected-Mcp-Client-Authorization") ?? "null",
+					) as unknown,
 				);
-				if (!pairingStatus.success) {
+				if (!connectedMcpClientAuthorizationState.success) {
 					return new Response(null, {status: 400});
 				}
 				const pair = new WebSocketPair();
 				this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
-				pair[1].serializeAttachment({pairingStatus: pairingStatus.data} satisfies CurrentDeckSocketAttachment);
-				await this.sendCurrentDeckState(pair[1], pairingStatus.data);
+				pair[1].serializeAttachment({
+					connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationState.data,
+				} satisfies CurrentDeckSocketAttachment);
+				await this.sendCurrentDeckState(pair[1], connectedMcpClientAuthorizationState.data);
 				return new Response(null, {status: 101, webSocket: pair[0]});
 			}
 			const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
@@ -631,7 +642,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			await this.initialize();
 			const batchId = this.ctx.getTags(socket)[0];
 			if (batchId === CURRENT_DECK_SOCKET_TAG) {
-				await this.sendCurrentDeckState(socket, this.getSocketPairingStatus(socket));
+				await this.sendCurrentDeckState(socket, this.getSocketConnectedMcpClientAuthorizationState(socket));
 				return;
 			}
 			if (batchId === undefined || !(await this.batchExists(batchId))) {
@@ -957,8 +968,14 @@ export class UserDurableObject extends DurableObject<Env> {
 		this.sendWebSocketFrame(socket, stateFrame(batchId, dispositions));
 	}
 
-	private async sendCurrentDeckState(socket: WebSocket, pairingStatus: PairingStatus): Promise<void> {
-		this.sendWebSocketFrame(socket, JSON.stringify(await this.getCurrentDeckState(pairingStatus)));
+	private async sendCurrentDeckState(
+		socket: WebSocket,
+		connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState,
+	): Promise<void> {
+		this.sendWebSocketFrame(
+			socket,
+			JSON.stringify(await this.getCurrentDeckState(connectedMcpClientAuthorizationState)),
+		);
 	}
 
 	private async broadcastCurrentDeckState(): Promise<void> {
@@ -967,12 +984,13 @@ export class UserDurableObject extends DurableObject<Env> {
 			return;
 		}
 		for (const socket of sockets) {
-			await this.sendCurrentDeckState(socket, this.getSocketPairingStatus(socket));
+			await this.sendCurrentDeckState(socket, this.getSocketConnectedMcpClientAuthorizationState(socket));
 		}
 	}
 
-	private getSocketPairingStatus(socket: WebSocket): PairingStatus {
-		return currentDeckSocketAttachmentSchema.parse(socket.deserializeAttachment()).pairingStatus;
+	private getSocketConnectedMcpClientAuthorizationState(socket: WebSocket): ConnectedMcpClientAuthorizationState {
+		return currentDeckSocketAttachmentSchema.parse(socket.deserializeAttachment())
+			.connectedMcpClientAuthorizationState;
 	}
 
 	private async broadcastBatchState(batchId: string): Promise<void> {

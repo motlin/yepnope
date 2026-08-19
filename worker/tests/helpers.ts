@@ -1,6 +1,7 @@
 import {env, exports} from "cloudflare:workers";
 import {createAuthentication, hashToken} from "../auth";
 import type {CreateBatchRequest} from "../validation";
+import {seedOAuthMcpClient} from "./oauth-client-helpers";
 
 export const API_ORIGIN = "https://yepnope.app";
 
@@ -87,7 +88,7 @@ export function required<T>(value: T | undefined, label: string): T {
 	return value;
 }
 
-export async function registerMachineToken(userId: string): Promise<string> {
+export async function registerLegacyMachineWithConnectedMcpClient(userId: string): Promise<string> {
 	const token = `machine-token-${userId}`;
 	const now = Date.now();
 	await env.DB.prepare(
@@ -98,6 +99,7 @@ export async function registerMachineToken(userId: string): Promise<string> {
 	await env.DB.prepare("INSERT INTO machine_tokens (token_hash, user_id, label, created_at) VALUES (?, ?, ?, ?)")
 		.bind(await hashToken(token), userId, "test machine", now)
 		.run();
+	await seedOAuthMcpClient(userId, userId, {authorizedAt: now});
 	const result = await env.USER_DO.getByName(userId).setAfk(true, true);
 	if (result.status !== "updated") {
 		throw new Error("test machine could not enable AFK");

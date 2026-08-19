@@ -58,9 +58,7 @@ test("activates version N+1 and stops version N JavaScript and its socket", asyn
 			JSON.stringify({
 				type: "current_deck",
 				afk: false,
-				paired: true,
-				machine_count: 1,
-				pending_pairing_expires_at: null,
+				connected_mcp_client_count: 1,
 				current_deck: [],
 			}),
 		);

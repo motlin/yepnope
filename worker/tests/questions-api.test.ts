@@ -6,7 +6,7 @@ import {
 	createBatchOverHttp,
 	createVerifiedBrowserSession,
 	nextMessage,
-	registerMachineToken,
+	registerLegacyMachineWithConnectedMcpClient,
 	required,
 	worker,
 } from "./helpers";
@@ -29,7 +29,7 @@ describe("POST /api/v1/questions", () => {
 	});
 
 	it("creates a batch and assigns server-side ids", async () => {
-		const token = await registerMachineToken("user-create");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-create");
 		const created = await createBatchOverHttp(token, "monorepo-migration", [
 			{title: "Delete the legacy build?", body: "It has been unused for a year."},
 			{title: "Squash the branch?", body: ""},
@@ -66,7 +66,7 @@ describe("POST /api/v1/questions", () => {
 	});
 
 	it("rejects a title over 100 characters", async () => {
-		const token = await registerMachineToken("user-long-title");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-long-title");
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 			method: "POST",
 			headers: {Authorization: `Bearer ${token}`},
@@ -76,7 +76,7 @@ describe("POST /api/v1/questions", () => {
 	});
 
 	it("rejects a body over 800 characters", async () => {
-		const token = await registerMachineToken("user-long-body");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-long-body");
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 			method: "POST",
 			headers: {Authorization: `Bearer ${token}`},
@@ -86,7 +86,7 @@ describe("POST /api/v1/questions", () => {
 	});
 
 	it("rejects an empty question list", async () => {
-		const token = await registerMachineToken("user-empty");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-empty");
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 			method: "POST",
 			headers: {Authorization: `Bearer ${token}`},
@@ -107,7 +107,7 @@ describe("POST /api/v1/questions", () => {
 
 describe("GET /api/v1/current-deck", () => {
 	it("returns outstanding cards until they are answered", async () => {
-		const token = await registerMachineToken("user-outstanding");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-outstanding");
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: "one"},
 			{title: "Second?", body: "two"},
@@ -161,7 +161,7 @@ describe("GET /api/v1/current-deck", () => {
 	});
 
 	it("round-trips repo, branch, worktree, and directory to the card list", async () => {
-		const token = await registerMachineToken("user-git-context");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-git-context");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}], {
 			repo: "github.com/acme/rocket",
 			branch: "migrate-build",
@@ -192,7 +192,7 @@ describe("GET /api/v1/current-deck", () => {
 	});
 
 	it("drops malformed context fields instead of rejecting the batch", async () => {
-		const token = await registerMachineToken("user-oversized-context");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-oversized-context");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}], {
 			branch: "migrate-build",
 			directory: "/deep".repeat(60),
@@ -220,7 +220,7 @@ describe("GET /api/v1/current-deck", () => {
 	});
 
 	it("returns null context fields for batches created without git context", async () => {
-		const token = await registerMachineToken("user-no-git-context");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-no-git-context");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}]);
 
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
@@ -245,8 +245,8 @@ describe("GET /api/v1/current-deck", () => {
 	});
 
 	it("keeps users isolated in separate Durable Objects", async () => {
-		const tokenA = await registerMachineToken("user-a");
-		const tokenB = await registerMachineToken("user-b");
+		const tokenA = await registerLegacyMachineWithConnectedMcpClient("user-a");
+		const tokenB = await registerLegacyMachineWithConnectedMcpClient("user-b");
 		await createBatchOverHttp(tokenA, "demo", [{title: "Only for A?", body: ""}]);
 
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
@@ -259,7 +259,7 @@ describe("GET /api/v1/current-deck", () => {
 
 describe("GET /api/v1/current-deck/stream", () => {
 	it("rejects obsolete bearer credentials in WebSocket subprotocols", async () => {
-		const token = await registerMachineToken("user-obsolete-websocket-subprotocol");
+		const token = await registerLegacyMachineWithConnectedMcpClient("user-obsolete-websocket-subprotocol");
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 			headers: {"Sec-WebSocket-Protocol": `yepnope, ${token}`, Upgrade: "websocket"},
 		});
@@ -272,7 +272,7 @@ describe("GET /api/v1/current-deck/stream", () => {
 
 	it("starts with the complete outstanding card state and broadcasts each replacement", async () => {
 		const session = await createVerifiedBrowserSession();
-		const token = await registerMachineToken(session.userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(session.userId);
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: "one"},
 			{title: "Second?", body: "two"},
@@ -289,9 +289,7 @@ describe("GET /api/v1/current-deck/stream", () => {
 		expect(JSON.parse(await initialMessage)).toStrictEqual({
 			type: "current_deck",
 			afk: true,
-			paired: true,
-			machine_count: 1,
-			pending_pairing_expires_at: null,
+			connected_mcp_client_count: 1,
 			current_deck: [
 				{
 					batch_id: created.batch_id,
@@ -331,9 +329,7 @@ describe("GET /api/v1/current-deck/stream", () => {
 		expect(JSON.parse(await replacementMessage)).toStrictEqual({
 			type: "current_deck",
 			afk: true,
-			paired: true,
-			machine_count: 1,
-			pending_pairing_expires_at: null,
+			connected_mcp_client_count: 1,
 			current_deck: [
 				{
 					batch_id: created.batch_id,

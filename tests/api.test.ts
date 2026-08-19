@@ -383,9 +383,7 @@ describe("openCurrentDeckStream", () => {
 			JSON.stringify({
 				type: "current_deck",
 				afk: false,
-				paired: true,
-				machine_count: 1,
-				pending_pairing_expires_at: null,
+				connected_mcp_client_count: 1,
 				current_deck: [],
 			}),
 		);
@@ -399,7 +397,7 @@ describe("openCurrentDeckStream", () => {
 			states: [
 				{
 					afk: false,
-					pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+					connectedMcpClientCount: 1,
 					currentDeck: [],
 				},
 			],

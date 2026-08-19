@@ -43,15 +43,12 @@ const signInForOAuth = vi.hoisted(() =>
 );
 const submitOAuthConsent = vi.hoisted(() => vi.fn<(_oauthQuery: string, _accept: boolean) => Promise<string>>());
 const fetchAccountDevices = vi.hoisted(() =>
-	vi.fn<() => Promise<AccountDevices>>(async () => Promise.resolve({machines: [], pushDevices: []})),
+	vi.fn<() => Promise<AccountDevices>>(async () => Promise.resolve({connectedMcpClients: [], pushDevices: []})),
 );
 const claimLegacyIdentity = vi.hoisted(() => vi.fn<(_token: string) => Promise<void>>(async () => Promise.resolve()));
-const renameMachine = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
 const renamePushDevice = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
-const revokeMachine = vi.hoisted(() =>
-	vi.fn<(_id: string) => Promise<PairingStatus>>(async () =>
-		Promise.resolve({paired: false, machineCount: 0, pendingPairingExpiresAt: null}),
-	),
+const revokeConnectedMcpClient = vi.hoisted(() =>
+	vi.fn<(_id: string) => Promise<number>>(async () => await Promise.resolve(0)),
 );
 const revokePushDevice = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>());
 
@@ -81,7 +78,7 @@ vi.mock("../src/api", () => ({
 		publishQuestions = (questions) => {
 			onState({
 				afk: true,
-				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 1,
 				currentDeck: questions,
 			});
 		};
@@ -95,9 +92,8 @@ vi.mock("../src/api", () => ({
 	requestPasswordReset: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	resetPassword: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	resumeOAuthAuthorization,
-	renameMachine,
 	renamePushDevice,
-	revokeMachine,
+	revokeConnectedMcpClient,
 	revokePushDevice,
 	sendVerificationEmail: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	signIn: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
@@ -159,10 +155,9 @@ beforeEach(() => {
 	fetchPairingStatus.mockResolvedValue({paired: true, machineCount: 1, pendingPairingExpiresAt: null});
 	fetchOAuthClient.mockResolvedValue({id: "oauth-client", name: "Codex", uri: null});
 	fetchSession.mockResolvedValue(alice);
-	fetchAccountDevices.mockResolvedValue({machines: [], pushDevices: []});
-	renameMachine.mockResolvedValue(undefined);
+	fetchAccountDevices.mockResolvedValue({connectedMcpClients: [], pushDevices: []});
 	renamePushDevice.mockResolvedValue(undefined);
-	revokeMachine.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
+	revokeConnectedMcpClient.mockResolvedValue(0);
 	revokePushDevice.mockResolvedValue(undefined);
 	resumeOAuthAuthorization.mockReturnValue(new Promise<string>(() => {}));
 	signInForOAuth.mockReturnValue(new Promise<string>(() => {}));
@@ -283,7 +278,7 @@ describe("App live question synchronization", () => {
 		});
 	});
 
-	it("keeps the real deck empty after pairing and refreshes the controls automatically", async () => {
+	it("keeps legacy pairing status separate from connected-client live state", async () => {
 		fetchPairingStatus.mockResolvedValue({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
 		const expiresAt = Date.now() + 60_000;
 		vi.mocked(issuePairingCode).mockResolvedValue({
@@ -301,15 +296,17 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 0,
 				currentDeck: [],
 			});
 		});
 
-		expect((await screen.findByRole("button", {name: "Connect a CLI"})).getAttribute("aria-pressed")).toBeNull();
+		expect(
+			(await screen.findByRole("button", {name: "Connect an MCP client"})).getAttribute("aria-pressed"),
+		).toBeNull();
 		expect(screen.getByRole("heading", {name: "All caught up"}).textContent).toBe("All caught up");
 
-		fireEvent.click(screen.getByRole("button", {name: "Connect a CLI"}));
+		fireEvent.click(screen.getByRole("button", {name: "Connect an MCP client"}));
 		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
 		expect(await screen.findByText("ABC234")).toBeDefined();
@@ -334,28 +331,28 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 1,
 				currentDeck: [],
 			});
 		});
 		await waitFor(() => {
-			expect(screen.getByRole("heading", {name: "Connect another CLI"}).textContent).toBe("Connect another CLI");
+			expect(screen.getByRole("heading", {name: "Connect a CLI"}).textContent).toBe("Connect a CLI");
 		});
 		expect({
 			code: screen.queryByText("ABC234"),
 			generateButton: screen.getByRole("button", {name: "Generate and copy pairing code"}).textContent,
-			heading: screen.getByRole("heading", {name: "Connect another CLI"}).textContent,
+			heading: screen.getByRole("heading", {name: "Connect a CLI"}).textContent,
 			repeatCopyButton: screen.queryByRole("button", {name: "Copy pairing code again"}),
 		}).toStrictEqual({
 			code: null,
 			generateButton: "Generate and copy pairing code",
-			heading: "Connect another CLI",
+			heading: "Connect a CLI",
 			repeatCopyButton: null,
 		});
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 1,
 				currentDeck: [],
 			});
 		});
@@ -386,11 +383,11 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 0,
 				currentDeck: [],
 			});
 		});
-		fireEvent.click(screen.getByRole("button", {name: "Connect a CLI"}));
+		fireEvent.click(screen.getByRole("button", {name: "Connect an MCP client"}));
 		vi.useFakeTimers();
 		await act(async () => {
 			fireEvent.click(screen.getByRole("button", {name: "Generate and copy pairing code"}));
@@ -417,7 +414,7 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: true,
-				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 1,
 				currentDeck: [],
 			});
 		});
@@ -426,7 +423,7 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: false, machineCount: 0, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 0,
 				currentDeck: [],
 			});
 		});
@@ -437,17 +434,17 @@ describe("App live question synchronization", () => {
 			pathname: window.location.pathname,
 		}).toStrictEqual({headerPairingControls: [], pathname: "/"});
 
-		fireEvent.click(screen.getByRole("button", {name: "Connect a CLI"}));
+		fireEvent.click(screen.getByRole("button", {name: "Connect an MCP client"}));
 		expect({
 			headerPairingControls: [...document.querySelectorAll(".app-header .afk-toggle")].map(
 				(control) => control.textContent,
 			),
-			pairingHeading: screen.getByRole("heading", {name: "Connect a CLI"}).textContent,
+			pairingHeading: screen.getByRole("heading", {name: "Connect another CLI"}).textContent,
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerPairingControls: [], pairingHeading: "Connect a CLI", pathname: "/settings"});
+		}).toStrictEqual({headerPairingControls: [], pairingHeading: "Connect another CLI", pathname: "/settings"});
 	});
 
-	it("exposes distinct accessible checking, off, and on AFK toggle states", async () => {
+	it("exposes distinct connection-checking, AFK-off, and AFK-on states", async () => {
 		let resolveAfk: ((afk: boolean) => void) | undefined;
 		fetchAfk.mockImplementationOnce(
 			async () =>
@@ -458,26 +455,25 @@ describe("App live question synchronization", () => {
 
 		render(<App />);
 
-		const checking = await screen.findByRole("button", {name: "Checking AFK…"});
+		const checking = await screen.findByRole("button", {name: "Checking CLI…"});
 		expect({
-			ariaBusy: checking.getAttribute("aria-busy"),
 			ariaPressed: checking.getAttribute("aria-pressed"),
 			className: checking.className,
 			disabled: (checking as HTMLButtonElement).disabled,
 			text: checking.textContent,
 			type: checking.getAttribute("type"),
 		}).toStrictEqual({
-			ariaBusy: "true",
 			ariaPressed: null,
-			className: "afk-toggle afk-checking",
+			className: "machine-status",
 			disabled: true,
-			text: "Checking AFK…",
+			text: "Checking CLI…",
 			type: "button",
 		});
 
 		await act(async () => {
 			resolveAfk?.(false);
 			await Promise.resolve();
+			publishApplicationState?.({afk: false, connectedMcpClientCount: 1, currentDeck: []});
 		});
 		const off = screen.getByRole("button", {name: "AFK off", pressed: false});
 		expect({
@@ -529,7 +525,7 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(document.querySelector(".app-header")?.textContent).toBe("CLI connectedAFK on⚙");
+		expect(document.querySelector(".app-header")?.textContent).toBe("MCP client connectedAFK on⚙");
 	});
 
 	it("opens settings directly from its route", async () => {
@@ -1023,43 +1019,38 @@ describe("Better Auth account routes", () => {
 		expect(screen.getByText("✓ Verified email · Session active")).toBeDefined();
 	});
 
-	it("renames and revokes paired machines and browser notification devices", async () => {
+	it("revokes connected MCP clients separately from browser notification devices", async () => {
 		let accountDevices: AccountDevices = {
-			machines: [{id: "machine-alice", label: "Alice laptop", createdAt: 946_684_800_000, lastUsedAt: null}],
+			connectedMcpClients: [
+				{
+					id: "a".repeat(64),
+					displayName: "Alice Codex",
+					authorizedAt: 946_684_800_000,
+					lastUsedAt: null,
+					grantedScopes: ["yepnope:questions", "yepnope:afk"],
+					status: "active",
+					revokedAt: null,
+				},
+			],
 			pushDevices: [{id: "push-alice", label: "Alice phone", createdAt: 946_684_800_000}],
 		};
 		fetchAccountDevices.mockImplementation(async () => Promise.resolve(accountDevices));
-		renameMachine.mockImplementation(async (_id, label) => {
-			accountDevices = {
-				...accountDevices,
-				machines: accountDevices.machines.map((machine) => ({...machine, label})),
-			};
-			return Promise.resolve();
-		});
 		revokePushDevice.mockImplementation(async () => {
 			accountDevices = {...accountDevices, pushDevices: []};
 			return Promise.resolve();
 		});
-		revokeMachine.mockImplementation(async () => {
-			accountDevices = {...accountDevices, machines: []};
-			return Promise.resolve({paired: false, machineCount: 0, pendingPairingExpiresAt: null});
+		revokeConnectedMcpClient.mockImplementation(async () => {
+			accountDevices = {...accountDevices, connectedMcpClients: []};
+			return await Promise.resolve(0);
 		});
 		window.history.replaceState({}, "", "/settings");
 		render(<App />);
 
-		const machineRow = (await screen.findByText("Alice laptop")).closest("li");
-		if (machineRow === null) {
-			throw new Error("missing machine row");
+		const clientRow = (await screen.findByText("Alice Codex")).closest("li");
+		if (clientRow === null) {
+			throw new Error("missing connected MCP client row");
 		}
-		fireEvent.click(within(machineRow).getByRole("button", {name: "Rename"}));
-		fireEvent.change(within(machineRow).getByRole("textbox", {name: "Device name"}), {
-			target: {value: "Work laptop"},
-		});
-		fireEvent.click(within(machineRow).getByRole("button", {name: "Save"}));
-		await waitFor(() => {
-			expect(renameMachine.mock.calls).toStrictEqual([["machine-alice", "Work laptop"]]);
-			expect(screen.getByText("Work laptop").textContent).toBe("Work laptop");
-		});
+		expect(within(clientRow).queryByRole("button", {name: "Rename"})).toBeNull();
 
 		const pushRow = screen.getByText("Alice phone").closest("li");
 		if (pushRow === null) {
@@ -1073,16 +1064,10 @@ describe("Better Auth account routes", () => {
 			);
 		});
 
-		const renamedMachineRow = screen.getByText("Work laptop").closest("li");
-		if (renamedMachineRow === null) {
-			throw new Error("missing renamed machine row");
-		}
-		fireEvent.click(within(renamedMachineRow).getByRole("button", {name: "Revoke"}));
+		fireEvent.click(within(clientRow).getByRole("button", {name: "Revoke"}));
 		await waitFor(() => {
-			expect(revokeMachine.mock.calls).toStrictEqual([["machine-alice"]]);
-			expect(screen.getByText("No connected CLIs.").textContent).toBe("No connected CLIs.");
-			expect(screen.getByRole("heading", {name: "Connect a CLI"}).textContent).toBe("Connect a CLI");
-			expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
+			expect(revokeConnectedMcpClient.mock.calls).toStrictEqual([["a".repeat(64)]]);
+			expect(screen.getByText("No connected MCP clients.").textContent).toBe("No connected MCP clients.");
 		});
 	});
 
@@ -1115,7 +1100,7 @@ describe("Better Auth account routes", () => {
 		act(() => {
 			publishApplicationState?.({
 				afk: false,
-				pairingStatus: {paired: true, machineCount: 1, pendingPairingExpiresAt: null},
+				connectedMcpClientCount: 1,
 				currentDeck: streamedQuestions,
 			});
 		});

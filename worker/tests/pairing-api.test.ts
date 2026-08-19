@@ -11,7 +11,14 @@ import {
 import {decodedObservationData, reconstructObservation} from "../observability";
 import {PAIRING_CODE_TTL_MILLISECONDS} from "../validation";
 import {base64UrlDecode} from "../webcrypto";
-import {API_ORIGIN, createBatchOverHttp, createVerifiedBrowserSession, registerMachineToken, worker} from "./helpers";
+import {
+	API_ORIGIN,
+	createBatchOverHttp,
+	createVerifiedBrowserSession,
+	registerLegacyMachineWithConnectedMcpClient,
+	worker,
+} from "./helpers";
+import {seedOAuthMcpClient} from "./oauth-client-helpers";
 
 interface PairingStatusBody {
 	machine_count: number;
@@ -70,7 +77,7 @@ describe("POST /api/v1/pair/code", () => {
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/pair/code`, {method: "POST"});
 		expect(response.status).toBe(401);
 
-		const machineToken = await registerMachineToken("alice-machine-owner");
+		const machineToken = await registerLegacyMachineWithConnectedMcpClient("alice-machine-owner");
 		const machineResponse = await worker.fetch(`${API_ORIGIN}/api/v1/pair/code`, {
 			method: "POST",
 			headers: {Authorization: `Bearer ${machineToken}`},
@@ -138,7 +145,7 @@ describe("GET /api/v1/pair/status", () => {
 
 describe("POST /api/v1/pair/claim", () => {
 	it("keeps previously hashed unprefixed machine credentials valid", async () => {
-		const existingToken = await registerMachineToken("alice-existing-machine");
+		const existingToken = await registerLegacyMachineWithConnectedMcpClient("alice-existing-machine");
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {
 			headers: {Authorization: `Bearer ${existingToken}`},
 		});
@@ -251,6 +258,19 @@ describe("POST /api/v1/pair/claim", () => {
 				user_id: session.userId,
 			},
 		});
+		const deniedAfk = await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {
+			method: "PUT",
+			headers: {Authorization: `Bearer ${machine.token}`},
+			body: JSON.stringify({afk: true}),
+		});
+		expect({body: await deniedAfk.json(), status: deniedAfk.status}).toStrictEqual({
+			body: {
+				error: "connected_mcp_client_required",
+				message: "Authorize an MCP host or OAuth CLI client before turning AFK on.",
+			},
+			status: 409,
+		});
+		await seedOAuthMcpClient(session.userId, "pairing-rollout-cli");
 		expect(
 			(
 				await worker.fetch(`${API_ORIGIN}/api/v1/afk`, {

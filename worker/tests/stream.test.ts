@@ -5,7 +5,7 @@ import {
 	createBatchOverHttp,
 	nextMessage,
 	postAnswers,
-	registerMachineToken,
+	registerLegacyMachineWithConnectedMcpClient,
 	required,
 	worker,
 } from "./helpers";
@@ -39,7 +39,7 @@ describe("GET /api/v1/questions/:batch_id/stream", () => {
 	});
 
 	it("requires a websocket upgrade", async () => {
-		const token = await registerMachineToken("stream-no-upgrade");
+		const token = await registerLegacyMachineWithConnectedMcpClient("stream-no-upgrade");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship?", body: ""}]);
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions/${created.batch_id}/stream`, {
 			headers: {Authorization: `Bearer ${token}`},
@@ -48,13 +48,13 @@ describe("GET /api/v1/questions/:batch_id/stream", () => {
 	});
 
 	it("returns 404 for an unknown batch", async () => {
-		const token = await registerMachineToken("stream-unknown-batch");
+		const token = await registerLegacyMachineWithConnectedMcpClient("stream-unknown-batch");
 		const response = await openStream(token, crypto.randomUUID());
 		expect(response.status).toBe(404);
 	});
 
 	it("sends a full state frame on connect", async () => {
-		const token = await registerMachineToken("stream-initial");
+		const token = await registerLegacyMachineWithConnectedMcpClient("stream-initial");
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: ""},
 			{title: "Second?", body: ""},
@@ -77,7 +77,7 @@ describe("GET /api/v1/questions/:batch_id/stream", () => {
 	});
 
 	it("pushes state on each answer and resolved when the batch completes", async () => {
-		const token = await registerMachineToken("stream-resolve");
+		const token = await registerLegacyMachineWithConnectedMcpClient("stream-resolve");
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: ""},
 			{title: "Second?", body: ""},
@@ -110,7 +110,7 @@ describe("GET /api/v1/questions/:batch_id/stream", () => {
 	});
 
 	it("sends resolved immediately when connecting to an already answered batch", async () => {
-		const token = await registerMachineToken("stream-already-resolved");
+		const token = await registerLegacyMachineWithConnectedMcpClient("stream-already-resolved");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Done?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 		await postAnswers(token, [{question_id: questionId, disposition: "yep"}]);
@@ -128,7 +128,7 @@ describe("GET /api/v1/questions/:batch_id/stream", () => {
 	});
 
 	it("answers heartbeats with the current full state", async () => {
-		const token = await registerMachineToken("stream-heartbeat");
+		const token = await registerLegacyMachineWithConnectedMcpClient("stream-heartbeat");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Alive?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 		const response = await openStream(token, created.batch_id);

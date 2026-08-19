@@ -232,16 +232,11 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		).toStrictEqual({value: 1});
 	});
 
-	it("recovers pairing while resetting AFK off in an already-open browser", async () => {
+	it("keeps legacy pairing separate from connected MCP client authorization", async () => {
 		const session = await createVerifiedBrowserSession();
 		const legacyUserId = "legacy-recovered-alice";
 		const legacyToken = "legacy-app-token-for-recovered-alice";
 		await seedLegacyIdentity(legacyUserId, legacyToken, "JKM789");
-		const pendingPairing = await env.DB.prepare(
-			"SELECT expires_at FROM pairing_codes WHERE code = 'JKM789'",
-		).first<{
-			expires_at: number;
-		}>();
 		await env.USER_DO.getByName(legacyUserId).setAfk(true, true);
 		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
 			headers: {Cookie: session.cookie, Upgrade: "websocket"},
@@ -252,22 +247,19 @@ describe("POST /api/v1/account/claim-legacy", () => {
 		expect(JSON.parse(await initialState)).toStrictEqual({
 			type: "current_deck",
 			afk: false,
-			paired: false,
-			machine_count: 0,
-			pending_pairing_expires_at: null,
+			connected_mcp_client_count: 0,
 			current_deck: [],
 		});
 
-		const recoveredState = nextMessage(socket);
 		expect((await claimLegacy(session.cookie, legacyToken)).status).toBe(200);
-		expect(JSON.parse(await recoveredState)).toStrictEqual({
-			type: "current_deck",
-			afk: false,
-			paired: true,
-			machine_count: 1,
-			pending_pairing_expires_at: pendingPairing?.expires_at,
-			current_deck: [],
+		const stateAfterClaim = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`, {
+			headers: {Cookie: session.cookie},
 		});
+		expect(await stateAfterClaim.json()).toStrictEqual({current_deck: []});
+		const devicesAfterClaim = await worker.fetch(`${API_ORIGIN}/api/v1/account/devices`, {
+			headers: {Cookie: session.cookie},
+		});
+		expect(await devicesAfterClaim.json()).toStrictEqual({connected_mcp_clients: [], push_devices: []});
 		socket.close();
 	});
 

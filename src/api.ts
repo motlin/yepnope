@@ -204,11 +204,14 @@ export async function claimLegacyIdentity(legacyToken: string): Promise<void> {
 	);
 }
 
-const managedMachineSchema = z.object({
+const managedConnectedMcpClientSchema = z.object({
 	id: z.string(),
-	label: z.string(),
-	created_at: z.number(),
+	display_name: z.string(),
+	authorized_at: z.number(),
 	last_used_at: z.number().nullable(),
+	granted_scopes: z.array(z.string()),
+	status: z.enum(["active", "expired", "revoked"]),
+	revoked_at: z.number().nullable(),
 });
 
 const managedPushDeviceSchema = z.object({
@@ -218,15 +221,18 @@ const managedPushDeviceSchema = z.object({
 });
 
 const accountDevicesResponseSchema = z.object({
-	machines: z.array(managedMachineSchema),
+	connected_mcp_clients: z.array(managedConnectedMcpClientSchema),
 	push_devices: z.array(managedPushDeviceSchema),
 });
 
-export interface ManagedMachine {
+export interface ManagedConnectedMcpClient {
 	id: string;
-	label: string;
-	createdAt: number;
+	displayName: string;
+	authorizedAt: number;
 	lastUsedAt: number | null;
+	grantedScopes: string[];
+	status: "active" | "expired" | "revoked";
+	revokedAt: number | null;
 }
 
 export interface ManagedPushDevice {
@@ -236,18 +242,21 @@ export interface ManagedPushDevice {
 }
 
 export interface AccountDevices {
-	machines: ManagedMachine[];
+	connectedMcpClients: ManagedConnectedMcpClient[];
 	pushDevices: ManagedPushDevice[];
 }
 
 export async function fetchAccountDevices(): Promise<AccountDevices> {
 	const body = await requestJson("/api/v1/account/devices", {}, accountDevicesResponseSchema);
 	return {
-		machines: body.machines.map((machine) => ({
-			id: machine.id,
-			label: machine.label,
-			createdAt: machine.created_at,
-			lastUsedAt: machine.last_used_at,
+		connectedMcpClients: body.connected_mcp_clients.map((client) => ({
+			id: client.id,
+			displayName: client.display_name,
+			authorizedAt: client.authorized_at,
+			lastUsedAt: client.last_used_at,
+			grantedScopes: client.granted_scopes,
+			status: client.status,
+			revokedAt: client.revoked_at,
 		})),
 		pushDevices: body.push_devices.map((device) => ({
 			id: device.id,
@@ -257,26 +266,18 @@ export async function fetchAccountDevices(): Promise<AccountDevices> {
 	};
 }
 
-export async function renameMachine(machineId: string, label: string): Promise<void> {
-	await requestJson(
-		`/api/v1/account/machines/${machineId}`,
-		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({label})},
-		okResponseSchema,
-	);
-}
-
-const revokeMachineResponseSchema = z.object({
-	status: z.string(),
-	pairing: pairingStatusResponseSchema,
+const revokeConnectedMcpClientResponseSchema = z.object({
+	status: z.literal("ok"),
+	connected_mcp_client_count: z.number().int().nonnegative(),
 });
 
-export async function revokeMachine(machineId: string): Promise<PairingStatus> {
+export async function revokeConnectedMcpClient(connectedMcpClientId: string): Promise<number> {
 	const body = await requestJson(
-		`/api/v1/account/machines/${machineId}`,
+		`/api/v1/account/connected-mcp-clients/${connectedMcpClientId}`,
 		{method: "DELETE"},
-		revokeMachineResponseSchema,
+		revokeConnectedMcpClientResponseSchema,
 	);
-	return toPairingStatus(body.pairing);
+	return body.connected_mcp_client_count;
 }
 
 export async function renamePushDevice(deviceId: string, label: string): Promise<void> {
@@ -307,9 +308,7 @@ const questionSchema = z.object({
 const currentDeckStateSchema = z.object({
 	type: z.literal("current_deck"),
 	afk: z.boolean(),
-	paired: z.boolean(),
-	machine_count: z.number().int().nonnegative(),
-	pending_pairing_expires_at: z.number().int().nullable(),
+	connected_mcp_client_count: z.number().int().nonnegative(),
 	current_deck: z.array(questionSchema),
 });
 
@@ -352,7 +351,7 @@ export interface CurrentDeckStreamOptions {
 
 export interface LiveApplicationState {
 	afk: boolean;
-	pairingStatus: PairingStatus;
+	connectedMcpClientCount: number;
 	currentDeck: DeckQuestion[];
 }
 
@@ -525,11 +524,7 @@ export function openCurrentDeckStream(
 			connectionState = CurrentDeckConnectionState.Open;
 			onState({
 				afk: state.afk,
-				pairingStatus: {
-					paired: state.paired,
-					machineCount: state.machine_count,
-					pendingPairingExpiresAt: state.pending_pairing_expires_at,
-				},
+				connectedMcpClientCount: state.connected_mcp_client_count,
 				currentDeck: toDeckQuestions(state.current_deck),
 			});
 		});

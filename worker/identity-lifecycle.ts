@@ -12,6 +12,8 @@ type CleanupReason = "account_deleted" | "legacy_claimed" | "legacy_expired";
 
 export interface IdentityCleanupResult {
 	expiredLegacyIdentities: number;
+	inactiveOAuthAccessTokens: number;
+	inactiveOAuthRefreshTokens: number;
 	expiredPairingCodes: number;
 	revokedTokens: number;
 }
@@ -108,6 +110,17 @@ export async function cleanupExpiredIdentityRecords(
 	const revokedTokens = await connection
 		.delete(machineTokens)
 		.where(lte(machineTokens.revokedAt, now - REVOKED_TOKEN_RETENTION_MILLISECONDS));
+	const [inactiveOAuthAccessTokens, inactiveOAuthRefreshTokens] = await database.batch([
+		database
+			.prepare("DELETE FROM oauth_access_token WHERE expires_at <= ? OR (revoked IS NOT NULL AND revoked <= ?)")
+			.bind(now - REVOKED_TOKEN_RETENTION_MILLISECONDS, now - REVOKED_TOKEN_RETENTION_MILLISECONDS),
+		database
+			.prepare("DELETE FROM oauth_refresh_token WHERE expires_at <= ? OR (revoked IS NOT NULL AND revoked <= ?)")
+			.bind(now - REVOKED_TOKEN_RETENTION_MILLISECONDS, now - REVOKED_TOKEN_RETENTION_MILLISECONDS),
+	]);
+	if (inactiveOAuthAccessTokens === undefined || inactiveOAuthRefreshTokens === undefined) {
+		throw new Error("OAuth credential cleanup batch returned an incomplete result");
+	}
 
 	for (const {identityId} of expiredLegacyIdentities) {
 		await requestDurableObjectCleanup(database, identityId, null, "legacy_expired", now);
@@ -127,6 +140,8 @@ export async function cleanupExpiredIdentityRecords(
 
 	return {
 		expiredLegacyIdentities: expiredLegacyIdentities.length,
+		inactiveOAuthAccessTokens: inactiveOAuthAccessTokens.meta.changes,
+		inactiveOAuthRefreshTokens: inactiveOAuthRefreshTokens.meta.changes,
 		expiredPairingCodes: expiredPairingCodes.meta.changes,
 		revokedTokens: revokedTokens.meta.changes,
 	};

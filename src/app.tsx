@@ -12,9 +12,8 @@ import {
 	requestPasswordReset,
 	resetPassword,
 	resumeOAuthAuthorization,
-	renameMachine,
 	renamePushDevice,
-	revokeMachine,
+	revokeConnectedMcpClient,
 	revokePushDevice,
 	sendVerificationEmail,
 	signIn,
@@ -68,16 +67,24 @@ function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
 	);
 }
 
-// 🧍 AFK is available only after a CLI credential exists; connection state has its own control.
+// 🧍 AFK is available only while an OAuth-authorized MCP host or CLI installation is active.
 interface AfkToggleProps {
 	afk: boolean | null;
+	connectedMcpClientCount: number | null;
 	pairingStatus: PairingStatus | null;
 	signedIn: boolean;
 	onPair: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({afk, pairingStatus, signedIn, onPair, onToggle}: AfkToggleProps): ReactElement {
+function AfkToggle({
+	afk,
+	connectedMcpClientCount,
+	pairingStatus,
+	signedIn,
+	onPair,
+	onToggle,
+}: AfkToggleProps): ReactElement {
 	if (!signedIn) {
 		return (
 			<button type="button" className="machine-status" onClick={onPair}>
@@ -85,7 +92,7 @@ function AfkToggle({afk, pairingStatus, signedIn, onPair, onToggle}: AfkTogglePr
 			</button>
 		);
 	}
-	if (pairingStatus === null) {
+	if (connectedMcpClientCount === null || pairingStatus === null) {
 		return (
 			<button type="button" className="machine-status" disabled>
 				Checking CLI…
@@ -93,12 +100,12 @@ function AfkToggle({afk, pairingStatus, signedIn, onPair, onToggle}: AfkTogglePr
 		);
 	}
 	const waiting = pairingStatus.pendingPairingExpiresAt !== null;
-	const machineLabel =
-		pairingStatus.machineCount === 1 ? "CLI connected" : `${pairingStatus.machineCount} CLIs connected`;
-	if (!pairingStatus.paired) {
+	const clientLabel =
+		connectedMcpClientCount === 1 ? "MCP client connected" : `${connectedMcpClientCount} MCP clients connected`;
+	if (connectedMcpClientCount === 0) {
 		return (
 			<button type="button" className={waiting ? "machine-status waiting" : "machine-status"} onClick={onPair}>
-				{waiting ? "Waiting for CLI" : "Connect a CLI"}
+				{waiting ? "Waiting for CLI" : "Connect an MCP client"}
 			</button>
 		);
 	}
@@ -108,7 +115,7 @@ function AfkToggle({afk, pairingStatus, signedIn, onPair, onToggle}: AfkTogglePr
 	return (
 		<>
 			<button type="button" className={waiting ? "machine-status waiting" : "machine-status"} onClick={onPair}>
-				{waiting ? `${machineLabel} · waiting for another` : machineLabel}
+				{waiting ? `${clientLabel} · waiting for another` : clientLabel}
 			</button>
 			<button
 				type="button"
@@ -797,7 +804,7 @@ interface ManagedDeviceRowProps {
 	createdAt: number;
 	label: string;
 	lastUsedText: string;
-	onRename: (label: string) => Promise<void>;
+	onRename?: (label: string) => Promise<void>;
 	onRevoke: () => Promise<void>;
 }
 
@@ -809,6 +816,9 @@ function ManagedDeviceRow({createdAt, label, lastUsedText, onRename, onRevoke}: 
 	async function save(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
 		event.preventDefault();
 		setBusy(true);
+		if (onRename === undefined) {
+			throw new Error("this connected client cannot be renamed");
+		}
 		try {
 			await onRename(nextLabel);
 			setEditing(false);
@@ -859,15 +869,17 @@ function ManagedDeviceRow({createdAt, label, lastUsedText, onRename, onRevoke}: 
 						</small>
 					</div>
 					<div className="device-actions">
-						<button
-							type="button"
-							className="secondary"
-							onClick={() => {
-								setEditing(true);
-							}}
-						>
-							Rename
-						</button>
+						{onRename !== undefined && (
+							<button
+								type="button"
+								className="secondary"
+								onClick={() => {
+									setEditing(true);
+								}}
+							>
+								Rename
+							</button>
+						)}
 						<button
 							type="button"
 							className="danger"
@@ -1115,31 +1127,28 @@ function Settings({
 			</div>
 			{session !== null && (
 				<div className="hint">
-					<h3>Devices</h3>
-					<p>Rename devices you recognize and revoke credentials you no longer use.</p>
-					<h4>Connected CLIs</h4>
+					<h3>Connections</h3>
+					<p>OAuth-authorized MCP clients and browser notifications are managed separately.</p>
+					<h4>Connected MCP clients</h4>
 					{accountDevices === null ? (
-						<p>Loading devices…</p>
-					) : accountDevices.machines.length === 0 ? (
-						<p>No connected CLIs.</p>
+						<p>Loading connections…</p>
+					) : accountDevices.connectedMcpClients.length === 0 ? (
+						<p>No connected MCP clients.</p>
 					) : (
 						<ul className="device-list">
-							{accountDevices.machines.map((machine) => (
+							{accountDevices.connectedMcpClients.map((client) => (
 								<ManagedDeviceRow
-									key={machine.id}
-									createdAt={machine.createdAt}
-									label={machine.label}
+									key={client.id}
+									createdAt={client.authorizedAt}
+									label={client.displayName}
 									lastUsedText={
-										machine.lastUsedAt === null
-											? "Never used"
-											: `Last used ${new Date(machine.lastUsedAt).toLocaleString()}`
-									}
-									onRename={async (label) =>
-										runDeviceAction(async () => renameMachine(machine.id, label))
+										client.lastUsedAt === null
+											? `${client.status} · ${client.grantedScopes.join(", ")}`
+											: `Last used ${new Date(client.lastUsedAt).toLocaleString()}`
 									}
 									onRevoke={async () =>
 										runDeviceAction(async () => {
-											onPairingStatusChange(await revokeMachine(machine.id));
+											await revokeConnectedMcpClient(client.id);
 										})
 									}
 								/>
@@ -1272,6 +1281,7 @@ export function App(): ReactElement {
 	const [sessionReady, setSessionReady] = useState(false);
 	const [currentQuestions, setCurrentQuestions] = useState<DeckQuestion[]>([]);
 	const [afk, setAfkState] = useState<boolean | null>(null);
+	const [connectedMcpClientCount, setConnectedMcpClientCount] = useState<number | null>(null);
 	const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const [registrationEmail, setRegistrationEmail] = useState("");
@@ -1368,7 +1378,7 @@ export function App(): ReactElement {
 			return;
 		}
 		fetchAfk().then(setAfkState, () => {
-			// Unknown state renders as a neutral toggle; the next refresh will retry.
+			setAfkState(null);
 		});
 	}, [session]);
 
@@ -1412,6 +1422,7 @@ export function App(): ReactElement {
 		if (session === null) {
 			setCurrentQuestions([]);
 			setAfkState(null);
+			setConnectedMcpClientCount(null);
 			pairingStatusGeneration.current += 1;
 			setPairingStatus(null);
 			updateBadge(0);
@@ -1422,7 +1433,7 @@ export function App(): ReactElement {
 		const stream = openCurrentDeckStream(
 			(state) => {
 				setAfkState(state.afk);
-				applyPairingStatus(state.pairingStatus);
+				setConnectedMcpClientCount(state.connectedMcpClientCount);
 				setCurrentQuestions(state.currentDeck);
 				updateBadge(state.currentDeck.length);
 			},
@@ -1620,6 +1631,7 @@ export function App(): ReactElement {
 					{view === "deck" && (
 						<AfkToggle
 							afk={afk}
+							connectedMcpClientCount={connectedMcpClientCount}
 							pairingStatus={pairingStatus}
 							signedIn={session !== null}
 							onPair={() => {

@@ -1,5 +1,6 @@
 import application, {UserDurableObject} from "./index";
-import {getPairingStatus} from "./pairing";
+import {OAUTH_SCOPES} from "./auth";
+import {getConnectedMcpClientAuthorizationState} from "./connected-mcp-clients";
 import {z} from "zod";
 
 export {UserDurableObject};
@@ -76,12 +77,73 @@ async function deletedAccountResponse(request: Request, environment: Application
 		"SELECT " +
 			"(SELECT count(*) FROM user WHERE id = ?) AS users, " +
 			"(SELECT count(*) FROM machine_tokens WHERE user_id = ?) AS machine_tokens, " +
+			"(SELECT count(*) FROM oauth_client WHERE user_id = ?) AS oauth_clients, " +
 			"(SELECT deleted_at IS NOT NULL FROM identity_lifecycles WHERE identity_id = ?) AS identity_deleted, " +
 			"(SELECT completed_at IS NOT NULL FROM durable_object_cleanup_jobs WHERE object_name = ?) AS cleanup_completed",
 	)
-		.bind(parsed.data.user_id, parsed.data.user_id, parsed.data.user_id, parsed.data.user_id)
+		.bind(parsed.data.user_id, parsed.data.user_id, parsed.data.user_id, parsed.data.user_id, parsed.data.user_id)
 		.first();
 	return Response.json(state);
+}
+
+async function authorizeMcpClientResponse(request: Request, environment: ApplicationEnvironment): Promise<Response> {
+	const parsed = z.object({user_id: z.string()}).safeParse(await request.json());
+	if (!parsed.success) {
+		return new Response(null, {status: 400});
+	}
+	const createdAt = Date.now();
+	const installationId = crypto.randomUUID();
+	const clientId = `browser-e2e-oauth-client-${installationId}`;
+	const resources = JSON.stringify([`${environment.BETTER_AUTH_URL}/mcp`]);
+	const scopes = JSON.stringify([...OAUTH_SCOPES]);
+	await environment.DB.batch([
+		environment.DB.prepare(
+			"INSERT INTO oauth_client (id, client_id, user_id, created_at, updated_at, name, redirect_uris) " +
+				"VALUES (?, ?, ?, ?, ?, 'Browser test MCP client', ?)",
+		).bind(
+			`browser-e2e-oauth-client-row-${installationId}`,
+			clientId,
+			parsed.data.user_id,
+			createdAt,
+			createdAt,
+			JSON.stringify([`http://127.0.0.1/callback/${installationId}`]),
+		),
+		environment.DB.prepare(
+			"INSERT INTO oauth_consent (id, client_id, user_id, resources, scopes, created_at, updated_at) " +
+				"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		).bind(
+			`browser-e2e-oauth-consent-${installationId}`,
+			clientId,
+			parsed.data.user_id,
+			resources,
+			scopes,
+			createdAt,
+			createdAt,
+		),
+		environment.DB.prepare(
+			"INSERT INTO oauth_refresh_token " +
+				"(id, token, client_id, user_id, resources, expires_at, created_at, scopes) " +
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		).bind(
+			`browser-e2e-oauth-refresh-${installationId}`,
+			`browser-e2e-refresh-token-${installationId}`,
+			clientId,
+			parsed.data.user_id,
+			resources,
+			Date.UTC(2099, 0, 1),
+			createdAt,
+			scopes,
+		),
+	]);
+	const authorizationState = await getConnectedMcpClientAuthorizationState(
+		environment.DB,
+		parsed.data.user_id,
+		`${environment.BETTER_AUTH_URL}/mcp`,
+	);
+	await environment.USER_DO.getByName(parsed.data.user_id).synchronizeConnectedMcpClientAuthorizationState(
+		authorizationState,
+	);
+	return Response.json({status: "authorized"});
 }
 
 async function expirePairingResponse(request: Request, environment: ApplicationEnvironment): Promise<Response> {
@@ -98,8 +160,6 @@ async function expirePairingResponse(request: Request, environment: ApplicationE
 	await environment.DB.prepare("UPDATE pairing_codes SET expires_at = ? WHERE code = ?")
 		.bind(Date.now() - 1, parsed.data.code)
 		.run();
-	const pairingStatus = await getPairingStatus(environment.DB, pairing.user_id);
-	await environment.USER_DO.getByName(pairing.user_id).synchronizePairingState(pairingStatus);
 	return Response.json({status: "expired"});
 }
 
@@ -117,6 +177,9 @@ export default {
 		}
 		if (url.pathname === "/api/__e2e__/expire-pairing" && request.method === "POST") {
 			return expirePairingResponse(request, environment);
+		}
+		if (url.pathname === "/api/__e2e__/authorize-mcp-client" && request.method === "POST") {
+			return authorizeMcpClientResponse(request, environment);
 		}
 		return application.fetch(request, withCapturedEmail(environment), executionContext);
 	},

@@ -19,7 +19,17 @@ async function routeSettingsData(page: Page): Promise<void> {
 	);
 	await page.route("**/api/v1/account/devices", async (route) =>
 		fulfillJson(route, {
-			machines: [{id: "machine-alice", label: "Alice laptop", created_at: 946_684_800_000, last_used_at: null}],
+			connected_mcp_clients: [
+				{
+					id: "connected-mcp-client-management-id",
+					display_name: "Alice laptop",
+					authorized_at: 946_684_800_000,
+					last_used_at: null,
+					granted_scopes: ["yepnope:questions", "yepnope:afk"],
+					status: "active",
+					revoked_at: null,
+				},
+			],
 			push_devices: [{id: "push-alice", label: "Alice phone", created_at: 946_684_800_000}],
 		}),
 	);
@@ -28,9 +38,7 @@ async function routeSettingsData(page: Page): Promise<void> {
 			JSON.stringify({
 				type: "current_deck",
 				afk: false,
-				paired: true,
-				machine_count: 1,
-				pending_pairing_expires_at: null,
+				connected_mcp_client_count: 1,
 				current_deck: [],
 			}),
 		);

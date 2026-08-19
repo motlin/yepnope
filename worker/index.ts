@@ -1,4 +1,9 @@
-import {authenticateBrowserSession, authenticateRequest, createWorkerAuthentication} from "./auth";
+import {authenticateBrowserSession, authenticateRequest, createWorkerAuthentication, MCP_RESOURCE_PATH} from "./auth";
+import {
+	getConnectedMcpClientAuthorizationState,
+	listConnectedMcpClients,
+	revokeConnectedMcpClient,
+} from "./connected-mcp-clients";
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
 import {claimLegacyIdentity} from "./identity-linking";
 import {cleanupExpiredIdentityRecords} from "./identity-lifecycle";
@@ -13,13 +18,12 @@ import {
 import {
 	claimPairingCode,
 	createPairingCode,
-	getPairedMachineCount,
 	getPairingStatus,
-	listPairedMachines,
 	renameMachine,
 	revokeMachineToken,
+	type PairingStatus,
 } from "./pairing";
-import type {PairingStatus, UserDurableObject} from "./user-do";
+import type {UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
 	createBatchRequestSchema,
@@ -37,6 +41,7 @@ export {UserDurableObject} from "./user-do";
 const STREAM_PATH = /^\/api\/v1\/questions\/[^/]+\/stream$/;
 const CURRENT_DECK_STREAM_PATH = "/api/v1/current-deck/stream";
 const MACHINE_MANAGEMENT_PATH = /^\/api\/v1\/account\/machines\/([0-9a-f]{32})$/;
+const CONNECTED_MCP_CLIENT_MANAGEMENT_PATH = /^\/api\/v1\/account\/connected-mcp-clients\/([0-9a-f]{64})$/;
 const PUSH_DEVICE_MANAGEMENT_PATH = /^\/api\/v1\/account\/push-devices\/([0-9a-f]{64})$/;
 const ROOT_AUTHENTICATION_METADATA_PATHS = new Set([
 	"/.well-known/oauth-authorization-server/api/auth",
@@ -87,7 +92,6 @@ export default {
 				}
 				const issued = await createPairingCode(env.DB, accountUserId);
 				const pairingStatus = await getPairingStatus(env.DB, accountUserId);
-				await env.USER_DO.getByName(accountUserId).synchronizePairingState(pairingStatus);
 				return Response.json(
 					{code: issued.code, expires_at: issued.expiresAt, pairing: pairingStatusResponse(pairingStatus)},
 					{status: 201},
@@ -113,9 +117,11 @@ export default {
 				return claimLegacyBrowserIdentity(request, env, accountUserId);
 			}
 			const machineManagementMatch = MACHINE_MANAGEMENT_PATH.exec(url.pathname);
+			const connectedMcpClientManagementMatch = CONNECTED_MCP_CLIENT_MANAGEMENT_PATH.exec(url.pathname);
 			const pushDeviceManagementMatch = PUSH_DEVICE_MANAGEMENT_PATH.exec(url.pathname);
 			if (
 				(url.pathname === "/api/v1/account/devices" && request.method === "GET") ||
+				(connectedMcpClientManagementMatch !== null && request.method === "DELETE") ||
 				(machineManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE")) ||
 				(pushDeviceManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE"))
 			) {
@@ -125,7 +131,15 @@ export default {
 				}
 				const accountStub = env.USER_DO.getByName(accountUserId);
 				if (url.pathname === "/api/v1/account/devices") {
-					return listAccountDevices(env.DB, accountStub, accountUserId);
+					return listAccountDevices(env.DB, accountStub, accountUserId, mcpResource(env));
+				}
+				if (connectedMcpClientManagementMatch !== null) {
+					return manageConnectedMcpClient(
+						env,
+						accountUserId,
+						connectedMcpClientManagementMatch[1],
+						observationContext,
+					);
 				}
 				if (machineManagementMatch !== null) {
 					return manageMachine(request, env, accountUserId, machineManagementMatch[1]);
@@ -147,26 +161,32 @@ export default {
 				(url.pathname === CURRENT_DECK_STREAM_PATH || STREAM_PATH.test(url.pathname))
 			) {
 				if (url.pathname === CURRENT_DECK_STREAM_PATH) {
-					const pairingStatus = await getPairingStatus(env.DB, userId);
-					return stub.fetch(withPairingStatus(request, pairingStatus));
+					const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+					return stub.fetch(withConnectedMcpClientAuthorizationState(request, authorizationState));
 				}
 				return stub.fetch(request);
 			}
 			if (url.pathname === "/api/v1/hook" && request.method === "POST") {
-				const machineCount = await getPairedMachineCount(env.DB, userId);
-				return handleHookEvent(request, stub, machineCount > 0, executionContext, observationContext);
+				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+				return handleHookEvent(
+					request,
+					stub,
+					authorizationState.activeClientCount > 0,
+					executionContext,
+					observationContext,
+				);
 			}
 			if (url.pathname === "/api/v1/afk" && request.method === "GET") {
-				const machineCount = await getPairedMachineCount(env.DB, userId);
-				return Response.json({afk: await stub.getAfk(machineCount > 0)});
+				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+				return Response.json({afk: await stub.getAfk(authorizationState.activeClientCount > 0)});
 			}
 			if (url.pathname === "/api/v1/afk" && request.method === "PUT") {
-				const machineCount = await getPairedMachineCount(env.DB, userId);
-				return setAfk(request, stub, machineCount > 0);
+				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+				return setAfk(request, stub, authorizationState.activeClientCount > 0);
 			}
 			if (url.pathname === "/api/v1/questions" && request.method === "POST") {
-				const machineCount = await getPairedMachineCount(env.DB, userId);
-				return createQuestions(request, stub, machineCount > 0, executionContext);
+				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
+				return createQuestions(request, stub, authorizationState.activeClientCount > 0, executionContext);
 			}
 			if (url.pathname === "/api/v1/current-deck" && request.method === "GET") {
 				return currentDeck(stub);
@@ -213,24 +233,38 @@ function pairingStatusResponse(pairingStatus: PairingStatus): {
 	};
 }
 
-function withPairingStatus(request: Request, pairingStatus: PairingStatus): Request {
+function mcpResource(environment: Env): string {
+	return `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
+}
+
+async function connectedMcpClientAuthorizationState(
+	environment: Env,
+	userId: string,
+): Promise<{activeClientCount: number}> {
+	return getConnectedMcpClientAuthorizationState(environment.DB, userId, mcpResource(environment));
+}
+
+function withConnectedMcpClientAuthorizationState(
+	request: Request,
+	authorizationState: {activeClientCount: number},
+): Request {
 	const headers = new Headers(request.headers);
-	headers.set("X-YepNope-Pairing-Status", JSON.stringify(pairingStatus));
+	headers.set("X-YepNope-Connected-Mcp-Client-Authorization", JSON.stringify(authorizationState));
 	return new Request(request, {headers});
 }
 
-// 🧍 Pairing gates the stored AFK preference, so an unpaired account can never route questions away.
+// 🧍 An active OAuth MCP or CLI grant gates AFK; legacy machine pairing never authorizes routing.
 async function setAfk(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
-	paired: boolean,
+	hasActiveConnectedMcpClient: boolean,
 ): Promise<Response> {
 	const parsed = afkRequestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
 		return new Response(null, {status: 400});
 	}
-	const result = await stub.setAfk(parsed.data.afk, paired);
-	if (result.status === "pairing_required") {
+	const result = await stub.setAfk(parsed.data.afk, hasActiveConnectedMcpClient);
+	if (result.status === "connected_mcp_client_required") {
 		return Response.json({error: result.status, message: result.message}, {status: 409});
 	}
 	return Response.json({afk: result.afk});
@@ -245,9 +279,6 @@ async function claimPairing(request: Request, environment: Env): Promise<Respons
 	if (claimed === null) {
 		return new Response(null, {status: 404});
 	}
-	await environment.USER_DO.getByName(claimed.userId).synchronizePairingState(
-		await getPairingStatus(environment.DB, claimed.userId),
-	);
 	return Response.json({token: claimed.token, credential_type: "machine"}, {status: 201});
 }
 
@@ -279,14 +310,21 @@ async function listAccountDevices(
 	database: D1Database,
 	stub: DurableObjectStub<UserDurableObject>,
 	userId: string,
+	resource: string,
 ): Promise<Response> {
-	const [machines, pushDevices] = await Promise.all([listPairedMachines(database, userId), stub.listPushDevices()]);
+	const [connectedMcpClients, pushDevices] = await Promise.all([
+		listConnectedMcpClients(database, userId, resource),
+		stub.listPushDevices(),
+	]);
 	return Response.json({
-		machines: machines.map((machine) => ({
-			id: machine.id,
-			label: machine.label,
-			created_at: machine.createdAt,
-			last_used_at: machine.lastUsedAt,
+		connected_mcp_clients: connectedMcpClients.map((client) => ({
+			id: client.id,
+			display_name: client.displayName,
+			authorized_at: client.authorizedAt,
+			last_used_at: client.lastUsedAt,
+			granted_scopes: client.grantedScopes,
+			status: client.status,
+			revoked_at: client.revokedAt,
 		})),
 		push_devices: pushDevices.map((device) => ({
 			id: device.id,
@@ -294,6 +332,34 @@ async function listAccountDevices(
 			created_at: device.createdAt,
 		})),
 	});
+}
+
+async function manageConnectedMcpClient(
+	environment: Env,
+	userId: string,
+	connectedMcpClientId: string | undefined,
+	observationContext: ReturnType<typeof createObservationContext>,
+): Promise<Response> {
+	if (connectedMcpClientId === undefined) {
+		return new Response(null, {status: 404});
+	}
+	const revoked = await revokeConnectedMcpClient(
+		environment.DB,
+		environment.USER_DO,
+		userId,
+		mcpResource(environment),
+		connectedMcpClientId,
+		Date.now(),
+	);
+	if (!revoked) {
+		return new Response(null, {status: 404});
+	}
+	const authorizationState = await connectedMcpClientAuthorizationState(environment, userId);
+	emitObservation(observationContext, "connected_mcp_client.revoke", "output", {
+		activeConnectedMcpClientCount: authorizationState.activeClientCount,
+		connectedMcpClientManagementId: connectedMcpClientId,
+	});
+	return Response.json({status: "ok", connected_mcp_client_count: authorizationState.activeClientCount});
 }
 
 async function manageMachine(
@@ -314,7 +380,7 @@ async function manageMachine(
 			? Response.json({status: "ok"})
 			: new Response(null, {status: 404});
 	}
-	const revoked = await revokeMachineToken(environment.DB, environment.USER_DO, userId, machineId, Date.now());
+	const revoked = await revokeMachineToken(environment.DB, userId, machineId, Date.now());
 	if (!revoked) {
 		return new Response(null, {status: 404});
 	}
@@ -345,7 +411,7 @@ async function managePushDevice(
 async function createQuestions(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
-	paired: boolean,
+	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
 ): Promise<Response> {
 	const parsed = createBatchRequestSchema.safeParse(await request.json().catch(() => null));
@@ -353,7 +419,7 @@ async function createQuestions(
 		return new Response(null, {status: 400});
 	}
 	// 🧍 Interception point 3 (spec §11.3): with AFK off, ask_yep_nope gets a teaching error instead of a batch.
-	if (!(await stub.getAfk(paired))) {
+	if (!(await stub.getAfk(hasActiveConnectedMcpClient))) {
 		return Response.json(
 			{
 				error: "afk_off",
@@ -371,7 +437,7 @@ async function createQuestions(
 }
 
 async function currentDeck(stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
-	const state = await stub.getCurrentDeckState({machineCount: 0, pendingPairingExpiresAt: null});
+	const state = await stub.getCurrentDeckState({activeClientCount: 0});
 	return Response.json({current_deck: state.current_deck});
 }
 

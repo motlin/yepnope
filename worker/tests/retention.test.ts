@@ -7,7 +7,7 @@ import {
 	createBatchOverHttp,
 	nextMessage,
 	postAnswers,
-	registerMachineToken,
+	registerLegacyMachineWithConnectedMcpClient,
 	required,
 	worker,
 } from "./helpers";
@@ -15,7 +15,7 @@ import {
 describe("7 day retention alarm", () => {
 	it("sends the batch identifier and final dispositions before expiry deletion", async () => {
 		const userId = "retention-expiry-frame";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: ""},
 			{title: "Second?", body: ""},
@@ -51,7 +51,7 @@ describe("7 day retention alarm", () => {
 
 	it("keeps the earlier alarm when a second batch arrives", async () => {
 		const userId = "retention-earliest";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		await createBatchOverHttp(token, "demo", [{title: "First?", body: ""}]);
 
 		const stub = env.USER_DO.getByName(userId);
@@ -63,7 +63,7 @@ describe("7 day retention alarm", () => {
 
 	it("purges batches older than 7 days and re-arms for the survivor", async () => {
 		const userId = "retention-purge";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const expired = await createBatchOverHttp(token, "demo", [{title: "Old?", body: ""}]);
 		const survivor = await createBatchOverHttp(token, "demo", [{title: "Fresh?", body: ""}]);
 
@@ -104,7 +104,7 @@ describe("7 day retention alarm", () => {
 
 	it("purges current answers while retaining their durable activity outcome", async () => {
 		const userId = "retention-counters";
-		const token = await registerMachineToken(userId);
+		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Old?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 		await postAnswers(token, [{question_id: questionId, disposition: "yep"}]);
