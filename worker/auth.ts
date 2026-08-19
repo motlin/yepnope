@@ -345,6 +345,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 			enabled: true,
 			autoSignIn: false,
 			requireEmailVerification: true,
+			revokeSessionsOnPasswordReset: true,
 			resetPasswordTokenExpiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
 			sendResetPassword: async ({user, url}) =>
 				dependencies.sendEmail(

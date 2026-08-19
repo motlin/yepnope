@@ -222,25 +222,57 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await expect(secondPage.getByRole("status")).toHaveText(
 			"If that account exists, a recovery email was requested.",
 		);
-		await secondPage.goto(await mailboxLink(request, resetSubject));
+		const resetLink = await mailboxLink(request, resetSubject);
+		await secondPage.goto(resetLink);
 		await expect(secondPage.getByRole("heading", {name: "Choose a new password"})).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
+		let resetRequests = 0;
+		await secondPage.route("**/api/auth/reset-password", async (route) => {
+			resetRequests += 1;
+			await route.continue();
+		});
+		await secondPage.route(
+			"**/api/auth/sign-in/email",
+			async (route) =>
+				route.fulfill({
+					body: JSON.stringify({message: "Sign-in temporarily unavailable"}),
+					contentType: "application/json",
+					status: 503,
+				}),
+			{times: 1},
+		);
+		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await secondPage.getByLabel("New password").fill(replacementPassword);
 		await secondPage.getByRole("button", {name: "Save new password"}).click();
 		await expect(secondPage.getByRole("status")).toHaveText("Your password has been changed.");
-		await secondPage.getByRole("button", {name: "Sign in", exact: true}).click();
-		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
-		await secondPage.getByLabel("Password").fill(replacementPassword);
-		await secondPage.getByRole("button", {name: "Sign in", exact: true}).click();
+		await expect(secondPage.getByRole("alert")).toHaveText("Sign-in temporarily unavailable");
+		await expect(secondPage).toHaveURL(/\/reset-password$/);
+		const invalidatedSession = await firstPage.request.get("/api/auth/get-session");
+		expect({
+			body: await invalidatedSession.json(),
+			resetRequests,
+			status: invalidatedSession.status(),
+		}).toStrictEqual({body: null, resetRequests: 1, status: 200});
+		await secondPage.getByRole("button", {name: "Try signing in again"}).click();
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
+		expect(resetRequests).toBe(1);
+
+		await secondPage.goto(resetLink);
+		await expect(secondPage.getByRole("alert")).toHaveText("This recovery link is invalid or expired.");
+		expect({
+			path: new URL(secondPage.url()).pathname,
+			resetRequests,
+			resetTokenError: new URL(secondPage.url()).searchParams.get("error"),
+		}).toStrictEqual({path: "/reset-password", resetRequests: 1, resetTokenError: "INVALID_TOKEN"});
+		await secondPage.goto("/settings");
+		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 
 		const mcpClientRow = secondPage.getByRole("listitem").filter({hasText: "Browser test MCP client"});
 		await mcpClientRow.getByRole("button", {name: "Revoke"}).click();
 		await expect(mcpClientRow).toContainText("revoked");
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
-		await expect(firstPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
-		const accountAfk = await firstPage.request.get("/api/v1/afk");
+		const accountAfk = await secondPage.request.get("/api/v1/afk");
 		expect({body: await accountAfk.json(), status: accountAfk.status()}).toStrictEqual({
 			body: {afk: false},
 			status: 200,

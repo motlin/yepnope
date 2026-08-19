@@ -78,6 +78,7 @@ const refreshStream = vi.fn<() => void>();
 vi.mock("../src/api", () => ({
 	ApiResponseError,
 	claimLegacyIdentity,
+	consumePasswordResetToken: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	fetchAccountDevices,
 	fetchAfk,
 	fetchOAuthClient,
@@ -99,7 +100,6 @@ vi.mock("../src/api", () => ({
 	}),
 	registerAccount: vi.fn<() => Promise<AuthenticationUser>>(async () => Promise.resolve(alice)),
 	requestPasswordReset: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
-	resetPassword: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	resumeOAuthAuthorization,
 	renamePushDevice,
 	revokeConnectedMcpClient,
@@ -124,9 +124,9 @@ vi.mock("../src/push", () => ({
 
 import {App} from "../src/app";
 import {
+	consumePasswordResetToken,
 	registerAccount,
 	requestPasswordReset,
-	resetPassword,
 	sendVerificationEmail,
 	signIn,
 	signInForOAuth as signInForOAuthApi,
@@ -153,6 +153,7 @@ beforeEach(() => {
 		},
 	} satisfies Storage;
 	Object.defineProperty(window, "localStorage", {configurable: true, value: storage});
+	window.sessionStorage.clear();
 	window.history.replaceState({}, "", "/");
 	publishQuestions = undefined;
 	publishApplicationState = undefined;
@@ -202,6 +203,53 @@ describe("OAuth consent continuity", () => {
 				["alice@example.com", "example-password", oauthQuery],
 			]);
 			expect(screen.getByRole("heading", {name: "Authorize MCP client"})).toBeDefined();
+		});
+	});
+
+	it("preserves OAuth through password reset and resumes at explicit consent after ordinary sign-in", async () => {
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions yepnope:afk",
+			sig: "signed-password-reset-authorization",
+		}).toString();
+		fetchSession.mockResolvedValue(null);
+		resumeOAuthAuthorization.mockResolvedValue(`${window.location.origin}/oauth/consent?${oauthQuery}`);
+		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
+
+		render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Forgot password?"}));
+		expect(`${window.location.pathname}${window.location.search}`).toBe(`/forgot-password?${oauthQuery}`);
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.click(screen.getByRole("button", {name: "Send recovery email"}));
+		await waitFor(() => {
+			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com"]]);
+		});
+
+		window.history.pushState({}, "", "/reset-password?token=oauth-reset-token");
+		fireEvent.popState(window);
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+
+		expect(await screen.findByRole("heading", {name: "Authorize MCP client"})).toBeDefined();
+		expect({
+			consentCalls: submitOAuthConsent.mock.calls,
+			oauthSignInCalls: signInForOAuth.mock.calls,
+			path: `${window.location.pathname}${window.location.search}`,
+			resetCalls: vi.mocked(consumePasswordResetToken).mock.calls,
+			resumeCalls: resumeOAuthAuthorization.mock.calls,
+			signInCalls: vi.mocked(signIn).mock.calls,
+			storedContinuation: window.sessionStorage.getItem("yepnope.password-reset-oauth-query"),
+		}).toStrictEqual({
+			consentCalls: [],
+			oauthSignInCalls: [],
+			path: `/oauth/consent?${oauthQuery}`,
+			resetCalls: [["oauth-reset-token", "replacement-password"]],
+			resumeCalls: [[oauthQuery]],
+			signInCalls: [["alice@example.com", "replacement-password"]],
+			storedContinuation: null,
 		});
 	});
 
@@ -729,7 +777,7 @@ describe("Better Auth account routes", () => {
 		expect(screen.getByRole("button", {name: "Resend verification email"})).toBeDefined();
 	});
 
-	it("requests recovery and accepts the token delivered by Better Auth", async () => {
+	it("requests recovery, consumes the token, and signs in with the replacement password", async () => {
 		fetchSession.mockResolvedValue(null);
 		window.history.replaceState({}, "", "/forgot-password");
 		const rendered = render(<App />);
@@ -746,14 +794,78 @@ describe("Better Auth account routes", () => {
 		rendered.unmount();
 		window.history.replaceState({}, "", "/reset-password?token=test-recovery-token");
 		render(<App />);
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
 		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
 
 		await waitFor(() => {
-			expect(vi.mocked(resetPassword).mock.calls).toStrictEqual([
+			expect(vi.mocked(consumePasswordResetToken).mock.calls).toStrictEqual([
 				["test-recovery-token", "replacement-password"],
 			]);
-			expect(screen.getByRole("status").textContent).toBe("Your password has been changed.");
+			expect(vi.mocked(signIn).mock.calls).toStrictEqual([["alice@example.com", "replacement-password"]]);
+			expect(window.location.pathname).toBe("/settings");
+		});
+	});
+
+	it("never retries a consumed reset token when the follow-up sign-in fails", async () => {
+		fetchSession.mockResolvedValue(null);
+		vi.mocked(signIn).mockRejectedValueOnce(new Error("Sign-in temporarily unavailable"));
+		window.history.replaceState({}, "", "/reset-password?token=single-use-reset-token");
+		render(<App />);
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alic@example.com"}});
+		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+
+		expect((await screen.findByRole("alert")).textContent).toBe("Sign-in temporarily unavailable");
+		expect({
+			path: `${window.location.pathname}${window.location.search}`,
+			resetCalls: vi.mocked(consumePasswordResetToken).mock.calls,
+			signInCalls: vi.mocked(signIn).mock.calls,
+			status: screen.getByRole("status").textContent,
+		}).toStrictEqual({
+			path: "/reset-password",
+			resetCalls: [["single-use-reset-token", "replacement-password"]],
+			signInCalls: [["alic@example.com", "replacement-password"]],
+			status: "Your password has been changed.",
+		});
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.click(screen.getByRole("button", {name: "Try signing in again"}));
+		await waitFor(() => {
+			expect(window.location.pathname).toBe("/settings");
+		});
+		expect({
+			resetCalls: vi.mocked(consumePasswordResetToken).mock.calls,
+			signInCalls: vi.mocked(signIn).mock.calls,
+		}).toStrictEqual({
+			resetCalls: [["single-use-reset-token", "replacement-password"]],
+			signInCalls: [
+				["alic@example.com", "replacement-password"],
+				["alice@example.com", "replacement-password"],
+			],
+		});
+	});
+
+	it("keeps expired and replayed reset-token failures in the reset state", async () => {
+		fetchSession.mockResolvedValue(null);
+		vi.mocked(consumePasswordResetToken).mockRejectedValueOnce(new Error("Invalid token"));
+		window.history.replaceState({}, "", "/reset-password?token=expired-reset-token");
+		render(<App />);
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+
+		expect((await screen.findByRole("alert")).textContent).toBe("Invalid token");
+		expect({
+			resetCalls: vi.mocked(consumePasswordResetToken).mock.calls,
+			resetSubmitPresent: screen.getByRole("button", {name: "Save new password"}).textContent,
+			signInCalls: vi.mocked(signIn).mock.calls,
+		}).toStrictEqual({
+			resetCalls: [["expired-reset-token", "replacement-password"]],
+			resetSubmitPresent: "Save new password",
+			signInCalls: [],
 		});
 	});
 

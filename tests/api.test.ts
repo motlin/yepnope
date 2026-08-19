@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {
+	consumePasswordResetToken,
 	CurrentDeckConnectionState,
 	fetchAccountDevices,
 	fetchOAuthClient,
 	openCurrentDeckStream,
 	registerAccount,
+	requestPasswordReset,
 	resumeOAuthAuthorization,
 	sendVerificationEmail,
+	signIn,
 	signInForOAuth,
 	submitOAuthConsent,
 	type LiveApplicationState,
@@ -196,6 +199,56 @@ describe("account registration", () => {
 				"/api/auth/send-verification-email",
 				{
 					body: JSON.stringify({email: "alice@example.com", callbackURL: "/verify-email"}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+		]);
+	});
+
+	it("keeps reset-token consumption separate from the fresh password sign-in", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async (input) => {
+			const path = String(input);
+			if (path === "/api/auth/request-password-reset") {
+				return Promise.resolve(Response.json({message: "Recovery email accepted", status: true}));
+			}
+			if (path === "/api/auth/reset-password") {
+				return Promise.resolve(Response.json({status: true}));
+			}
+			if (path === "/api/auth/sign-in/email") {
+				return Promise.resolve(Response.json({user: sessionUser}));
+			}
+			throw new Error(`unexpected fetch: ${path}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		await requestPasswordReset("alice@example.com");
+		await consumePasswordResetToken("one-time-reset-token", "replacement-password");
+		expect(await signIn("alice@example.com", "replacement-password")).toStrictEqual(sessionUser);
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/auth/request-password-reset",
+				{
+					body: JSON.stringify({email: "alice@example.com", redirectTo: "/reset-password"}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+			[
+				"/api/auth/reset-password",
+				{
+					body: JSON.stringify({token: "one-time-reset-token", newPassword: "replacement-password"}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+			[
+				"/api/auth/sign-in/email",
+				{
+					body: JSON.stringify({email: "alice@example.com", password: "replacement-password"}),
 					credentials: "same-origin",
 					headers: {"Content-Type": "application/json"},
 					method: "POST",

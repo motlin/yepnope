@@ -160,7 +160,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
 	);
 }
 
-export async function resetPassword(token: string, newPassword: string): Promise<void> {
+export async function consumePasswordResetToken(token: string, newPassword: string): Promise<void> {
 	await requestJson("/api/auth/reset-password", jsonRequest({token, newPassword}), successResponseSchema);
 }
 

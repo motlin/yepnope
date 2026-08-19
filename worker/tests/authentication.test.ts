@@ -400,6 +400,21 @@ describe("Better Auth account recovery", () => {
 			body: null,
 			status: 200,
 		});
+		const firstOldSession = cookieFrom(
+			await restoredAuthentication.handler(
+				postAuthentication("sign-in/email", {email, password: originalPassword}),
+			),
+		);
+		const secondOldSession = cookieFrom(
+			await restoredAuthentication.handler(
+				postAuthentication("sign-in/email", {email, password: originalPassword}),
+			),
+		);
+		expect(
+			await env.DB.prepare("SELECT count(*) AS sessions FROM session WHERE user_id = ?")
+				.bind(registeredUser.id)
+				.first(),
+		).toStrictEqual({sessions: 2});
 
 		const resetRequest = await restoredAuthentication.handler(
 			postAuthentication("request-password-reset", {email, redirectTo: "/reset-password"}),
@@ -430,10 +445,57 @@ describe("Better Auth account recovery", () => {
 		});
 		const resetTokenUrl = new URL(resetUrl);
 		const resetToken = required(resetTokenUrl.pathname.split("/").at(-1), "password reset token");
+		await env.DB.prepare(
+			"INSERT INTO verification (id, identifier, value, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		)
+			.bind(
+				"expired-password-reset",
+				"reset-password:expired-reset-token",
+				registeredUser.id,
+				946_688_400_000,
+				946_684_800_000,
+				946_684_800_000,
+			)
+			.run();
+		const expiredReset = await restoredAuthentication.handler(
+			postAuthentication("reset-password", {
+				newPassword: "expired-token-replacement-password",
+				token: "expired-reset-token",
+			}),
+		);
+		expect({body: await expiredReset.json(), status: expiredReset.status}).toStrictEqual({
+			body: {code: "INVALID_TOKEN", message: "Invalid token"},
+			status: 400,
+		});
 		const reset = await restoredAuthentication.handler(
 			postAuthentication("reset-password", {newPassword: replacementPassword, token: resetToken}),
 		);
 		expect({body: await reset.json(), status: reset.status}).toStrictEqual({body: {status: true}, status: 200});
+		const replayedReset = await restoredAuthentication.handler(
+			postAuthentication("reset-password", {newPassword: "replayed-token-password", token: resetToken}),
+		);
+		const oldSessionStates = await Promise.all(
+			[firstOldSession, secondOldSession].map(async (cookie) => {
+				const response = await restoredAuthentication.handler(
+					new Request(`${API_ORIGIN}/api/auth/get-session`, {headers: {Cookie: cookie}}),
+				);
+				return {body: await response.json(), status: response.status};
+			}),
+		);
+		expect({
+			oldSessionStates,
+			replayedReset: {body: await replayedReset.json(), status: replayedReset.status},
+			sessionCount: await env.DB.prepare("SELECT count(*) AS sessions FROM session WHERE user_id = ?")
+				.bind(registeredUser.id)
+				.first(),
+		}).toStrictEqual({
+			oldSessionStates: [
+				{body: null, status: 200},
+				{body: null, status: 200},
+			],
+			replayedReset: {body: {code: "INVALID_TOKEN", message: "Invalid token"}, status: 400},
+			sessionCount: {sessions: 0},
+		});
 
 		const recovered = await restoredAuthentication.handler(
 			postAuthentication("sign-in/email", {email, password: replacementPassword}),
@@ -453,6 +515,11 @@ describe("Better Auth account recovery", () => {
 			},
 		});
 		expect(cookieFrom(recovered)).toMatch(/^__Secure-better-auth\.session_token=.+$/);
+		expect(
+			await env.DB.prepare("SELECT count(*) AS sessions FROM session WHERE user_id = ?")
+				.bind(registeredUser.id)
+				.first(),
+		).toStrictEqual({sessions: 1});
 	});
 
 	it("rejects an expired email verification link without creating a session", async () => {

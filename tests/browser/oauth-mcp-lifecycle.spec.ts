@@ -15,10 +15,15 @@ const verificationSubject = "Verify your YepNope email";
 const scopes = ["openid", "offline_access", "yepnope:questions", "yepnope:afk"] as const;
 const redirectUri = "http://127.0.0.1:45678/callback/oauth-browser-client";
 const secondRedirectUri = "http://127.0.0.1:45679/callback/oauth-browser-client";
+const recoveryRedirectUri = "http://127.0.0.1:45680/callback/oauth-browser-client";
 const codeVerifier = "oauth-browser-verifier-00000000000000000000000000000000000000000000";
 const secondCodeVerifier = "oauth-browser-verifier-11111111111111111111111111111111111111111111";
+const recoveryCodeVerifier = "oauth-browser-verifier-22222222222222222222222222222222222222222222";
 const oauthState = "oauth-browser-state-00000000";
 const secondOauthState = "oauth-browser-state-11111111";
+const recoveryOauthState = "oauth-browser-state-22222222";
+const recoveryPassword = "oauth-browser-recovery-password";
+const resetSubject = "Reset your YepNope password";
 const failedPkceVerifier = "oauth-browser-pkce-verifier-00000000000000000000000000000000000000000";
 const failedPkceState = "oauth-browser-pkce-state-00000000";
 const routedQuestions = [
@@ -126,17 +131,17 @@ async function authorizationUrl(clientId: string, callback: string, verifier: st
 	})}`;
 }
 
-async function mailboxLink(request: APIRequestContext): Promise<string> {
+async function mailboxLink(request: APIRequestContext, subject = verificationSubject): Promise<string> {
 	await expect
 		.poll(async () => {
 			const response = await request.get("/api/__e2e__/mailbox", {
-				params: {email, subject: verificationSubject},
+				params: {email, subject},
 			});
 			return response.status();
 		})
 		.toBe(200);
 	const response = await request.get("/api/__e2e__/mailbox", {
-		params: {email, subject: verificationSubject},
+		params: {email, subject},
 	});
 	return mailboxSchema.parse(await response.json()).url;
 }
@@ -607,6 +612,59 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			status: 400,
 		});
 
+		const recoveryClientId = await registerClient(
+			request,
+			"Recovery browser OAuth MCP client",
+			recoveryRedirectUri,
+		);
+		await secondPage.getByRole("button", {name: "Sign out"}).click();
+		await secondPage.goto(
+			await authorizationUrl(recoveryClientId, recoveryRedirectUri, recoveryCodeVerifier, recoveryOauthState),
+		);
+		await expect(secondPage).toHaveURL(/\/sign-in\?.*client_id=.*sig=/);
+		const signedAuthorizationQuery = new URL(secondPage.url()).searchParams.toString();
+		await secondPage.getByRole("button", {name: "Forgot password?"}).click();
+		expect(new URL(secondPage.url()).searchParams.toString()).toBe(signedAuthorizationQuery);
+		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
+		await secondPage.getByRole("button", {name: "Send recovery email"}).click();
+		await expect(secondPage.getByRole("status")).toHaveText(
+			"If that account exists, a recovery email was requested.",
+		);
+		await secondPage.goto(await mailboxLink(request, resetSubject));
+		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
+		await secondPage.getByLabel("New password").fill(recoveryPassword);
+		let consentSubmissions = 0;
+		secondPage.on("request", (request) => {
+			if (request.method() === "POST" && new URL(request.url()).pathname === "/api/auth/oauth2/consent") {
+				consentSubmissions += 1;
+			}
+		});
+		await secondPage.getByRole("button", {name: "Save new password"}).click();
+		await expect(secondPage.getByRole("heading", {name: "Authorize MCP client"})).toBeVisible();
+		await expect(secondPage.getByText("Recovery browser OAuth MCP client")).toBeVisible();
+		const resumedParameters = new URL(secondPage.url()).searchParams;
+		expect({
+			clientId: resumedParameters.get("client_id"),
+			consentSubmissions,
+			email: resumedParameters.get("email"),
+			error: resumedParameters.get("error"),
+			signaturePresent: resumedParameters.has("sig"),
+			token: resumedParameters.get("token"),
+		}).toStrictEqual({
+			clientId: recoveryClientId,
+			consentSubmissions: 0,
+			email: null,
+			error: null,
+			signaturePresent: true,
+			token: null,
+		});
+		const recoveryCallback = await captureConsentCallback(secondPage, recoveryRedirectUri, "Cancel");
+		expect({
+			error: recoveryCallback.searchParams.get("error"),
+			state: recoveryCallback.searchParams.get("state"),
+		}).toStrictEqual({error: "access_denied", state: recoveryOauthState});
+		await secondPage.goto("/settings");
+
 		const deletion = await secondPage.evaluate(async (accountPassword) => {
 			const response = await fetch("/api/auth/delete-user", {
 				method: "POST",
@@ -614,7 +672,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 				body: JSON.stringify({password: accountPassword}),
 			});
 			return {body: (await response.json()) as unknown, status: response.status};
-		}, password);
+		}, recoveryPassword);
 		expect(deletion).toStrictEqual({body: {message: "User deleted", success: true}, status: 200});
 		let unauthorizedReconnects = 0;
 		await secondPage.routeWebSocket("**/api/v1/current-deck/stream", (socket) => {

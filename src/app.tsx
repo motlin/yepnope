@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent} from "react";
 import {
 	claimLegacyIdentity,
+	consumePasswordResetToken,
 	fetchAccountDevices,
 	fetchAfk,
 	fetchOAuthClient,
@@ -8,7 +9,6 @@ import {
 	openCurrentDeckStream,
 	registerAccount,
 	requestPasswordReset,
-	resetPassword,
 	resumeOAuthAuthorization,
 	renamePushDevice,
 	revokeConnectedMcpClient,
@@ -187,7 +187,33 @@ function unreachableView(view: never): never {
 
 function oauthQueryFromLocation(): string | null {
 	const parameters = new URLSearchParams(window.location.search);
+	if (window.location.pathname === "/reset-password" && (parameters.has("token") || parameters.has("error"))) {
+		return null;
+	}
 	return parameters.has("client_id") && parameters.has("sig") ? parameters.toString() : null;
+}
+
+const PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY = "yepnope.password-reset-oauth-query";
+
+function rememberPasswordResetOAuthQuery(oauthQuery: string | null): void {
+	if (oauthQuery === null) {
+		window.sessionStorage.removeItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY);
+		return;
+	}
+	window.sessionStorage.setItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY, oauthQuery);
+}
+
+function passwordResetOAuthQuery(): string | null {
+	const oauthQuery = window.sessionStorage.getItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY);
+	if (oauthQuery === null) {
+		return null;
+	}
+	const parameters = new URLSearchParams(oauthQuery);
+	if (!parameters.has("client_id") || !parameters.has("sig") || parameters.has("token") || parameters.has("error")) {
+		window.sessionStorage.removeItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY);
+		return null;
+	}
+	return oauthQuery;
 }
 
 function oauthCallbackPath(oauthQuery: string): string {
@@ -231,10 +257,12 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Something went wrong. Try again.";
 }
 
-interface SignInProps extends AccountRouteProps {
+interface AuthenticationCompletionProps {
 	onAuthenticated: (user: AuthenticationUser) => void;
 	onOAuthAuthenticated: (user: AuthenticationUser, redirectUrl: string) => void;
 }
+
+interface SignInProps extends AccountRouteProps, AuthenticationCompletionProps {}
 
 function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
@@ -523,6 +551,7 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 }
 
 function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
+	const oauthQuery = oauthQueryFromLocation();
 	const [email, setEmail] = useState("");
 	const [sent, setSent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -532,6 +561,7 @@ function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 		setError(null);
 		try {
 			await requestPasswordReset(email);
+			rememberPasswordResetOAuthQuery(oauthQuery);
 			setSent(true);
 		} catch (caught) {
 			setError(errorMessage(caught));
@@ -581,27 +611,86 @@ function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 	);
 }
 
-function ResetPassword({onNavigate}: AccountRouteProps): ReactElement {
-	const parameters = new URLSearchParams(window.location.search);
-	const token = parameters.get("token");
-	const invalid = parameters.get("error") !== null || token === null;
+enum PasswordResetPhase {
+	Ready,
+	Resetting,
+	SigningIn,
+	SignInFailed,
+	ResumingAuthorization,
+	AuthorizationResumeFailed,
+}
+
+interface ResetPasswordProps extends AccountRouteProps, AuthenticationCompletionProps {}
+
+function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: ResetPasswordProps): ReactElement {
+	const [{invalid, token}] = useState(() => {
+		const parameters = new URLSearchParams(window.location.search);
+		const initialToken = parameters.get("token");
+		return {invalid: parameters.get("error") !== null || initialToken === null, token: initialToken};
+	});
+	const [oauthQuery] = useState(passwordResetOAuthQuery);
+	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
-	const [reset, setReset] = useState(false);
+	const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticationUser | null>(null);
+	const [phase, setPhase] = useState(PasswordResetPhase.Ready);
 	const [error, setError] = useState<string | null>(null);
+
+	async function resumeAuthorization(user: AuthenticationUser, oauthQueryToResume: string): Promise<void> {
+		setPhase(PasswordResetPhase.ResumingAuthorization);
+		setError(null);
+		try {
+			const redirectUrl = await resumeOAuthAuthorization(oauthQueryToResume);
+			rememberPasswordResetOAuthQuery(null);
+			onOAuthAuthenticated(user, redirectUrl);
+		} catch (caught) {
+			setError(errorMessage(caught));
+			setPhase(PasswordResetPhase.AuthorizationResumeFailed);
+		}
+	}
+
+	async function authenticateAfterReset(): Promise<void> {
+		setPhase(PasswordResetPhase.SigningIn);
+		setError(null);
+		let user: AuthenticationUser;
+		try {
+			user = await signIn(email, password);
+		} catch (caught) {
+			setError(errorMessage(caught));
+			setPhase(PasswordResetPhase.SignInFailed);
+			return;
+		}
+		setAuthenticatedUser(user);
+		if (oauthQuery === null) {
+			rememberPasswordResetOAuthQuery(null);
+			onAuthenticated(user);
+			return;
+		}
+		await resumeAuthorization(user, oauthQuery);
+	}
 
 	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
 		event.preventDefault();
-		if (token === null) {
+		if (token === null || phase !== PasswordResetPhase.Ready) {
 			return;
 		}
+		setPhase(PasswordResetPhase.Resetting);
 		setError(null);
 		try {
-			await resetPassword(token, password);
-			setReset(true);
+			await consumePasswordResetToken(token, password);
 		} catch (caught) {
 			setError(errorMessage(caught));
+			setPhase(PasswordResetPhase.Ready);
+			return;
 		}
+		window.history.replaceState({}, "", "/reset-password");
+		await authenticateAfterReset();
 	}
+
+	const resetSucceeded =
+		phase === PasswordResetPhase.SigningIn ||
+		phase === PasswordResetPhase.SignInFailed ||
+		phase === PasswordResetPhase.ResumingAuthorization ||
+		phase === PasswordResetPhase.AuthorizationResumeFailed;
 
 	return (
 		<AccountPanel title="Choose a new password">
@@ -619,22 +708,72 @@ function ResetPassword({onNavigate}: AccountRouteProps): ReactElement {
 						Request another link
 					</button>
 				</>
-			) : reset ? (
+			) : resetSucceeded ? (
 				<>
 					<p className="form-success" role="status">
-						Your password has been changed.
+						{phase === PasswordResetPhase.SigningIn
+							? "Your password has been changed. Signing you in…"
+							: phase === PasswordResetPhase.ResumingAuthorization
+								? "Signed in. Continuing to authorization…"
+								: phase === PasswordResetPhase.AuthorizationResumeFailed
+									? "Your password has been changed and you are signed in."
+									: "Your password has been changed."}
 					</p>
-					<button
-						type="button"
-						onClick={() => {
-							onNavigate("sign-in");
-						}}
-					>
-						Sign in
-					</button>
+					{error !== null && (
+						<p className="form-error" role="alert">
+							{error}
+						</p>
+					)}
+					{phase === PasswordResetPhase.SignInFailed && (
+						<form
+							className="account-form"
+							onSubmit={(event) => {
+								event.preventDefault();
+								void authenticateAfterReset();
+							}}
+						>
+							<label>
+								Email
+								<input
+									type="email"
+									name="email"
+									autoComplete="email"
+									required
+									value={email}
+									onChange={(event) => {
+										setEmail(event.currentTarget.value);
+									}}
+								/>
+							</label>
+							<button type="submit">Try signing in again</button>
+						</form>
+					)}
+					{phase === PasswordResetPhase.AuthorizationResumeFailed &&
+						authenticatedUser !== null &&
+						oauthQuery !== null && (
+							<button
+								type="button"
+								onClick={() => void resumeAuthorization(authenticatedUser, oauthQuery)}
+							>
+								Continue authorization
+							</button>
+						)}
 				</>
 			) : (
 				<form className="account-form" onSubmit={(event) => void submit(event)}>
+					<label>
+						Email
+						<input
+							type="email"
+							name="email"
+							autoComplete="email"
+							required
+							value={email}
+							onChange={(event) => {
+								setEmail(event.currentTarget.value);
+							}}
+						/>
+					</label>
 					<label>
 						New password
 						<input
@@ -654,7 +793,9 @@ function ResetPassword({onNavigate}: AccountRouteProps): ReactElement {
 							{error}
 						</p>
 					)}
-					<button type="submit">Save new password</button>
+					<button type="submit" disabled={phase === PasswordResetPhase.Resetting}>
+						{phase === PasswordResetPhase.Resetting ? "Saving new password…" : "Save new password"}
+					</button>
 				</form>
 			)}
 		</AccountPanel>
@@ -1223,7 +1364,11 @@ export function App(): ReactElement {
 	function navigate(nextView: AppView): void {
 		const oauthQuery = oauthQueryFromLocation();
 		const preserveOAuthQuery =
-			oauthQuery !== null && (nextView === "sign-in" || nextView === "register" || nextView === "verify-email");
+			oauthQuery !== null &&
+			(nextView === "sign-in" ||
+				nextView === "register" ||
+				nextView === "verify-email" ||
+				nextView === "forgot-password");
 		const target = `${pathForView(nextView)}${preserveOAuthQuery ? `?${oauthQuery}` : ""}`;
 		if (`${window.location.pathname}${window.location.search}` !== target) {
 			window.history.pushState({}, "", target);
@@ -1444,7 +1589,21 @@ export function App(): ReactElement {
 			case "forgot-password":
 				return <ForgotPassword onNavigate={navigate} />;
 			case "reset-password":
-				return <ResetPassword onNavigate={navigate} />;
+				return (
+					<ResetPassword
+						onNavigate={navigate}
+						onAuthenticated={(user) => {
+							setSession(user);
+							setSessionReady(true);
+							navigate("settings");
+						}}
+						onOAuthAuthenticated={(user, redirectUrl) => {
+							setSession(user);
+							setSessionReady(true);
+							followOAuthRedirect(redirectUrl);
+						}}
+					/>
+				);
 			case "oauth-consent":
 				if (!sessionReady) {
 					return <div className="loading">Checking your session…</div>;
