@@ -1,4 +1,4 @@
-import {readFileSync, readlinkSync} from "node:fs";
+import {existsSync, readFileSync} from "node:fs";
 
 function readJson(path: string): unknown {
 	return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
@@ -83,17 +83,21 @@ describe("YepNope plugin distribution", () => {
 		});
 	});
 
-	it("keeps repository skill discovery linked to the packaged source", () => {
+	it("keeps skill discovery exclusive to the plugin bundle", () => {
 		expect({
-			codexSetup: readlinkSync(new URL("../.agents/skills/yepnope-setup", import.meta.url)),
-			codexUse: readlinkSync(new URL("../.agents/skills/yepnope", import.meta.url)),
-			claudeSetup: readlinkSync(new URL("../.claude/skills/yepnope-setup", import.meta.url)),
-			claudeUse: readlinkSync(new URL("../.claude/skills/yepnope", import.meta.url)),
+			codexSetupAlias: existsSync(new URL("../.agents/skills/yepnope-setup", import.meta.url)),
+			codexUseAlias: existsSync(new URL("../.agents/skills/yepnope", import.meta.url)),
+			claudeSetupAlias: existsSync(new URL("../.claude/skills/yepnope-setup", import.meta.url)),
+			claudeUseAlias: existsSync(new URL("../.claude/skills/yepnope", import.meta.url)),
+			packagedSetup: existsSync(new URL("../plugins/yepnope/skills/yepnope-setup/SKILL.md", import.meta.url)),
+			packagedUse: existsSync(new URL("../plugins/yepnope/skills/yepnope/SKILL.md", import.meta.url)),
 		}).toStrictEqual({
-			codexSetup: "../../plugins/yepnope/skills/yepnope-setup",
-			codexUse: "../../plugins/yepnope/skills/yepnope",
-			claudeSetup: "../../plugins/yepnope/skills/yepnope-setup",
-			claudeUse: "../../plugins/yepnope/skills/yepnope",
+			codexSetupAlias: false,
+			codexUseAlias: false,
+			claudeSetupAlias: false,
+			claudeUseAlias: false,
+			packagedSetup: true,
+			packagedUse: true,
 		});
 	});
 
