@@ -68,19 +68,11 @@ function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
 interface AfkToggleProps {
 	afk: boolean | null;
 	connectedMcpClientCount: number | null;
-	signedIn: boolean;
 	onOpenSettings: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({afk, connectedMcpClientCount, signedIn, onOpenSettings, onToggle}: AfkToggleProps): ReactElement {
-	if (!signedIn) {
-		return (
-			<button type="button" className="account-status" onClick={onOpenSettings}>
-				Sign in
-			</button>
-		);
-	}
+function AfkToggle({afk, connectedMcpClientCount, onOpenSettings, onToggle}: AfkToggleProps): ReactElement {
 	if (connectedMcpClientCount === null) {
 		return (
 			<button type="button" className="account-status" disabled>
@@ -253,6 +245,33 @@ function AccountPanel({children, title}: AccountPanelProps): ReactElement {
 	);
 }
 
+function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement {
+	return (
+		<AccountPanel title="YepNope">
+			<p>Sign in to answer questions from your coding agents, or create an account to get started.</p>
+			<div className="signed-out-actions">
+				<button
+					type="button"
+					onClick={() => {
+						onNavigate("sign-in");
+					}}
+				>
+					Sign in
+				</button>
+				<button
+					type="button"
+					className="secondary"
+					onClick={() => {
+						onNavigate("register");
+					}}
+				>
+					Create account
+				</button>
+			</div>
+		</AccountPanel>
+	);
+}
+
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Something went wrong. Try again.";
 }
@@ -359,7 +378,7 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps
 						onNavigate("deck");
 					}}
 				>
-					Back to the deck
+					Back to YepNope
 				</button>
 			</div>
 		</AccountPanel>
@@ -462,7 +481,7 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 						onNavigate("deck");
 					}}
 				>
-					Back to the deck
+					Back to YepNope
 				</button>
 			</div>
 		</AccountPanel>
@@ -564,6 +583,14 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 				>
 					Back to sign in
 				</button>
+				<button
+					type="button"
+					onClick={() => {
+						onNavigate("deck");
+					}}
+				>
+					Back to YepNope
+				</button>
 			</div>
 		</AccountPanel>
 	);
@@ -624,6 +651,14 @@ function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 					}}
 				>
 					Back to sign in
+				</button>
+				<button
+					type="button"
+					onClick={() => {
+						onNavigate("deck");
+					}}
+				>
+					Back to YepNope
 				</button>
 			</div>
 		</AccountPanel>
@@ -817,6 +852,16 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: Rese
 					</button>
 				</form>
 			)}
+			<div className="account-links">
+				<button
+					type="button"
+					onClick={() => {
+						onNavigate("deck");
+					}}
+				>
+					Back to YepNope
+				</button>
+			</div>
 		</AccountPanel>
 	);
 }
@@ -1395,6 +1440,22 @@ export function App(): ReactElement {
 		setView(nextView);
 	}
 
+	const showSignedOutLanding = useCallback(() => {
+		currentDeckStream.current?.close();
+		currentDeckStream.current = null;
+		setCurrentQuestions([]);
+		setAfkState(null);
+		setConnectedMcpClientCount(null);
+		updateBadge(0);
+		rememberPasswordResetOAuthQuery(null);
+		setSession(null);
+		setSessionReady(true);
+		if (`${window.location.pathname}${window.location.search}` !== "/") {
+			window.history.replaceState({}, "", "/");
+		}
+		setView("deck");
+	}, []);
+
 	useEffect(() => {
 		let cancelled = false;
 		fetchSession().then(
@@ -1420,6 +1481,10 @@ export function App(): ReactElement {
 						});
 						return;
 					}
+					if (user === null && window.location.pathname === "/settings") {
+						showSignedOutLanding();
+						return;
+					}
 					setSession(user);
 					if (user !== null && window.location.pathname === "/verify-email") {
 						window.history.replaceState({}, "", "/");
@@ -1430,24 +1495,27 @@ export function App(): ReactElement {
 			},
 			() => {
 				if (!cancelled) {
-					setSession(null);
-					setSessionReady(true);
+					showSignedOutLanding();
 				}
 			},
 		);
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [showSignedOutLanding]);
 
 	const refreshAfk = useCallback(() => {
 		if (session === null) {
 			return;
 		}
-		fetchAfk().then(setAfkState, () => {
+		fetchAfk().then(setAfkState, (caught: unknown) => {
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+				showSignedOutLanding();
+				return;
+			}
 			setAfkState(null);
 		});
-	}, [session]);
+	}, [session, showSignedOutLanding]);
 
 	useEffect(() => {
 		if (session === null) {
@@ -1476,8 +1544,12 @@ export function App(): ReactElement {
 			return undefined;
 		}
 		refreshAfk();
+		let active = true;
 		const stream = openCurrentDeckStream(
 			(state) => {
+				if (!active) {
+					return;
+				}
 				setAfkState(state.afk);
 				setConnectedMcpClientCount(state.connectedMcpClientCount);
 				setCurrentQuestions(state.currentDeck);
@@ -1485,7 +1557,9 @@ export function App(): ReactElement {
 			},
 			{
 				onSignedOut: () => {
-					setSession(null);
+					if (active) {
+						showSignedOutLanding();
+					}
 				},
 			},
 		);
@@ -1510,14 +1584,15 @@ export function App(): ReactElement {
 		const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
 		workerContainer?.addEventListener("message", onServiceWorkerMessage);
 		return () => {
-			stream.close();
+			active = false;
 			if (currentDeckStream.current === stream) {
+				stream.close();
 				currentDeckStream.current = null;
 			}
 			document.removeEventListener("visibilitychange", onVisible);
 			workerContainer?.removeEventListener("message", onServiceWorkerMessage);
 		};
-	}, [refreshAfk, session, view]);
+	}, [refreshAfk, session, showSignedOutLanding, view]);
 
 	function onAnswer(questionId: string, disposition: Disposition): void {
 		if (session === null) {
@@ -1550,6 +1625,9 @@ export function App(): ReactElement {
 				if (!sessionReady) {
 					return <div className="loading">Checking your session…</div>;
 				}
+				if (session === null) {
+					return <SignedOutLanding onNavigate={navigate} />;
+				}
 				return (
 					<Settings
 						session={session}
@@ -1564,9 +1642,7 @@ export function App(): ReactElement {
 							navigate("register");
 						}}
 						onSignedOut={() => {
-							currentDeckStream.current?.close();
-							setSession(null);
-							navigate("deck");
+							showSignedOutLanding();
 						}}
 					/>
 				);
@@ -1632,11 +1708,17 @@ export function App(): ReactElement {
 				}
 				return <OAuthConsent />;
 			case "deck":
+				if (!sessionReady) {
+					return <div className="loading">Checking your session…</div>;
+				}
+				if (session === null) {
+					return <SignedOutLanding onNavigate={navigate} />;
+				}
 				return <Deck questions={currentQuestions} onAnswer={onAnswer} />;
 		}
 		return unreachableView(view);
 	}
-	const showApplicationHeader = view === "deck" || (view === "settings" && session !== null);
+	const showApplicationHeader = sessionReady && session !== null && (view === "deck" || view === "settings");
 
 	return (
 		<div className={view === "settings" ? "app app-settings" : "app"}>
@@ -1647,9 +1729,8 @@ export function App(): ReactElement {
 							<AfkToggle
 								afk={afk}
 								connectedMcpClientCount={connectedMcpClientCount}
-								signedIn={session !== null}
 								onOpenSettings={() => {
-									navigate(session === null ? "sign-in" : "settings");
+									navigate("settings");
 								}}
 								onToggle={onToggleAfk}
 							/>

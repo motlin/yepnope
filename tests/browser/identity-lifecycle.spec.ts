@@ -85,12 +85,20 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 			users: 0,
 		});
 		await firstPage.goto("/");
-		await expect(firstPage.getByRole("button", {name: "Sign in"})).toBeVisible();
-		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
-		await expect(
-			firstPage.getByText("Your question queue is empty. New questions will appear here when they arrive."),
-		).toBeVisible();
-		await expect(firstPage.locator(".card, .actions")).toHaveCount(0);
+		await expect(firstPage.getByRole("heading", {name: "YepNope"})).toBeVisible();
+		expect(
+			await firstPage.locator("body").evaluate((body) => ({
+				actions: [...body.querySelectorAll("button")].map((button) => button.textContent),
+				authenticatedShells: body.querySelectorAll(
+					".app-header, .deck, .deck-header, .actions, .card, .settings, .settings-button, .afk-toggle, .account-status",
+				).length,
+				copy: body.querySelector(".account-panel > p")?.textContent,
+			})),
+		).toStrictEqual({
+			actions: ["Sign in", "Create account"],
+			authenticatedShells: 0,
+			copy: "Sign in to answer questions from your coding agents, or create an account to get started.",
+		});
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
 			authentication_url: "https://127.0.0.1:4173",
 			machine_tokens: 0,
@@ -288,8 +296,13 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		}, replacementPassword);
 		expect(deletion).toStrictEqual({body: {message: "User deleted", success: true}, status: 200});
 		await secondPage.reload();
-		await expect(secondPage.getByRole("button", {name: "Sign in"})).toHaveCount(3);
-		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
+		await expect(secondPage.getByRole("heading", {name: "YepNope"})).toBeVisible();
+		expect(
+			await secondPage.locator("body").evaluate((body) => ({
+				actions: [...body.querySelectorAll("button")].map((button) => button.textContent),
+				authenticatedShells: body.querySelectorAll(".app-header, .deck, .settings, .afk-toggle").length,
+			})),
+		).toStrictEqual({actions: ["Sign in", "Create account"], authenticatedShells: 0});
 
 		const deletedState = await request.post("/api/__e2e__/deleted-account", {data: {user_id: userId}});
 		expect({body: await deletedState.json(), status: deletedState.status()}).toStrictEqual({

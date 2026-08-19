@@ -6,6 +6,7 @@ import type {
 	AuthenticationUser,
 	CurrentDeckConnectionState,
 	CurrentDeckStream,
+	CurrentDeckStreamOptions,
 	LiveApplicationState,
 	OAuthClientSummary,
 } from "../src/api";
@@ -72,6 +73,7 @@ const updateAfk = vi.hoisted(() => vi.fn<(afk: boolean) => Promise<boolean>>(asy
 
 let publishQuestions: ((questions: DeckQuestion[]) => void) | undefined;
 let publishApplicationState: ((state: LiveApplicationState) => void) | undefined;
+let expireSession: (() => void) | undefined;
 const closeStream = vi.fn<() => void>();
 const refreshStream = vi.fn<() => void>();
 
@@ -83,8 +85,11 @@ vi.mock("../src/api", () => ({
 	fetchAfk,
 	fetchOAuthClient,
 	fetchSession,
-	openCurrentDeckStream: vi.fn<(onState: (state: LiveApplicationState) => void) => CurrentDeckStream>((onState) => {
+	openCurrentDeckStream: vi.fn<
+		(onState: (state: LiveApplicationState) => void, options?: CurrentDeckStreamOptions) => CurrentDeckStream
+	>((onState, options) => {
 		publishApplicationState = onState;
+		expireSession = options?.onSignedOut;
 		publishQuestions = (questions) => {
 			onState({
 				afk: true,
@@ -157,6 +162,7 @@ beforeEach(() => {
 	window.history.replaceState({}, "", "/");
 	publishQuestions = undefined;
 	publishApplicationState = undefined;
+	expireSession = undefined;
 	closeStream.mockClear();
 	refreshStream.mockClear();
 	vi.mocked(isIos).mockReturnValue(false);
@@ -620,7 +626,7 @@ describe("Better Auth account routes", () => {
 		});
 	});
 
-	it("shows an empty real deck without creating or storing a browser credential", async () => {
+	it("shows only a clear account choice after direct signed-out navigation", async () => {
 		fetchSession.mockResolvedValue(null);
 		const storeCredential = vi.spyOn(window.localStorage, "setItem");
 
@@ -630,22 +636,54 @@ describe("Better Auth account routes", () => {
 			expect(screen.getByRole("button", {name: "Sign in"}).textContent).toBe("Sign in");
 		});
 		expect({
-			answerButtons: [...container.querySelectorAll(".actions button")].map((button) => button.textContent),
-			cards: [...container.querySelectorAll(".card")].map((card) => card.textContent),
-			deckText: container.querySelector(".deck")?.textContent,
-			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
-				(control) => control.textContent,
-			),
+			actions: [...container.querySelectorAll(".signed-out-actions button")].map((button) => ({
+				className: button.className,
+				text: button.textContent,
+				type: button.getAttribute("type"),
+			})),
+			applicationText: container.querySelector(".app")?.textContent,
+			authenticatedShell: container.querySelectorAll(".app-header, .deck, .settings, .actions, .card, .resolved")
+				.length,
 			openedStream: publishQuestions !== undefined,
+			settingsControls: container.querySelectorAll(".settings-button, .afk-toggle, .account-status").length,
 			storedCredentials: storeCredential.mock.calls,
 		}).toStrictEqual({
-			answerButtons: [],
-			cards: [],
-			deckText: "All caught upYour question queue is empty. New questions will appear here when they arrive.",
-			headerAfkControls: [],
+			actions: [
+				{className: "", text: "Sign in", type: "button"},
+				{className: "secondary", text: "Create account", type: "button"},
+			],
+			applicationText:
+				"YepNopeSign in to answer questions from your coding agents, or create an account to get started.Sign inCreate account",
+			authenticatedShell: 0,
 			openedStream: false,
+			settingsControls: 0,
 			storedCredentials: [],
 		});
+	});
+
+	it("does not flash cached deck state while a reloaded session is being checked", async () => {
+		let finishSessionCheck: (user: AuthenticationUser | null) => void = () => undefined;
+		fetchSession.mockReturnValueOnce(
+			new Promise((resolve) => {
+				finishSessionCheck = resolve;
+			}),
+		);
+
+		const {container} = render(<App />);
+
+		expect({
+			applicationText: container.querySelector(".app")?.textContent,
+			authenticatedShell: container.querySelectorAll(".app-header, .deck, .settings").length,
+		}).toStrictEqual({applicationText: "Checking your session…", authenticatedShell: 0});
+		await act(async () => {
+			finishSessionCheck(null);
+			await Promise.resolve();
+		});
+		expect({
+			actions: screen.getAllByRole("button").map((button) => button.textContent),
+			authenticatedShell: container.querySelectorAll(".app-header, .deck, .settings").length,
+			heading: screen.getByRole("heading").textContent,
+		}).toStrictEqual({actions: ["Sign in", "Create account"], authenticatedShell: 0, heading: "YepNope"});
 	});
 
 	it("removes application chrome from signed-out account routes", async () => {
@@ -687,24 +725,49 @@ describe("Better Auth account routes", () => {
 		}).toStrictEqual({headers: [], harnesses: [], pathname: "/reset-password", settingsControls: []});
 	});
 
-	it("requires an account before authorizing MCP clients or enabling notifications", async () => {
+	it("redirects direct signed-out settings navigation to the landing state", async () => {
 		fetchSession.mockResolvedValue(null);
 		window.history.replaceState({}, "", "/settings");
 
 		render(<App />);
 
-		expect(await screen.findByText("Sign in before authorizing a client.")).toBeDefined();
-		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
-		expect(screen.getAllByRole("button", {name: /sign in/i}).map((button) => button.textContent)).toStrictEqual([
-			"Sign in",
-			"Sign in",
-			"Sign in",
-		]);
+		expect(await screen.findByRole("heading", {name: "YepNope"})).toBeDefined();
 		expect({
-			headers: [...document.querySelectorAll(".app-header")].map((header) => header.textContent),
-			harnesses: screen.queryAllByRole("img", {name: "harness"}).map((icon) => icon.className),
-			settingsControls: screen.queryAllByRole("button", {name: /settings/i}).map((button) => button.textContent),
-		}).toStrictEqual({headers: [], harnesses: [], settingsControls: []});
+			actions: screen.getAllByRole("button").map((button) => button.textContent),
+			authenticatedShell: document.querySelectorAll(".app-header, .deck, .settings").length,
+			pathname: window.location.pathname,
+		}).toStrictEqual({actions: ["Sign in", "Create account"], authenticatedShell: 0, pathname: "/"});
+	});
+
+	it("returns failed sign-in and browser back navigation to the signed-out landing", async () => {
+		fetchSession.mockResolvedValue(null);
+		vi.mocked(signIn).mockRejectedValueOnce(
+			new ApiResponseError("Sign-in failed. Check your email and password, or recover your account.", 401),
+		);
+		window.history.replaceState({}, "", "/sign-in");
+		const {container} = render(<App />);
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "wrong-password"}});
+		fireEvent.click(screen.getByRole("button", {name: "Sign in"}));
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"Sign-in failed. Check your email and password, or recover your account.",
+		);
+		fireEvent.click(screen.getByRole("button", {name: "Back to YepNope"}));
+		expect({
+			actions: screen.getAllByRole("button").map((button) => button.textContent),
+			authenticatedShell: container.querySelectorAll(".app-header, .deck, .settings").length,
+			pathname: window.location.pathname,
+		}).toStrictEqual({actions: ["Sign in", "Create account"], authenticatedShell: 0, pathname: "/"});
+
+		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
+		window.history.pushState({}, "", "/");
+		fireEvent.popState(window);
+		expect({
+			actions: screen.getAllByRole("button").map((button) => button.textContent),
+			authenticatedShell: container.querySelectorAll(".app-header, .deck, .settings").length,
+			pathname: window.location.pathname,
+		}).toStrictEqual({actions: ["Sign in", "Create account"], authenticatedShell: 0, pathname: "/"});
 	});
 
 	it("registers an account and supports verification email resend", async () => {
@@ -736,6 +799,7 @@ describe("Better Auth account routes", () => {
 			buttons: [
 				{ariaBusy: "false", disabled: false, text: "Resend verification email", type: "button"},
 				{ariaBusy: null, disabled: false, text: "Back to sign in", type: "button"},
+				{ariaBusy: null, disabled: false, text: "Back to YepNope", type: "button"},
 			],
 			emailInput: null,
 			headers: 0,
@@ -921,6 +985,53 @@ describe("Better Auth account routes", () => {
 		expect(screen.getByText("✓ Verified email · Session active")).toBeDefined();
 	});
 
+	it("clears the authenticated shell on logout and ignores stale stream state", async () => {
+		window.history.replaceState({}, "", "/settings");
+		const {container} = render(<App />);
+		await screen.findByText("alice@example.com");
+
+		fireEvent.click(screen.getByRole("button", {name: "Sign out"}));
+		await waitFor(() => {
+			expect(window.location.pathname).toBe("/");
+		});
+		act(() => {
+			publishApplicationState?.({afk: true, connectedMcpClientCount: 1, currentDeck: streamedQuestions});
+		});
+		expect({
+			actions: screen.getAllByRole("button").map((button) => button.textContent),
+			authenticatedShell: container.querySelectorAll(".app-header, .deck, .settings").length,
+			closeCalls: closeStream.mock.calls,
+			question: screen.queryByText("Deploy the streamed test change?"),
+		}).toStrictEqual({
+			actions: ["Sign in", "Create account"],
+			authenticatedShell: 0,
+			closeCalls: [[]],
+			question: null,
+		});
+	});
+
+	it("clears the authenticated shell when the live session expires", async () => {
+		const {container} = render(<App />);
+		await waitFor(() => {
+			expect(expireSession).toBeTypeOf("function");
+		});
+		act(() => {
+			publishApplicationState?.({afk: true, connectedMcpClientCount: 1, currentDeck: streamedQuestions});
+			expireSession?.();
+		});
+		expect({
+			actions: screen.getAllByRole("button").map((button) => button.textContent),
+			authenticatedShell: container.querySelectorAll(".app-header, .deck, .settings").length,
+			pathname: window.location.pathname,
+			question: screen.queryByText("Deploy the streamed test change?"),
+		}).toStrictEqual({
+			actions: ["Sign in", "Create account"],
+			authenticatedShell: 0,
+			pathname: "/",
+			question: null,
+		});
+	});
+
 	it("revokes connected MCP clients separately from browser notification devices", async () => {
 		let accountDevices: AccountDevices = {
 			browserSessions: [],
@@ -996,7 +1107,7 @@ describe("Better Auth account routes", () => {
 		fetchSession.mockResolvedValue(null);
 		window.history.replaceState({}, "", "/");
 		render(<App />);
-		fireEvent.click(screen.getByRole("button", {name: "Sign in"}));
+		fireEvent.click(await screen.findByRole("button", {name: "Sign in"}));
 		expect(window.location.pathname).toBe("/sign-in");
 		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});

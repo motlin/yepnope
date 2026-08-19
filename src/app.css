@@ -415,7 +415,8 @@ body {
 }
 
 .account-panel > button,
-.account-form > button {
+.account-form > button,
+.signed-out-actions > button {
 	width: 100%;
 	border: 0;
 	border-radius: 10px;
@@ -425,6 +426,17 @@ body {
 	font-size: 14px;
 	font-weight: 650;
 	padding: 11px 14px;
+}
+
+.signed-out-actions {
+	display: grid;
+	gap: 10px;
+}
+
+.signed-out-actions > button.secondary {
+	border: 1px solid #626873;
+	background: transparent;
+	color: #eceef2;
 }
 
 .account-panel button:focus-visible {

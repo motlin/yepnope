@@ -56,6 +56,7 @@ async function assertVerificationSurface(page: Page): Promise<void> {
 		buttons: [
 			{ariaBusy: "false", disabled: false, text: "Resend verification email", type: "button"},
 			{ariaBusy: null, disabled: false, text: "Back to sign in", type: "button"},
+			{ariaBusy: null, disabled: false, text: "Back to YepNope", type: "button"},
 		],
 		forms: 0,
 		headings: ["Verify your email"],
