@@ -481,11 +481,13 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 	const [email, setEmail] = useState(initialEmail);
 	const [delivery, setDelivery] = useState(initialDelivery);
 	const [submitting, setSubmitting] = useState(false);
+	const [resendCompleted, setResendCompleted] = useState(false);
+	const hasRegistrationEmail = initialEmail !== "";
 
-	async function resend(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
-		event.preventDefault();
+	async function resend(): Promise<void> {
 		setSubmitting(true);
 		setDelivery("idle");
+		setResendCompleted(false);
 		try {
 			if (oauthQuery === null) {
 				await sendVerificationEmail(email);
@@ -493,6 +495,7 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 				await sendVerificationEmail(email, oauthCallbackPath(oauthQuery));
 			}
 			setDelivery("accepted");
+			setResendCompleted(true);
 		} catch {
 			setDelivery("failed");
 		} finally {
@@ -501,41 +504,57 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 	}
 
 	return (
-		<AccountPanel title="Check your email">
-			{delivery === "accepted" ? (
-				<p className="form-success" role="status">
-					If verification is available for that address, check its inbox for next steps.
-				</p>
-			) : delivery === "failed" ? (
+		<AccountPanel title="Verify your email">
+			<p>
+				{hasRegistrationEmail
+					? "If verification is available, use the emailed link to finish creating your account."
+					: "Enter your email to request another verification link."}
+			</p>
+			{delivery === "failed" && (
 				<p className="form-error" role="alert">
 					We couldn&apos;t submit that request. Try again.
 				</p>
-			) : (
-				<p>Enter your email to request verification instructions.</p>
 			)}
 			{verificationError !== null && (
 				<p className="form-error" role="alert">
 					That verification link is invalid or expired.
 				</p>
 			)}
-			<form className="account-form" onSubmit={(event) => void resend(event)}>
-				<label>
-					Email
-					<input
-						type="email"
-						name="email"
-						autoComplete="email"
-						required
-						value={email}
-						onChange={(event) => {
-							setEmail(event.currentTarget.value);
-						}}
-					/>
-				</label>
-				<button type="submit" disabled={submitting} aria-busy={submitting}>
+			{resendCompleted && (
+				<p className="form-success" role="status">
+					If verification is available, a new link will arrive by email.
+				</p>
+			)}
+			{hasRegistrationEmail ? (
+				<button type="button" disabled={submitting} aria-busy={submitting} onClick={() => void resend()}>
 					{submitting ? "Sending…" : "Resend verification email"}
 				</button>
-			</form>
+			) : (
+				<form
+					className="account-form"
+					onSubmit={(event) => {
+						event.preventDefault();
+						void resend();
+					}}
+				>
+					<label>
+						Email
+						<input
+							type="email"
+							name="email"
+							autoComplete="email"
+							required
+							value={email}
+							onChange={(event) => {
+								setEmail(event.currentTarget.value);
+							}}
+						/>
+					</label>
+					<button type="submit" disabled={submitting} aria-busy={submitting}>
+						{submitting ? "Sending…" : "Resend verification email"}
+					</button>
+				</form>
+			)}
 			<div className="account-links">
 				<button
 					type="button"
@@ -1617,35 +1636,38 @@ export function App(): ReactElement {
 		}
 		return unreachableView(view);
 	}
+	const showApplicationHeader = view === "deck" || (view === "settings" && session !== null);
 
 	return (
 		<div className={view === "settings" ? "app app-settings" : "app"}>
-			<div className="app-header">
-				<span className="meta">
-					{view === "deck" && (
-						<AfkToggle
-							afk={afk}
-							connectedMcpClientCount={connectedMcpClientCount}
-							signedIn={session !== null}
-							onOpenSettings={() => {
-								navigate(session === null ? "sign-in" : "settings");
+			{showApplicationHeader && (
+				<div className="app-header">
+					<span className="meta">
+						{view === "deck" && (
+							<AfkToggle
+								afk={afk}
+								connectedMcpClientCount={connectedMcpClientCount}
+								signedIn={session !== null}
+								onOpenSettings={() => {
+									navigate(session === null ? "sign-in" : "settings");
+								}}
+								onToggle={onToggleAfk}
+							/>
+						)}
+						<HarnessIcon />
+						<button
+							type="button"
+							className="settings-button"
+							aria-label={view === "settings" ? "Close settings" : "Settings"}
+							onClick={() => {
+								navigate(view === "deck" ? "settings" : "deck");
 							}}
-							onToggle={onToggleAfk}
-						/>
-					)}
-					<HarnessIcon />
-					<button
-						type="button"
-						className="settings-button"
-						aria-label={view === "settings" ? "Close settings" : "Settings"}
-						onClick={() => {
-							navigate(view === "deck" ? "settings" : "deck");
-						}}
-					>
-						&#9881;
-					</button>
-				</span>
-			</div>
+						>
+							&#9881;
+						</button>
+					</span>
+				</div>
+			)}
 			{currentView()}
 		</div>
 	);

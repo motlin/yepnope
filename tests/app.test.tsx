@@ -648,43 +648,43 @@ describe("Better Auth account routes", () => {
 		});
 	});
 
-	it("keeps the AFK header control off account routes reached from the signed-out deck", async () => {
+	it("removes application chrome from signed-out account routes", async () => {
 		fetchSession.mockResolvedValue(null);
 		const {container} = render(<App />);
 
 		fireEvent.click(await screen.findByRole("button", {name: "Sign in"}));
 		expect({
-			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
-				(control) => control.textContent,
-			),
+			headers: [...container.querySelectorAll(".app-header")].map((header) => header.textContent),
+			harnesses: screen.queryAllByRole("img", {name: "harness"}).map((icon) => icon.className),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerAfkControls: [], pathname: "/sign-in"});
+			settingsControls: screen.queryAllByRole("button", {name: /settings/i}).map((button) => button.textContent),
+		}).toStrictEqual({headers: [], harnesses: [], pathname: "/sign-in", settingsControls: []});
 
 		fireEvent.click(screen.getByRole("button", {name: "Create an account"}));
 		expect({
-			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
-				(control) => control.textContent,
-			),
+			headers: [...container.querySelectorAll(".app-header")].map((header) => header.textContent),
+			harnesses: screen.queryAllByRole("img", {name: "harness"}).map((icon) => icon.className),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerAfkControls: [], pathname: "/register"});
+			settingsControls: screen.queryAllByRole("button", {name: /settings/i}).map((button) => button.textContent),
+		}).toStrictEqual({headers: [], harnesses: [], pathname: "/register", settingsControls: []});
 
 		fireEvent.click(screen.getByRole("button", {name: "Already have an account?"}));
 		fireEvent.click(screen.getByRole("button", {name: "Forgot password?"}));
 		expect({
-			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
-				(control) => control.textContent,
-			),
+			headers: [...container.querySelectorAll(".app-header")].map((header) => header.textContent),
+			harnesses: screen.queryAllByRole("img", {name: "harness"}).map((icon) => icon.className),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerAfkControls: [], pathname: "/forgot-password"});
+			settingsControls: screen.queryAllByRole("button", {name: /settings/i}).map((button) => button.textContent),
+		}).toStrictEqual({headers: [], harnesses: [], pathname: "/forgot-password", settingsControls: []});
 
 		window.history.pushState({}, "", "/reset-password?token=test-recovery-token");
 		fireEvent.popState(window);
 		expect({
-			headerAfkControls: [...container.querySelectorAll(".app-header .afk-toggle")].map(
-				(control) => control.textContent,
-			),
+			headers: [...container.querySelectorAll(".app-header")].map((header) => header.textContent),
+			harnesses: screen.queryAllByRole("img", {name: "harness"}).map((icon) => icon.className),
 			pathname: window.location.pathname,
-		}).toStrictEqual({headerAfkControls: [], pathname: "/reset-password"});
+			settingsControls: screen.queryAllByRole("button", {name: /settings/i}).map((button) => button.textContent),
+		}).toStrictEqual({headers: [], harnesses: [], pathname: "/reset-password", settingsControls: []});
 	});
 
 	it("requires an account before authorizing MCP clients or enabling notifications", async () => {
@@ -700,7 +700,11 @@ describe("Better Auth account routes", () => {
 			"Sign in",
 			"Sign in",
 		]);
-		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
+		expect({
+			headers: [...document.querySelectorAll(".app-header")].map((header) => header.textContent),
+			harnesses: screen.queryAllByRole("img", {name: "harness"}).map((icon) => icon.className),
+			settingsControls: screen.queryAllByRole("button", {name: /settings/i}).map((button) => button.textContent),
+		}).toStrictEqual({headers: [], harnesses: [], settingsControls: []});
 	});
 
 	it("registers an account and supports verification email resend", async () => {
@@ -712,12 +716,32 @@ describe("Better Auth account routes", () => {
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
 		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
 
-		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
+		expect(await screen.findByRole("heading", {name: "Verify your email"})).toBeDefined();
 		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
-		expect(screen.getByRole("status").textContent).toBe(
-			"If verification is available for that address, check its inbox for next steps.",
-		);
+		expect({
+			buttons: screen.getAllByRole("button").map((button) => ({
+				ariaBusy: button.getAttribute("aria-busy"),
+				disabled: (button as HTMLButtonElement).disabled,
+				text: button.textContent,
+				type: button.getAttribute("type"),
+			})),
+			emailInput: screen.queryByRole("textbox", {name: "Email"}),
+			headers: document.querySelectorAll(".app-header").length,
+			instruction: screen.getByText(
+				"If verification is available, use the emailed link to finish creating your account.",
+			).textContent,
+			status: screen.queryByRole("status"),
+		}).toStrictEqual({
+			buttons: [
+				{ariaBusy: "false", disabled: false, text: "Resend verification email", type: "button"},
+				{ariaBusy: null, disabled: false, text: "Back to sign in", type: "button"},
+			],
+			emailInput: null,
+			headers: 0,
+			instruction: "If verification is available, use the emailed link to finish creating your account.",
+			status: null,
+		});
 		let finishResend: () => void = () => undefined;
 		vi.mocked(sendVerificationEmail).mockReturnValueOnce(
 			new Promise<void>((resolve) => {
@@ -737,9 +761,15 @@ describe("Better Auth account routes", () => {
 				["alice@example.com"],
 			]);
 			expect(screen.getByRole("status").textContent).toBe(
-				"If verification is available for that address, check its inbox for next steps.",
+				"If verification is available, a new link will arrive by email.",
 			);
 		});
+		fireEvent.click(screen.getByRole("button", {name: "Back to sign in"}));
+		expect({
+			headers: document.querySelectorAll(".app-header").length,
+			pathname: window.location.pathname,
+			title: document.title,
+		}).toStrictEqual({headers: 0, pathname: "/sign-in", title: "Sign in · YepNope"});
 	});
 
 	it("keeps a created account recoverable when verification delivery is rejected", async () => {
@@ -752,10 +782,11 @@ describe("Better Auth account routes", () => {
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
 		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
 
-		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
+		expect(await screen.findByRole("heading", {name: "Verify your email"})).toBeDefined();
 		expect(screen.getByRole("alert").textContent).toBe("We couldn't submit that request. Try again.");
 		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
 		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
+		expect(screen.queryByRole("textbox", {name: "Email"})).toBeNull();
 	});
 
 	it("restores the verification-created browser session on the authenticated deck", async () => {
@@ -776,9 +807,18 @@ describe("Better Auth account routes", () => {
 		window.history.replaceState({}, "", "/verify-email?error=TOKEN_EXPIRED");
 		render(<App />);
 
-		expect(await screen.findByRole("heading", {name: "Check your email"})).toBeDefined();
-		expect(screen.getByRole("alert").textContent).toBe("That verification link is invalid or expired.");
-		expect(screen.getByRole("button", {name: "Resend verification email"})).toBeDefined();
+		expect(await screen.findByRole("heading", {name: "Verify your email"})).toBeDefined();
+		expect({
+			alert: screen.getByRole("alert").textContent,
+			emailInput: screen.getByRole("textbox", {name: "Email"}).getAttribute("value"),
+			instruction: screen.getByText("Enter your email to request another verification link.").textContent,
+			resendButtonType: screen.getByRole("button", {name: "Resend verification email"}).getAttribute("type"),
+		}).toStrictEqual({
+			alert: "That verification link is invalid or expired.",
+			emailInput: "",
+			instruction: "Enter your email to request another verification link.",
+			resendButtonType: "submit",
+		});
 	});
 
 	it("requests recovery, consumes the token, and signs in with the replacement password", async () => {

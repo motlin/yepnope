@@ -107,7 +107,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await firstPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await firstPage.getByLabel("Password").fill(originalPassword);
 		await firstPage.getByRole("button", {name: "Create account"}).click();
-		await expect(firstPage.getByRole("heading", {name: "Check your email"})).toBeVisible();
+		await expect(firstPage.getByRole("heading", {name: "Verify your email"})).toBeVisible();
 
 		const verificationContext = await browser.newContext({ignoreHTTPSErrors: true});
 		contexts.push(verificationContext);
@@ -388,7 +388,8 @@ test("public authentication contracts do not reveal account state", async ({page
 		await page.getByRole("textbox", {name: "Email"}).fill(accountEmail);
 		await page.getByLabel("Password").fill(password);
 		await page.getByRole("button", {name: "Create account"}).click();
-		registrationCopy.push(await page.getByRole("status").textContent());
+		await expect(page.getByRole("heading", {name: "Verify your email"})).toBeVisible();
+		registrationCopy.push(await page.locator(".account-panel > p").first().textContent());
 	}
 
 	const verificationCopy = [];
@@ -414,18 +415,18 @@ test("public authentication contracts do not reveal account state", async ({page
 			"If recovery is available for that address, check its inbox for next steps.",
 		],
 		registrationCopy: [
-			"If verification is available for that address, check its inbox for next steps.",
-			"If verification is available for that address, check its inbox for next steps.",
-			"If verification is available for that address, check its inbox for next steps.",
+			"If verification is available, use the emailed link to finish creating your account.",
+			"If verification is available, use the emailed link to finish creating your account.",
+			"If verification is available, use the emailed link to finish creating your account.",
 		],
 		signInCopy: [
 			"Sign-in failed. Check your email and password, or recover your account.",
 			"Sign-in failed. Check your email and password, or recover your account.",
 		],
 		verificationCopy: [
-			"If verification is available for that address, check its inbox for next steps.",
-			"If verification is available for that address, check its inbox for next steps.",
-			"If verification is available for that address, check its inbox for next steps.",
+			"If verification is available, a new link will arrive by email.",
+			"If verification is available, a new link will arrive by email.",
+			"If verification is available, a new link will arrive by email.",
 		],
 	});
 });

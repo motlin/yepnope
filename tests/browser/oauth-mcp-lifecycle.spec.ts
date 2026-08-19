@@ -393,7 +393,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		await page.getByRole("textbox", {name: "Email"}).fill(email);
 		await page.getByLabel("Password").fill(password);
 		await page.getByRole("button", {name: "Create account"}).click();
-		await expect(page.getByRole("heading", {name: "Check your email"})).toBeVisible();
+		await expect(page.getByRole("heading", {name: "Verify your email"})).toBeVisible();
 		const verificationLink = await mailboxLink(request);
 		await page.goto(verificationLink);
 		const sessionResponse = await page.request.get("/api/auth/get-session");

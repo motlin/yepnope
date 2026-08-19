@@ -427,6 +427,11 @@ body {
 	padding: 11px 14px;
 }
 
+.account-panel button:focus-visible {
+	outline: 2px solid #d7dae0;
+	outline-offset: 2px;
+}
+
 .account-form {
 	display: flex;
 	flex-direction: column;
