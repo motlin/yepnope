@@ -135,7 +135,7 @@ count on disk (`~/.yepnope/telemetry.json`): when the user answers yep to more
 than 95% of recent questions, the tool response starts coaching the model to
 ask less.
 
-## AFK mode and Claude Code statusline
+## AFK mode and optional status output
 
 The app toggle is the primary AFK control because it remains available after
 you leave your computer. The CLI provides the same global per-user control for
@@ -150,27 +150,36 @@ npx yepnope-mcp afk off      # use native prompts for new questions
 Changes apply to the next question only. Turning AFK mode off does not retract
 cards already on the phone or strand agents waiting for those answers.
 
-Claude Code can display the server state in its status line. Export
-`YEPNOPE_TOKEN` in the environment that launches Claude Code, then add this to
-`~/.claude/settings.json` (or project settings):
+`npx yepnope-mcp afk statusline` is a one-shot command that prints `📱 YepNope:
+ON` or `💻 YepNope: OFF`; configuration and server failures produce a warning
+without printing the token. It does not start the MCP server or install a
+timer.
+
+YepNope must not create or replace a project or user `statusLine`. To make
+composition discoverable while leaving the status line under its owner's
+control, expose the one-shot command as `YEPNOPE_STATUSLINE_COMMAND`. This
+repository does that without defining `statusLine`:
 
 ```json
 {
-	"statusLine": {
-		"type": "command",
-		"command": "npx yepnope-mcp afk statusline",
-		"refreshInterval": 10
+	"env": {
+		"YEPNOPE_STATUSLINE_COMMAND": "npx yepnope-mcp afk statusline"
 	}
 }
 ```
 
-The command reads the live server state and prints `📱 YepNope: ON` or
-`💻 YepNope: OFF`; configuration and server failures produce a warning without
-printing the token. It ignores Claude Code's session JSON on stdin and exits
-without starting the MCP server. `YEPNOPE_URL` overrides the service URL for
-development. See Claude Code's official
+An existing user-owned status-line script may explicitly invoke that trusted
+command when it already refreshes for a normal Claude Code event. YepNope does
+not add `refreshInterval`, so it never introduces a perpetual background poll.
+The command ignores Claude Code's session JSON on stdin. `YEPNOPE_URL`
+overrides the service URL for development. See Claude Code's official
 [statusline documentation](https://code.claude.com/docs/en/statusline) for
-composition with an existing status line and other settings.
+composition details.
+
+The shared `yepnope` Agent Skill performs one setup check when it first needs
+the tool. If setup is missing, Claude Code recommends `/yepnope-setup`; Codex
+recommends `$yepnope-setup`. Neither skill edits status-line settings or starts
+background monitoring.
 
 ## Privacy and retention
 

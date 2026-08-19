@@ -1,0 +1,4 @@
+interface:
+  display_name: "Set up YepNope"
+  short_description: "Connect and authenticate the YepNope MCP server"
+  default_prompt: "Use $yepnope-setup to connect and authenticate the YepNope MCP server."

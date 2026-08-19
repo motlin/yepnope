@@ -1,0 +1,4 @@
+interface:
+  display_name: "YepNope"
+  short_description: "Check YepNope before routing agent questions"
+  default_prompt: "Use $yepnope to check the connection and route a yes or no question."
