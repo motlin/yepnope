@@ -1,15 +1,20 @@
 import {createMcpHandler, McpServer} from "@modelcontextprotocol/server";
 import {createLocalJWKSet, jwtVerify} from "jose";
 import {z} from "zod";
-import {ASK_YEP_NOPE_STANDARD_SCHEMA, formatAskYepNopeResult, TOOL_DESCRIPTION, TOOL_NAME} from "../shim/tool";
+import {
+	ASK_YEP_NOPE_STANDARD_SCHEMA,
+	formatAskYepNopeResult,
+	NATIVE_QUESTION_FALLBACK,
+	NATIVE_QUESTION_FALLBACK_TEXT,
+	TOOL_DESCRIPTION,
+	TOOL_NAME,
+} from "../shim/tool";
 import {createWorkerAuthentication, MCP_RESOURCE_PATH, OAUTH_SCOPES} from "./auth";
 import {parseFrame, type DispositionMap} from "./protocol";
 import type {UserDurableObject} from "./user-do";
 import {findLengthViolations, RETENTION_MILLISECONDS, teachingRejection, type Disposition} from "./validation";
 
 const QUESTION_SCOPE = "yepnope:questions";
-const AFK_SCOPE = "yepnope:afk";
-const AFK_TOOL_NAME = "set_yepnope_afk";
 const DEFAULT_HEARTBEAT_MILLISECONDS = 30_000;
 const DEFAULT_PROGRESS_MILLISECONDS = 15_000;
 const DEFAULT_RECONNECT_DELAY_MILLISECONDS = 2_000;
@@ -73,6 +78,13 @@ type StreamResult =
 
 function textResult(text: string, isError: boolean) {
 	return {content: [{type: "text" as const, text}], ...(isError ? {isError: true} : {})};
+}
+
+function nativeQuestionFallbackResult() {
+	return {
+		content: [{type: "text" as const, text: NATIVE_QUESTION_FALLBACK_TEXT}],
+		structuredContent: NATIVE_QUESTION_FALLBACK,
+	};
 }
 
 function parseStoredStringArray(value: string | null): string[] {
@@ -307,7 +319,6 @@ function orderedDispositions(questionIds: string[], dispositions: DispositionMap
 
 function createRemoteMcpServer(
 	stub: DurableObjectStub<UserDurableObject>,
-	grantedScopes: ReadonlySet<string>,
 	executionContext: ExecutionContext,
 	timing: RemoteMcpTiming,
 	requestKey: string | null,
@@ -322,11 +333,7 @@ function createRemoteMcpServer(
 				return textResult(teachingRejection(violations), true);
 			}
 			if (!(await stub.getAfk(true))) {
-				return textResult(
-					"The user is at their keyboard, so questions are not being routed to their phone. " +
-						"Use the AskUserQuestion tool instead of ask_yep_nope for this question.",
-					true,
-				);
+				return nativeQuestionFallbackResult();
 			}
 			const created = await stub.createBatch(batch);
 			if (requestKey !== null) {
@@ -378,23 +385,6 @@ function createRemoteMcpServer(
 					await stub.unregisterMcpRequest(requestKey, created.batchId);
 				}
 			}
-		},
-	);
-	server.registerTool(
-		AFK_TOOL_NAME,
-		{
-			description: "Turn YepNope phone routing on or off for this account.",
-			inputSchema: z.object({afk: z.boolean()}),
-		},
-		async ({afk}) => {
-			if (!grantedScopes.has(AFK_SCOPE)) {
-				return textResult("This OAuth client does not have the yepnope:afk scope.", true);
-			}
-			const result = await stub.setAfk(afk, true);
-			if (result.status !== "updated") {
-				return textResult(result.message, true);
-			}
-			return textResult(`AFK routing is ${result.afk ? "on" : "off"}.`, false);
 		},
 	);
 	return server;
@@ -457,13 +447,7 @@ export async function handleRemoteMcpRequest(
 	}
 	const handler = createMcpHandler(
 		() =>
-			createRemoteMcpServer(
-				environment.USER_DO.getByName(parsed.data.sub),
-				grantedScopes,
-				executionContext,
-				timing,
-				requestKey,
-			),
+			createRemoteMcpServer(environment.USER_DO.getByName(parsed.data.sub), executionContext, timing, requestKey),
 		{responseMode: "sse"},
 	);
 	return handler.fetch(request);

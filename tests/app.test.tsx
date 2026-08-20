@@ -189,7 +189,7 @@ describe("OAuth consent continuity", () => {
 		const oauthQuery = new URLSearchParams({
 			client_id: "oauth-client",
 			resource: `${window.location.origin}/mcp`,
-			scope: "openid offline_access yepnope:questions yepnope:afk",
+			scope: "openid offline_access yepnope:questions",
 			sig: "signed-authorization-request",
 		}).toString();
 		fetchSession.mockResolvedValueOnce(null).mockResolvedValueOnce(alice);
@@ -216,7 +216,7 @@ describe("OAuth consent continuity", () => {
 		const oauthQuery = new URLSearchParams({
 			client_id: "oauth-client",
 			resource: `${window.location.origin}/mcp`,
-			scope: "openid offline_access yepnope:questions yepnope:afk",
+			scope: "openid offline_access yepnope:questions",
 			sig: "signed-password-reset-authorization",
 		}).toString();
 		fetchSession.mockResolvedValue(null);
@@ -263,7 +263,7 @@ describe("OAuth consent continuity", () => {
 		const oauthQuery = new URLSearchParams({
 			client_id: "oauth-client",
 			resource: `${window.location.origin}/mcp`,
-			scope: "openid offline_access yepnope:questions yepnope:afk",
+			scope: "openid offline_access yepnope:questions",
 			sig: "signed-authorization-request",
 		}).toString();
 		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
@@ -272,10 +272,10 @@ describe("OAuth consent continuity", () => {
 
 		expect(await screen.findByText("Codex")).toBeDefined();
 		expect(
-			["Use your YepNope identity", "Stay connected", "Ask questions", "Manage AFK routing"].map(
+			["Use your YepNope identity", "Stay connected", "Ask questions"].map(
 				(label) => screen.getByText(label).textContent,
 			),
-		).toStrictEqual(["Use your YepNope identity", "Stay connected", "Ask questions", "Manage AFK routing"]);
+		).toStrictEqual(["Use your YepNope identity", "Stay connected", "Ask questions"]);
 		expect(screen.getByRole("button", {name: "Allow"})).toBeDefined();
 		fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
 
@@ -1041,7 +1041,7 @@ describe("Better Auth account routes", () => {
 					displayName: "Alice Codex",
 					authorizedAt: 946_684_800_000,
 					lastUsedAt: null,
-					grantedScopes: ["yepnope:questions", "yepnope:afk"],
+					grantedScopes: ["yepnope:questions"],
 					status: "active",
 					revokedAt: null,
 				},
@@ -1066,9 +1066,7 @@ describe("Better Auth account routes", () => {
 		}
 		expect([
 			clientRow.textContent.includes("Not used yet"),
-			clientRow.textContent.includes(
-				"Granted scopes: Ask questions (yepnope:questions), Manage AFK routing (yepnope:afk)",
-			),
+			clientRow.textContent.includes("Granted scopes: Ask questions (yepnope:questions)"),
 		]).toStrictEqual([true, true]);
 		expect(within(clientRow).queryByRole("button", {name: "Rename"})).toBeNull();
 

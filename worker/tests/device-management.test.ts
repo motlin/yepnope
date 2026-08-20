@@ -125,7 +125,7 @@ describe("connected MCP client and browser notification management", () => {
 						display_name: "Alice Codex",
 						authorized_at: AUTHORIZED_AT,
 						last_used_at: null,
-						granted_scopes: ["offline_access", "openid", "yepnope:afk", "yepnope:questions"],
+						granted_scopes: ["offline_access", "openid", "yepnope:questions"],
 						status: "active",
 						revoked_at: null,
 					},

@@ -6,11 +6,14 @@ describe("ask_yep_nope tool contract", () => {
 		expect(TOOL_NAME).toBe("ask_yep_nope");
 	});
 
-	it("carries the verbatim description from the spec", () => {
+	it("describes AFK-aware phone routing with native fallback", () => {
 		expect(TOOL_DESCRIPTION).toBe(
-			"Ask the user yes/no questions on their phone. The user is away from their computer and will " +
-				"answer by swiping. They cannot see your terminal and have forgotten the project context " +
-				"entirely, so every question must be self-contained: state what you will do if they answer " +
+			"Before using the client's native question flow for a blocking yes/no decision, call this tool. " +
+				"It atomically checks the user's app-controlled phone-routing state. When routing is off, it " +
+				"returns a native fallback instruction; immediately ask the same question through the client's " +
+				"native user-question tool without asking the user to change routing. When routing is on, the user " +
+				"answers on their phone by swiping. They cannot see your terminal and may have forgotten the " +
+				"project context, so every question must be self-contained: state what you will do if they answer " +
 				"yes, and give the context needed to decide, in that order. One decision per question. " +
 				"Prefer phrasing where the expected answer is yes, but never use a negation in the title to " +
 				"achieve it; a clear question with an expected no beats a confusing one with an expected " +

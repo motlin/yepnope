@@ -196,7 +196,7 @@ describe("Better Auth OAuth MCP provider", () => {
 			bearer_methods_supported: ["header"],
 			dpop_signing_alg_values_supported: ["EdDSA", "ES256", "ES512", "PS256", "RS256"],
 			resource: RESOURCE,
-			scopes_supported: ["yepnope:questions", "yepnope:afk"],
+			scopes_supported: ["yepnope:questions"],
 		});
 	});
 
@@ -218,6 +218,11 @@ describe("Better Auth OAuth MCP provider", () => {
 				method: "POST",
 				headers: {"Content-Type": "application/json"},
 				body: JSON.stringify(registrationBody({scope: `${OAUTH_SCOPES.join(" ")} admin`})),
+			}),
+			worker.fetch(`${ISSUER}/oauth2/register`, {
+				method: "POST",
+				headers: {"Content-Type": "application/json"},
+				body: JSON.stringify(registrationBody({scope: `${OAUTH_SCOPES.join(" ")} yepnope:afk`})),
 			}),
 			worker.fetch(`${ISSUER}/oauth2/register`, {
 				method: "POST",
@@ -250,7 +255,7 @@ describe("Better Auth OAuth MCP provider", () => {
 				token_endpoint_auth_method: registered.registrationResponse["token_endpoint_auth_method"],
 			},
 		}).toStrictEqual({
-			invalid: Array.from({length: 4}, () => ({
+			invalid: Array.from({length: 5}, () => ({
 				body: {
 					error: "invalid_client_metadata",
 					error_description: "Client registration metadata is not permitted",

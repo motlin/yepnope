@@ -1,4 +1,4 @@
 interface:
   display_name: "YepNope"
-  short_description: "Check YepNope before routing agent questions"
-  default_prompt: "Use $yepnope to check the connection and route a yes or no question."
+  short_description: "Route binary questions with native fallback"
+  default_prompt: "Use $yepnope to route a blocking yes or no question with native fallback."

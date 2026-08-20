@@ -879,10 +879,6 @@ const OAUTH_CAPABILITIES = {
 		description: "Send questions to YepNope and wait for your Yep, Nope, or Skip answer.",
 		label: "Ask questions",
 	},
-	"yepnope:afk": {
-		description: "Read and change whether YepNope routes questions while you are away.",
-		label: "Manage AFK routing",
-	},
 } as const;
 
 function isOAuthCapability(scope: string): scope is keyof typeof OAUTH_CAPABILITIES {

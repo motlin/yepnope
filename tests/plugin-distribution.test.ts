@@ -24,7 +24,10 @@ describe("YepNope plugin distribution", () => {
 				developerName: "YepNope",
 				category: "Productivity",
 				capabilities: ["Skills", "MCP"],
-				defaultPrompt: ["Use YepNope to ask me a yes-or-no question.", "Check whether YepNope is connected."],
+				defaultPrompt: [
+					"Use YepNope first for a blocking yes-or-no question, with native fallback.",
+					"Check whether YepNope is connected.",
+				],
 			},
 			mcpServers: "./.mcp.json",
 		});

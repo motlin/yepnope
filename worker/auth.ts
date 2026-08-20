@@ -36,7 +36,7 @@ const OAUTH_AUTHORIZATION_CODE_EXPIRY_SECONDS = 5 * 60;
 const OAUTH_REFRESH_TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
 export const MCP_RESOURCE_PATH = "/mcp";
 const OAUTH_CONSENT_PATH = "/oauth/consent";
-export const OAUTH_SCOPES = ["openid", "offline_access", "yepnope:questions", "yepnope:afk"] as const;
+export const OAUTH_SCOPES = ["openid", "offline_access", "yepnope:questions"] as const;
 const OAUTH_SCOPE_SET: ReadonlySet<string> = new Set(OAUTH_SCOPES);
 const emailRegistrationSchema = z
 	.object({

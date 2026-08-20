@@ -32,7 +32,7 @@ async function routeSettingsData(page: Page): Promise<void> {
 					display_name: "Alice laptop",
 					authorized_at: 946_684_800_000,
 					last_used_at: null,
-					granted_scopes: ["yepnope:questions", "yepnope:afk"],
+					granted_scopes: ["yepnope:questions"],
 					status: "active",
 					revoked_at: null,
 				},

@@ -4,7 +4,12 @@ import {request as httpsRequest} from "node:https";
 import {Readable} from "node:stream";
 import {expect, test, type APIRequestContext, type BrowserContext, type Page} from "playwright/test";
 import {z} from "zod";
-import {TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA} from "../../shim/tool";
+import {
+	NATIVE_QUESTION_FALLBACK,
+	NATIVE_QUESTION_FALLBACK_TEXT,
+	TOOL_DESCRIPTION,
+	TOOL_INPUT_SCHEMA,
+} from "../../shim/tool";
 
 const serverOrigin = "https://127.0.0.1:4173";
 const issuer = `${serverOrigin}/api/auth`;
@@ -12,7 +17,7 @@ const resource = `${serverOrigin}/mcp`;
 const email = "alice-oauth-browser@example.com";
 const password = "oauth-browser-password";
 const verificationSubject = "Verify your YepNope email";
-const scopes = ["openid", "offline_access", "yepnope:questions", "yepnope:afk"] as const;
+const scopes = ["openid", "offline_access", "yepnope:questions"] as const;
 const redirectUri = "http://127.0.0.1:45678/callback/oauth-browser-client";
 const secondRedirectUri = "http://127.0.0.1:45679/callback/oauth-browser-client";
 const recoveryRedirectUri = "http://127.0.0.1:45680/callback/oauth-browser-client";
@@ -40,26 +45,11 @@ const cancelledQuestion = {
 	title: "Cancel the OAuth browser request?",
 	body: "Exercise MCP cancellation and retract this outstanding question.",
 } as const;
-const afkError =
-	"The user is at their keyboard, so questions are not being routed to their phone. " +
-	"Use the AskUserQuestion tool instead of ask_yep_nope for this question.";
 const revokedAccessError =
 	'Streamable HTTP error: Error POSTing to endpoint: {"jsonrpc":"2.0","error":' +
 	'{"code":-32000,"message":"Invalid or revoked access token"},"id":null}';
 const expectedTools = {
-	tools: [
-		{name: "ask_yep_nope", description: TOOL_DESCRIPTION, inputSchema: TOOL_INPUT_SCHEMA},
-		{
-			name: "set_yepnope_afk",
-			description: "Turn YepNope phone routing on or off for this account.",
-			inputSchema: {
-				$schema: "https://json-schema.org/draft/2020-12/schema",
-				properties: {afk: {type: "boolean"}},
-				required: ["afk"],
-				type: "object",
-			},
-		},
-	],
+	tools: [{name: "ask_yep_nope", description: TOOL_DESCRIPTION, inputSchema: TOOL_INPUT_SCHEMA}],
 };
 
 const oauthRegistrationSchema = z.object({client_id: z.string().min(1)}).loose();
@@ -378,7 +368,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 				bearer_methods_supported: ["header"],
 				dpop_signing_alg_values_supported: ["EdDSA", "ES256", "ES512", "PS256", "RS256"],
 				resource,
-				scopes_supported: ["yepnope:questions", "yepnope:afk"],
+				scopes_supported: ["yepnope:questions"],
 			},
 			statuses: [200, 200],
 		});
@@ -416,7 +406,6 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		await expect(page.getByRole("heading", {name: "Authorize MCP client"})).toBeVisible();
 		await expect(page.getByText("Browser OAuth MCP client")).toBeVisible();
 		await expect(page.getByText("Ask questions")).toBeVisible();
-		await expect(page.getByText("Manage AFK routing")).toBeVisible();
 		const callback = await captureConsentCallback(page, redirectUri, "Allow");
 		expect({
 			codePresent: callback.searchParams.has("code"),
@@ -448,7 +437,10 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 					questions: [{title: "Route this test question?", body: "The user is not AFK yet."}],
 				},
 			}),
-		).toStrictEqual({content: [{text: afkError, type: "text"}], isError: true});
+		).toStrictEqual({
+			content: [{text: NATIVE_QUESTION_FALLBACK_TEXT, type: "text"}],
+			structuredContent: NATIVE_QUESTION_FALLBACK,
+		});
 
 		await page.goto(await authorizationUrl(clientId, redirectUri, failedPkceVerifier, failedPkceState));
 		await expect(page.getByRole("heading", {name: "Authorize MCP client"})).toBeVisible();
@@ -514,10 +506,9 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			await expect(settingsPage.getByText("Browser OAuth MCP client", {exact: true})).toBeVisible();
 			await expect(settingsPage.getByText("Second browser OAuth MCP client", {exact: true})).toBeVisible();
 		}
-		expect(await client.callTool({name: "set_yepnope_afk", arguments: {afk: true}})).toStrictEqual({
-			content: [{text: "AFK routing is on.", type: "text"}],
-		});
 		await page.goto("/");
+		await expect(page.getByRole("button", {name: "AFK off"})).toHaveAttribute("aria-pressed", "false");
+		await page.getByRole("button", {name: "AFK off"}).click();
 		await secondPage.goto("/");
 		for (const deckPage of [page, secondPage]) {
 			await expect(deckPage.getByRole("button", {name: "AFK on"})).toHaveAttribute("aria-pressed", "true");

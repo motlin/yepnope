@@ -4,6 +4,11 @@ import type {Disposition} from "../worker/validation";
 
 export const TOOL_NAME = "ask_yep_nope";
 
+export const NATIVE_QUESTION_FALLBACK_TEXT =
+	"YepNope phone routing is off. Immediately ask the same question through the client's native user-question tool.";
+
+export const NATIVE_QUESTION_FALLBACK = {reason: "afk_off", route: "native"} as const;
+
 export const ASK_YEP_NOPE_ARGUMENTS_SCHEMA = z.object({
 	project: z.string().min(1),
 	questions: z.array(z.object({title: z.string(), body: z.string()})).min(1),
@@ -37,9 +42,12 @@ export function formatAskYepNopeResult(
 
 // 🗣️ Verbatim from the spec (appendix A.2 step 0); iterate against real sessions, not in review.
 export const TOOL_DESCRIPTION =
-	"Ask the user yes/no questions on their phone. The user is away from their computer and will " +
-	"answer by swiping. They cannot see your terminal and have forgotten the project context " +
-	"entirely, so every question must be self-contained: state what you will do if they answer " +
+	"Before using the client's native question flow for a blocking yes/no decision, call this tool. " +
+	"It atomically checks the user's app-controlled phone-routing state. When routing is off, it " +
+	"returns a native fallback instruction; immediately ask the same question through the client's " +
+	"native user-question tool without asking the user to change routing. When routing is on, the user " +
+	"answers on their phone by swiping. They cannot see your terminal and may have forgotten the " +
+	"project context, so every question must be self-contained: state what you will do if they answer " +
 	"yes, and give the context needed to decide, in that order. One decision per question. " +
 	"Prefer phrasing where the expected answer is yes, but never use a negation in the title to " +
 	"achieve it; a clear question with an expected no beats a confusing one with an expected " +

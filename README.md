@@ -57,6 +57,12 @@ That command installs both skills. Run `/yepnope-setup` in Claude Code or
 The skill-only path does not install project settings, status-line settings, or
 background polling.
 
+For every blocking yes-or-no decision, the agent calls `ask_yep_nope` first.
+That call atomically reads the AFK state controlled by the app: it routes the
+question to the phone when AFK is on and tells the agent to use its native
+question flow when AFK is off. The remote MCP cannot change AFK state and does
+not make a separate status request before each question.
+
 ## Pairing
 
 Until the package is published, build and run the checked-out shim directly:
@@ -180,11 +186,11 @@ While the call blocks, the shim heartbeats the server over the answer stream.
 If the agent process dies, the heartbeats stop, the server retracts the batch,
 and the cards disappear from the phone; a resumed agent simply asks again.
 
-While AFK mode is off, `ask_yep_nope` returns a tool error telling the model to
-use its native question tool instead. The shim also keeps a local yes-rate
-count on disk (`~/.yepnope/telemetry.json`): when the user answers yep to more
-than 95% of recent questions, the tool response starts coaching the model to
-ask less.
+While AFK mode is off, the remote OAuth MCP returns a structured native-fallback
+result. The legacy shim returns a tool error with the same instruction. The shim
+also keeps a local yes-rate count on disk (`~/.yepnope/telemetry.json`): when the
+user answers yep to more than 95% of recent questions, the tool response starts
+coaching the model to ask less.
 
 ## AFK mode and optional status output
 

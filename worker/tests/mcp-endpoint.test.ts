@@ -5,16 +5,18 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {createWorkerAuthentication, MCP_RESOURCE_PATH, OAUTH_SCOPES} from "../auth";
 import {handleRemoteMcpRequest, type RemoteMcpTiming} from "../mcp";
 import type {CurrentQuestion, UserDurableObject} from "../user-do";
-import {TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA} from "../../shim/tool";
+import {
+	NATIVE_QUESTION_FALLBACK,
+	NATIVE_QUESTION_FALLBACK_TEXT,
+	TOOL_DESCRIPTION,
+	TOOL_INPUT_SCHEMA,
+} from "../../shim/tool";
 import {API_ORIGIN, createVerifiedBrowserSession, required, worker} from "./helpers";
 
 const ISSUER = `${API_ORIGIN}/api/auth`;
 const RESOURCE = `${API_ORIGIN}${MCP_RESOURCE_PATH}`;
 const REDIRECT_URI = "http://127.0.0.1:45678/callback/mcp-endpoint-test";
 const CODE_VERIFIER = "mcp-endpoint-verifier-000000000000000000000000000000000000000000";
-const AFK_ERROR =
-	"The user is at their keyboard, so questions are not being routed to their phone. " +
-	"Use the AskUserQuestion tool instead of ask_yep_nope for this question.";
 const TEST_TIMING: RemoteMcpTiming = {
 	answerTimeoutMilliseconds: 500,
 	heartbeatMilliseconds: 20,
@@ -254,22 +256,27 @@ async function signClaims(claims: Record<string, unknown>): Promise<string> {
 }
 
 describe("OAuth-authenticated remote MCP endpoint", () => {
-	it("publishes the canonical tool contract and returns the typed AFK-off error", async () => {
+	it("publishes one question tool and returns a typed native fallback while AFK is off", async () => {
 		const grant = await issueGrant("mcp-contract-alice@example.com");
 		const listed = await responseMessage(await worker.fetch(mcpRequest(grant.accessToken, "tools/list")));
-		expect(listed).toMatchObject({
+		expect(listed).toStrictEqual({
 			id: 1,
 			jsonrpc: "2.0",
 			result: {
-				tools: expect.arrayContaining([
-					{name: "ask_yep_nope", description: TOOL_DESCRIPTION, inputSchema: TOOL_INPUT_SCHEMA},
-				]),
+				tools: [{name: "ask_yep_nope", description: TOOL_DESCRIPTION, inputSchema: TOOL_INPUT_SCHEMA}],
 			},
 		});
 
 		const response = await worker.fetch(askRequest(grant.accessToken));
 		expect({message: await responseMessage(response), status: response.status}).toStrictEqual({
-			message: strictTextResponse(AFK_ERROR, true),
+			message: {
+				id: 1,
+				jsonrpc: "2.0",
+				result: {
+					content: [{text: NATIVE_QUESTION_FALLBACK_TEXT, type: "text"}],
+					structuredContent: NATIVE_QUESTION_FALLBACK,
+				},
+			},
 			status: 200,
 		});
 		const tooLong = await worker.fetch(
@@ -286,11 +293,7 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 				true,
 			),
 		);
-		const afk = await worker.fetch(
-			mcpRequest(grant.accessToken, "tools/call", {arguments: {afk: true}, name: "set_yepnope_afk"}),
-		);
-		expect(await responseMessage(afk)).toStrictEqual(strictTextResponse("AFK routing is on."));
-		expect(await env.USER_DO.getByName(grant.userId).getAfk(true)).toBe(true);
+		expect(await env.USER_DO.getByName(grant.userId).getAfk(true)).toBe(false);
 	});
 
 	it("routes only to the token subject and returns one exact Yep, Nope, or Skip result per question", async () => {
@@ -438,19 +441,6 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			status: 401,
 		});
 		expect(await env.USER_DO.getByName(grant.userId).getCurrentQuestions()).toStrictEqual([]);
-	});
-
-	it("does not let a questions-only token change AFK", async () => {
-		const grant = await issueGrant("mcp-afk-scope-alice@example.com");
-		const claims = decodeJwt(grant.accessToken);
-		const questionsOnly = await signClaims({...claims, scope: "yepnope:questions"});
-		const response = await worker.fetch(
-			mcpRequest(questionsOnly, "tools/call", {arguments: {afk: true}, name: "set_yepnope_afk"}),
-		);
-		expect(await responseMessage(response)).toStrictEqual(
-			strictTextResponse("This OAuth client does not have the yepnope:afk scope.", true),
-		);
-		expect(await env.USER_DO.getByName(grant.userId).getAfk(true)).toBe(false);
 	});
 
 	it("reconnects the answer stream and still returns the browser answer", async () => {
