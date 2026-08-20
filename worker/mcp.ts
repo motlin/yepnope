@@ -9,7 +9,7 @@ import {
 	TOOL_DESCRIPTION,
 	TOOL_NAME,
 } from "../shim/tool";
-import {createWorkerAuthentication, MCP_RESOURCE_PATH, OAUTH_SCOPES} from "./auth";
+import {MCP_RESOURCE_PATH, OAUTH_SCOPES, withRequestBackgroundTasks, workerAuthentication} from "./auth";
 import {parseFrame, type DispositionMap} from "./protocol";
 import type {UserDurableObject} from "./user-do";
 import {findLengthViolations, RETENTION_MILLISECONDS, teachingRejection, type Disposition} from "./validation";
@@ -398,14 +398,16 @@ export async function handleRemoteMcpRequest(
 ): Promise<Response> {
 	const resource = `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
 	const issuer = `${environment.BETTER_AUTH_URL}/api/auth`;
-	const authentication = createWorkerAuthentication(environment, executionContext);
+	const authentication = workerAuthentication(environment);
 	const token = bearerToken(request);
 	if (token === null) {
 		return authorizationChallenge(resource, false);
 	}
 	let untrustedClaims: unknown;
 	try {
-		const jwksResponse = await authentication.handler(new Request(`${issuer}/jwks`));
+		const jwksResponse = await withRequestBackgroundTasks(executionContext, async () =>
+			authentication.handler(new Request(`${issuer}/jwks`)),
+		);
 		if (!jwksResponse.ok) {
 			throw new Error("Better Auth JWKS endpoint failed");
 		}

@@ -21,7 +21,7 @@
 		"noUncheckedSideEffectImports": true,
 		"verbatimModuleSyntax": true,
 		"newLine": "lf",
-		"types": ["@cloudflare/vitest-pool-workers/types"]
+		"types": ["@cloudflare/vitest-pool-workers/types", "node"]
 	},
 	"include": ["**/*.ts", "**/*.d.ts", "../worker-configuration.d.ts"]
 }

@@ -2,7 +2,7 @@ import {createExecutionContext, runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {decodeJwt} from "jose";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {createWorkerAuthentication, MCP_RESOURCE_PATH, OAUTH_SCOPES} from "../auth";
+import {MCP_RESOURCE_PATH, OAUTH_SCOPES, workerAuthentication} from "../auth";
 import {handleRemoteMcpRequest, type RemoteMcpTiming} from "../mcp";
 import type {CurrentQuestion, UserDurableObject} from "../user-do";
 import {
@@ -244,7 +244,7 @@ function strictTextResponse(text: string, isError = false): McpResponse {
 }
 
 async function signClaims(claims: Record<string, unknown>): Promise<string> {
-	const authentication = createWorkerAuthentication(env, createExecutionContext());
+	const authentication = workerAuthentication(env);
 	// oxlint-disable typescript/no-unsafe-call -- Better Auth 1.7 loses jwt API inference with its MCP plugin types.
 	// @ts-expect-error Better Auth 1.7 loses jwt API inference when combined with its MCP plugin types.
 	const signed: unknown = await authentication.api.signJWT({body: {payload: claims}});

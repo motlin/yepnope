@@ -1,10 +1,10 @@
 import {mcp} from "@better-auth/mcp";
-import {passkey} from "@better-auth/passkey";
 import {drizzleAdapter} from "@better-auth/drizzle-adapter";
 import {betterAuth} from "better-auth";
 import {jwt, magicLink} from "better-auth/plugins";
 import {and, eq, isNull} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
+import {AsyncLocalStorage} from "node:async_hooks";
 import {z} from "zod";
 import {
 	accounts,
@@ -31,6 +31,7 @@ import {
 } from "./turnstile";
 
 const AUTHENTICATION_PATH = "/api/auth";
+const PASSKEY_PATH_PREFIX = `${AUTHENTICATION_PATH}/passkey/`;
 const EMAIL_REGISTRATION_PATH = `${AUTHENTICATION_PATH}/sign-up/email`;
 const EMAIL_SIGN_IN_PATH = `${AUTHENTICATION_PATH}/sign-in/email`;
 const MAGIC_LINK_SIGN_IN_PATH = `${AUTHENTICATION_PATH}/sign-in/magic-link`;
@@ -791,7 +792,17 @@ function authenticationEmail(
 	};
 }
 
-export function createAuthentication(environment: AuthenticationEnvironment, dependencies: AuthenticationDependencies) {
+/**
+ * The WebAuthn half of Better Auth, handed in rather than imported. See
+ * `createPasskeyAuthentication` for why it arrives this way.
+ */
+type PasskeyPlugin = ReturnType<typeof import("@better-auth/passkey").passkey>;
+
+export function createAuthentication(
+	environment: AuthenticationEnvironment,
+	dependencies: AuthenticationDependencies,
+	passkeyPlugin: PasskeyPlugin | null = null,
+) {
 	const database = drizzle(environment.DB, {
 		schema: authenticationSchema,
 	});
@@ -838,12 +849,6 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 						PublicAuthenticationOperation.RequestMagicLink,
 					),
 			}),
-			passkey({
-				rpID: new URL(environment.BETTER_AUTH_URL).hostname,
-				rpName: "YepNope",
-				origin: environment.BETTER_AUTH_URL,
-				authenticatorSelection: {residentKey: "preferred", userVerification: "preferred"},
-			}),
 			// @ts-expect-error Better Auth 1.7 plugin metadata conflicts with exactOptionalPropertyTypes.
 			mcp({
 				accessTokenExpiresIn: OAUTH_ACCESS_TOKEN_EXPIRY_SECONDS,
@@ -868,6 +873,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 				resource,
 				scopes: [...OAUTH_SCOPES],
 			}),
+			...(passkeyPlugin === null ? [] : [passkeyPlugin]),
 		],
 		socialProviders: socialProviderCredentials(environment),
 		account: {
@@ -999,22 +1005,115 @@ async function deleteOAuthAuthorizationData(database: D1Database, userId: string
 	]);
 }
 
-export function createWorkerAuthentication(
-	environment: Env,
-	executionContext: ExecutionContext,
-): ReturnType<typeof createAuthentication> {
-	return createAuthentication(environment, {
+let passkeyStackLoadedInThisIsolate = false;
+
+/**
+ * The same authentication, plus the seven `/api/auth/passkey/*` endpoints.
+ *
+ * 🧊 The import is deferred because of what it drags in. `@better-auth/passkey` statically pulls
+ * `@simplewebauthn/server` and the `@peculiar` ASN.1/X.509 stack, which together cost about 24 ms
+ * of V8 compile-and-evaluate on a cold isolate and register their ASN.1 converters at module-eval
+ * time. Nothing outside a passkey ceremony can reach any of it, so an isolate that only ever serves
+ * sessions, magic links, or OAuth never pays. The plugin contributes endpoints and a table and no
+ * hooks or middleware, so the instances differ in exactly those seven routes — deleting an account
+ * still erases its passkeys, because that cascade lives in the `passkey` table's foreign key.
+ */
+export async function createPasskeyAuthentication(
+	environment: AuthenticationEnvironment,
+	dependencies: AuthenticationDependencies,
+): Promise<ReturnType<typeof createAuthentication>> {
+	const {passkey} = await import("@better-auth/passkey");
+	passkeyStackLoadedInThisIsolate = true;
+	return createAuthentication(
+		environment,
+		dependencies,
+		passkey({
+			rpID: new URL(environment.BETTER_AUTH_URL).hostname,
+			rpName: "YepNope",
+			origin: environment.BETTER_AUTH_URL,
+			authenticatorSelection: {residentKey: "preferred", userVerification: "preferred"},
+		}),
+	);
+}
+
+/** Whether this isolate has paid for the WebAuthn stack yet. The cold-start budget is a claim worth testing. */
+export function passkeyStackLoaded(): boolean {
+	return passkeyStackLoadedInThisIsolate;
+}
+
+// ⏳ One authentication instance now serves every concurrent request in the isolate, so the
+// ExecutionContext that pays for deferred work cannot be captured when it is built. It rides
+// alongside the request's async flow instead, which keeps a background email charged to the
+// request that asked for it rather than to whichever request happened to arrive last.
+const requestExecutionContexts = new AsyncLocalStorage<ExecutionContext>();
+
+export function withRequestBackgroundTasks<T>(executionContext: ExecutionContext, work: () => T): T {
+	return requestExecutionContexts.run(executionContext, work);
+}
+
+function workerDependencies(environment: Env): AuthenticationDependencies {
+	return {
 		observe: (observation) => {
 			console.warn(JSON.stringify(observation));
 		},
 		runInBackground: (promise) => {
+			const executionContext = requestExecutionContexts.getStore();
+			if (executionContext === undefined) {
+				// No request lifetime to extend. Letting the work run unsupervised still beats
+				// dropping it, and it keeps delivery off the response path either way.
+				void promise.catch(() => undefined);
+				return;
+			}
 			executionContext.waitUntil(promise);
 		},
 		sendEmail: async (message) => {
 			await environment.EMAIL.send(message);
 		},
 		verifyHuman: createTurnstileVerifier(environment),
-	});
+	};
+}
+
+// 🧊 Better Auth rebuilds its entire endpoint map on every construction, and the OAuth provider
+// re-seeds its resource row into D1 from `init`, so building one per request charged every
+// authenticated call for both. An isolate builds each instance once and hands out the same one
+// afterwards.
+interface IsolateAuthentication {
+	environment: Env;
+	shared: ReturnType<typeof createAuthentication>;
+	withPasskeys: Promise<ReturnType<typeof createAuthentication>> | null;
+}
+
+let isolateAuthentication: IsolateAuthentication | null = null;
+
+function isolateAuthenticationFor(environment: Env): IsolateAuthentication {
+	if (isolateAuthentication === null || isolateAuthentication.environment !== environment) {
+		isolateAuthentication = {
+			environment,
+			shared: createAuthentication(environment, workerDependencies(environment)),
+			withPasskeys: null,
+		};
+	}
+	return isolateAuthentication;
+}
+
+/** The instance every route but a passkey ceremony shares. */
+export function workerAuthentication(environment: Env): ReturnType<typeof createAuthentication> {
+	return isolateAuthenticationFor(environment).shared;
+}
+
+/** The instance that can answer `pathname`, which for `/api/auth/passkey/*` is the heavier one. */
+export async function workerAuthenticationFor(
+	environment: Env,
+	pathname: string,
+): Promise<ReturnType<typeof createAuthentication>> {
+	const cached = isolateAuthenticationFor(environment);
+	if (!pathname.startsWith(PASSKEY_PATH_PREFIX)) {
+		return cached.shared;
+	}
+	// Caching the promise rather than its result means two simultaneous ceremonies on a cold
+	// isolate load the WebAuthn stack once between them.
+	cached.withPasskeys ??= createPasskeyAuthentication(environment, workerDependencies(environment));
+	return cached.withPasskeys;
 }
 
 export async function hashToken(token: string): Promise<string> {
@@ -1059,9 +1158,9 @@ export async function authenticateRequest(
 	if (machineUserId !== null) {
 		return machineUserId;
 	}
-	const session = await createWorkerAuthentication(environment, executionContext).api.getSession({
-		headers: request.headers,
-	});
+	const session = await withRequestBackgroundTasks(executionContext, async () =>
+		workerAuthentication(environment).api.getSession({headers: request.headers}),
+	);
 	return session?.user.emailVerified === true ? session.user.id : null;
 }
 
@@ -1083,8 +1182,8 @@ export async function authenticateBrowserAccount(
 	environment: Env,
 	executionContext: ExecutionContext,
 ): Promise<AuthenticatedBrowserAccount | null> {
-	const session = await createWorkerAuthentication(environment, executionContext).api.getSession({
-		headers: request.headers,
-	});
+	const session = await withRequestBackgroundTasks(executionContext, async () =>
+		workerAuthentication(environment).api.getSession({headers: request.headers}),
+	);
 	return session?.user.emailVerified === true ? {sessionId: session.session.id, userId: session.user.id} : null;
 }

@@ -1,6 +1,6 @@
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
-import {createAuthentication, type AuthenticationObservation} from "../auth";
+import {createAuthentication, createPasskeyAuthentication, type AuthenticationObservation} from "../auth";
 import {API_ORIGIN, cookieFrom, createVerifiedBrowserSession, emailLink, humanVerified, required} from "./helpers";
 
 interface DeliveredEmail {
@@ -18,16 +18,18 @@ interface Harness {
 const GITHUB_CREDENTIALS = {GITHUB_CLIENT_ID: "github-client", GITHUB_CLIENT_SECRET: "github-secret"};
 const GOOGLE_CREDENTIALS = {GOOGLE_CLIENT_ID: "google-client", GOOGLE_CLIENT_SECRET: "google-secret"};
 
-function harness(overrides: Partial<Env> = {}): Harness {
+function harnessParts(overrides: Partial<Env>) {
 	const mailbox: DeliveredEmail[] = [];
 	const observations: AuthenticationObservation[] = [];
-	const authentication = createAuthentication(
-		{...env, ...overrides},
-		{
-			observe: (observation) => observations.push(observation),
+	return {
+		environment: {...env, ...overrides},
+		mailbox,
+		observations,
+		dependencies: {
+			observe: (observation: AuthenticationObservation) => observations.push(observation),
 			runInBackground: undefined,
 			verifyHuman: humanVerified,
-			sendEmail: async (message) => {
+			sendEmail: async (message: Parameters<SendEmail["send"]>[0]) => {
 				await Promise.resolve(
 					mailbox.push({
 						subject: message.subject,
@@ -37,8 +39,18 @@ function harness(overrides: Partial<Env> = {}): Harness {
 				);
 			},
 		},
-	);
-	return {authentication, mailbox, observations};
+	};
+}
+
+function harness(overrides: Partial<Env> = {}): Harness {
+	const {environment, dependencies, mailbox, observations} = harnessParts(overrides);
+	return {authentication: createAuthentication(environment, dependencies), mailbox, observations};
+}
+
+/** Passkey ceremonies are served by the lazily loaded instance, so this harness awaits that import. */
+async function passkeyHarness(overrides: Partial<Env> = {}): Promise<Harness> {
+	const {environment, dependencies, mailbox, observations} = harnessParts(overrides);
+	return {authentication: await createPasskeyAuthentication(environment, dependencies), mailbox, observations};
 }
 
 function post(path: string, body: Record<string, unknown>, cookie?: string): Request {
@@ -139,7 +151,7 @@ describe("Passwordless email sign-in", () => {
 
 describe("Passkeys", () => {
 	it("refuses to mint registration options without a session", async () => {
-		const {authentication} = harness();
+		const {authentication} = await passkeyHarness();
 
 		const response = await authentication.handler(get("passkey/generate-register-options"));
 
@@ -148,7 +160,7 @@ describe("Passkeys", () => {
 
 	it("binds registration options to the deployment relying party", async () => {
 		const {cookie} = await createVerifiedBrowserSession();
-		const {authentication} = harness();
+		const {authentication} = await passkeyHarness();
 
 		const response = await authentication.handler(get("passkey/generate-register-options", cookie));
 
@@ -163,7 +175,7 @@ describe("Passkeys", () => {
 	});
 
 	it("offers usernameless authentication options to signed-out visitors", async () => {
-		const {authentication} = harness();
+		const {authentication} = await passkeyHarness();
 
 		const response = await authentication.handler(get("passkey/generate-authenticate-options"));
 
@@ -173,6 +185,8 @@ describe("Passkeys", () => {
 		expect(options.challenge.length).toBeGreaterThan(0);
 	});
 
+	// The cascade lives in the `passkey` table's foreign key, so account deletion erases passkeys
+	// even on the instance that never loaded the WebAuthn plugin.
 	it("erases registered passkeys along with the account", async () => {
 		const {cookie, userId} = await createVerifiedBrowserSession();
 		const {authentication} = harness();
@@ -201,7 +215,7 @@ describe("Passkeys", () => {
 
 	it("starts every account with no registered passkeys", async () => {
 		const {cookie} = await createVerifiedBrowserSession();
-		const {authentication} = harness();
+		const {authentication} = await passkeyHarness();
 
 		const response = await authentication.handler(get("passkey/list-user-passkeys", cookie));
 

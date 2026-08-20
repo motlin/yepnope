@@ -3,9 +3,10 @@ import {
 	authenticateBrowserSession,
 	authenticateRequest,
 	authenticationMethods,
-	createWorkerAuthentication,
 	hashToken,
 	MCP_RESOURCE_PATH,
+	withRequestBackgroundTasks,
+	workerAuthenticationFor,
 } from "./auth";
 import {
 	getConnectedMcpClientAuthorizationState,
@@ -70,7 +71,9 @@ export default {
 			url.pathname.startsWith("/api/auth/") ||
 			ROOT_AUTHENTICATION_METADATA_PATHS.has(url.pathname)
 		) {
-			return createWorkerAuthentication(env, executionContext).handler(request);
+			return withRequestBackgroundTasks(executionContext, async () =>
+				(await workerAuthenticationFor(env, url.pathname)).handler(request),
+			);
 		}
 
 		// 🤝 Machine claims and the VAPID key are the only unauthenticated application routes.
