@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import type {
 	AccountDevices,
@@ -96,6 +96,46 @@ const deletePasskey = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>(asy
 const fetchAfk = vi.hoisted(() => vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)));
 const updateAfk = vi.hoisted(() => vi.fn<(afk: boolean) => Promise<boolean>>(async (afk) => Promise.resolve(afk)));
 
+// 🌗 jsdom ships no matchMedia, so the suite owns the system palette and can flip it mid-test.
+let systemPrefersDark = false;
+const schemeListeners = new Set<(event: MediaQueryListEvent) => void>();
+
+function installMatchMedia(): void {
+	Object.defineProperty(window, "matchMedia", {
+		configurable: true,
+		value: (query: string) => ({
+			addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+				schemeListeners.add(listener);
+			},
+			matches: query === "(prefers-color-scheme: dark)" && systemPrefersDark,
+			media: query,
+			removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+				schemeListeners.delete(listener);
+			},
+		}),
+	});
+}
+
+function changeSystemPalette(prefersDark: boolean): void {
+	systemPrefersDark = prefersDark;
+	act(() => {
+		for (const listener of [...schemeListeners]) {
+			listener({matches: prefersDark} as MediaQueryListEvent);
+		}
+	});
+}
+
+function paintedTheme(): {attribute: string | null; themeColor: string | null} {
+	return {
+		attribute: document.documentElement.getAttribute("data-theme"),
+		themeColor: document.head.querySelector('meta[name="theme-color"]')?.getAttribute("content") ?? null,
+	};
+}
+
+function themeRadio(label: string): HTMLInputElement {
+	return screen.getByRole<HTMLInputElement>("radio", {name: label});
+}
+
 let publishQuestions: ((questions: DeckQuestion[]) => void) | undefined;
 let publishApplicationState: ((state: LiveApplicationState) => void) | undefined;
 let expireSession: (() => void) | undefined;
@@ -174,6 +214,7 @@ import {
 	submitOAuthConsent as submitOAuthConsentApi,
 } from "../src/api";
 import {isIos, isStandalone} from "../src/push";
+import {THEME_CHOICES, THEME_STORAGE_KEY} from "../src/theme";
 
 // 🤖 A signed-out form keeps its submit disabled until the Worker has said whether this deployment
 // demands a human-verification check, so a test has to let that answer arrive before it clicks.
@@ -186,6 +227,13 @@ async function submitAccountForm(name: string): Promise<void> {
 }
 
 beforeEach(() => {
+	systemPrefersDark = false;
+	schemeListeners.clear();
+	installMatchMedia();
+	document.documentElement.removeAttribute("data-theme");
+	for (const meta of document.head.querySelectorAll('meta[name="theme-color"]')) {
+		meta.remove();
+	}
 	const storedValues = new Map<string, string>();
 	const storage = {
 		clear: () => {
@@ -1662,5 +1710,124 @@ describe("Gated public authentication", () => {
 			"We could not reach YepNope to set this page up. Check your connection and reload.",
 		);
 		expect(screen.getByRole<HTMLButtonElement>("button", {name: "Sign in"}).disabled).toBe(true);
+	});
+});
+
+// 🌗 Light, dark, and follow-system. Follow-system is the default and stays live; an explicit
+// choice outranks the system in both directions and survives a reload of this browser.
+describe("Theme", () => {
+	async function openAppearance(): Promise<void> {
+		window.history.replaceState({}, "", "/settings");
+		render(<App />);
+		await screen.findByRole("region", {name: "Appearance"});
+	}
+
+	it("follows the system palette until something is chosen", async () => {
+		systemPrefersDark = true;
+		await openAppearance();
+
+		expect({
+			...paintedTheme(),
+			checked: THEME_CHOICES.filter((choice) => themeRadio(choice.label).checked).map((choice) => choice.label),
+			stored: window.localStorage.getItem(THEME_STORAGE_KEY),
+		}).toStrictEqual({
+			attribute: null,
+			checked: ["Match system"],
+			stored: null,
+			themeColor: "#17181c",
+		});
+	});
+
+	it("repaints without a reload when the system palette changes underneath it", async () => {
+		await openAppearance();
+		expect(paintedTheme()).toStrictEqual({attribute: null, themeColor: "#f1f2f4"});
+
+		changeSystemPalette(true);
+
+		expect({...paintedTheme(), checked: themeRadio("Match system").checked}).toStrictEqual({
+			attribute: null,
+			checked: true,
+			themeColor: "#17181c",
+		});
+	});
+
+	it("lets an explicit choice outrank the system palette in both directions", async () => {
+		systemPrefersDark = true;
+		await openAppearance();
+
+		fireEvent.click(themeRadio("Light"));
+		expect({...paintedTheme(), stored: window.localStorage.getItem(THEME_STORAGE_KEY)}).toStrictEqual({
+			attribute: "light",
+			stored: "light",
+			themeColor: "#f1f2f4",
+		});
+
+		changeSystemPalette(false);
+		fireEvent.click(themeRadio("Dark"));
+		expect({...paintedTheme(), stored: window.localStorage.getItem(THEME_STORAGE_KEY)}).toStrictEqual({
+			attribute: "dark",
+			stored: "dark",
+			themeColor: "#17181c",
+		});
+
+		// The system is light and moves; the explicit dark choice ignores it.
+		changeSystemPalette(true);
+		changeSystemPalette(false);
+		expect(paintedTheme()).toStrictEqual({attribute: "dark", themeColor: "#17181c"});
+	});
+
+	it("hands the choice back after a reload, and lets it be given back to the system", async () => {
+		await openAppearance();
+		fireEvent.click(themeRadio("Dark"));
+		cleanup();
+		document.documentElement.removeAttribute("data-theme");
+
+		await openAppearance();
+		expect({
+			...paintedTheme(),
+			checked: THEME_CHOICES.filter((choice) => themeRadio(choice.label).checked).map((choice) => choice.label),
+		}).toStrictEqual({attribute: "dark", checked: ["Dark"], themeColor: "#17181c"});
+
+		fireEvent.click(themeRadio("Match system"));
+		expect({...paintedTheme(), stored: window.localStorage.getItem(THEME_STORAGE_KEY)}).toStrictEqual({
+			attribute: null,
+			stored: "system",
+			themeColor: "#f1f2f4",
+		});
+
+		changeSystemPalette(true);
+		expect(paintedTheme()).toStrictEqual({attribute: null, themeColor: "#17181c"});
+	});
+
+	it("paints the signed-out pages and their verification widget in the same palette", async () => {
+		const widgetThemes: string[] = [];
+		window.turnstile = {
+			remove: () => undefined,
+			render: (container, options) => {
+				container.append(document.createElement("div"));
+				widgetThemes.push(options.theme);
+				return "widget-1";
+			},
+			reset: () => undefined,
+		};
+		window.localStorage.setItem(THEME_STORAGE_KEY, "light");
+		systemPrefersDark = true;
+		fetchSession.mockResolvedValue(null);
+		fetchAuthenticationMethods.mockResolvedValue({
+			emailPassword: true,
+			magicLink: false,
+			passkey: false,
+			social: [],
+			turnstileSiteKey: "1x00000000000000000000AA",
+		});
+		window.history.replaceState({}, "", "/sign-in");
+		render(<App />);
+
+		await screen.findByRole("heading", {name: "Sign in"});
+		await waitFor(() => {
+			expect(widgetThemes).toStrictEqual(["light"]);
+		});
+		expect(paintedTheme()).toStrictEqual({attribute: "light", themeColor: "#f1f2f4"});
+		delete window.turnstile;
 	});
 });

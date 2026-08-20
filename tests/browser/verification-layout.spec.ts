@@ -76,8 +76,14 @@ async function assertVerificationSurface(page: Page): Promise<void> {
 	).toStrictEqual({afks: 0, appHeaders: 0, deckHeaders: 0, harnesses: 0, settingsControls: 0});
 }
 
+// The dark palette, named rather than inherited: the focus ring below is pinned to a colour, and
+// tests/browser/theme.spec.ts is where the light half of every signed-out surface is covered.
 test("verification is a focused desktop account route with accessible keyboard actions", async ({browser}) => {
-	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 900, width: 1440}});
+	const context = await browser.newContext({
+		colorScheme: "dark",
+		ignoreHTTPSErrors: true,
+		viewport: {height: 900, width: 1440},
+	});
 	const page = await context.newPage();
 	try {
 		const requests = await openPostRegistrationVerification(page);

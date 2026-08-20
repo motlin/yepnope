@@ -240,6 +240,26 @@ the tool. If setup is missing, Claude Code recommends `/yepnope-setup`; Codex
 recommends `$yepnope-setup`. Neither skill edits status-line settings or starts
 background monitoring.
 
+## Appearance
+
+The app ships light and dark palettes and follows the device by default. The
+choice lives under **Settings → Appearance** as three radios — Light, Dark, and
+Match system — and is remembered in this browser's `localStorage` under
+`yepnope.theme`. It is a device preference, not account state: it is never
+written to D1 and never travels through the Worker, so two browsers signed into
+the same account can look different on purpose.
+
+While the choice is _Match system_, `prefers-color-scheme` decides on its own
+and a system change repaints immediately, with no reload. An explicit choice
+writes `data-theme` on `<html>` and outranks the system in both directions. A
+small script in `index.html` applies a stored choice before the first paint, so
+the other palette never flashes.
+
+Every colour in `src/app.css` is a custom property declared in light on bare
+`:root` and redefined for dark; `tests/theme-contrast.test.ts` reads that
+stylesheet and fails the build if any surface drops below WCAG AA or if a
+colour literal reappears outside the palette blocks.
+
 ## Sign-in methods
 
 An account can be reached by email and password, a passwordless emailed

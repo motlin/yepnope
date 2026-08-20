@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from "react";
+import type {ResolvedTheme} from "./theme";
 
 // 🤖 The browser half of human verification. It draws Cloudflare's Turnstile widget on the
 // signed-out authentication pages and hands each request the token the widget minted. It proves
@@ -23,7 +24,7 @@ interface TurnstileRenderOptions {
 	retry: "never";
 	sitekey: string;
 	size: "flexible";
-	theme: "dark";
+	theme: ResolvedTheme;
 	"timeout-callback": () => void;
 }
 
@@ -115,7 +116,7 @@ interface TokenWaiter {
  * One widget, one surface. `action` names the surface in the minted token so the Worker can refuse
  * a token that was earned somewhere else.
  */
-export function useHumanVerification(action: string, siteKey: string | null): HumanVerification {
+export function useHumanVerification(action: string, siteKey: string | null, theme: ResolvedTheme): HumanVerification {
 	const widgetId = useRef<string | null>(null);
 	const heldToken = useRef<string | null>(null);
 	const waiters = useRef<TokenWaiter[]>([]);
@@ -187,7 +188,7 @@ export function useHumanVerification(action: string, siteKey: string | null): Hu
 							retry: "never",
 							sitekey: siteKey,
 							size: "flexible",
-							theme: "dark",
+							theme,
 							"timeout-callback": failVerification,
 						}) ?? null;
 					widgetId.current = rendered;
@@ -207,7 +208,8 @@ export function useHumanVerification(action: string, siteKey: string | null): Hu
 				window.turnstile?.remove(rendered);
 			}
 		};
-	}, [action, attempt, containerNode, siteKey]);
+		// A repainted page needs a repainted widget, so the theme joins the keys that redraw it.
+	}, [action, attempt, containerNode, siteKey, theme]);
 
 	const consume = useCallback(async (): Promise<string | null> => {
 		if (siteKey === null) {

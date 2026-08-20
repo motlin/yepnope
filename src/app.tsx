@@ -45,6 +45,7 @@ import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {HumanVerificationField} from "./human-verification";
 import {migrateLegacyIdentity} from "./legacy-token";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
+import {THEME_CHOICES, useTheme, type ResolvedTheme, type Theme} from "./theme";
 import {humanVerificationBlocksSubmit, useHumanVerification, type HumanVerification} from "./turnstile";
 
 // 🌟 Harness icon placeholder: an 8-ray starburst standing in for the asking harness's logo.
@@ -131,6 +132,7 @@ function AfkToggle({afk, connectedMcpClientCount, onOpenSettings, onToggle}: Afk
 interface SettingsProps {
 	session: AuthenticationUser | null;
 	connectedMcpClientCount: number | null;
+	theme: Theme;
 	onBack: () => void;
 	onSignIn: () => void;
 	onRegister: () => void;
@@ -246,6 +248,11 @@ const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
 
 interface AccountRouteProps {
 	onNavigate: (view: AppView) => void;
+}
+
+/** A signed-out page carrying a form, which needs the current palette for its Turnstile widget. */
+interface AccountFormRouteProps extends AccountRouteProps {
+	theme: ResolvedTheme;
 }
 
 interface AccountPanelProps {
@@ -374,13 +381,13 @@ interface AccountForm {
  * Human verification is the opposite of an enhancement. Until the deployment has said whether a
  * check is required, a submission could only be a refusal, so the form holds it back and says why.
  */
-function useAccountForm(action: string): AccountForm {
+function useAccountForm(action: string, theme: ResolvedTheme): AccountForm {
 	const discovery = useAuthenticationMethods();
 	// Before discovery answers, the placeholder methods carry a null site key — the same value a
 	// deployment that wants no widget sends. `blocked` is what keeps those two apart, holding the
 	// form back until the answer has actually arrived.
 	const methods = alternativeMethods(discovery);
-	const verification = useHumanVerification(action, methods.turnstileSiteKey);
+	const verification = useHumanVerification(action, methods.turnstileSiteKey, theme);
 	return {
 		blocked: discovery.status !== "ready" || humanVerificationBlocksSubmit(verification),
 		discoveryError: discovery.status === "failed" ? METHOD_DISCOVERY_FAILED_MESSAGE : null,
@@ -495,11 +502,11 @@ function AlternativeSignIn({
 	);
 }
 
-interface SignInProps extends AccountRouteProps, AuthenticationCompletionProps {}
+interface SignInProps extends AccountFormRouteProps, AuthenticationCompletionProps {}
 
-function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps): ReactElement {
+function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: SignInProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
-	const {blocked, discoveryError, methods, verification} = useAccountForm("sign_in");
+	const {blocked, discoveryError, methods, verification} = useAccountForm("sign_in", theme);
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(signInRedirectError);
@@ -614,15 +621,15 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps
 	);
 }
 
-interface RegisterProps extends AccountRouteProps {
+interface RegisterProps extends AccountFormRouteProps {
 	onRegistered: (email: string, delivery: VerificationDelivery) => void;
 }
 
 type VerificationDelivery = "accepted" | "failed" | "idle";
 
-function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
+function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
-	const {blocked, discoveryError, verification} = useAccountForm("register");
+	const {blocked, discoveryError, verification} = useAccountForm("register", theme);
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -714,16 +721,16 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 	);
 }
 
-interface VerifyEmailProps extends AccountRouteProps {
+interface VerifyEmailProps extends AccountFormRouteProps {
 	initialDelivery: VerificationDelivery;
 	initialEmail: string;
 }
 
-function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailProps): ReactElement {
+function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyEmailProps): ReactElement {
 	const parameters = new URLSearchParams(window.location.search);
 	const oauthQuery = oauthQueryFromLocation();
 	const verificationError = parameters.get("error");
-	const {blocked, discoveryError, verification} = useAccountForm("verify_email");
+	const {blocked, discoveryError, verification} = useAccountForm("verify_email", theme);
 	const [email, setEmail] = useState(initialEmail);
 	const [delivery, setDelivery] = useState(initialDelivery);
 	const [submitting, setSubmitting] = useState(false);
@@ -835,9 +842,9 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 	);
 }
 
-function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
+function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
-	const {blocked, discoveryError, verification} = useAccountForm("reset_password");
+	const {blocked, discoveryError, verification} = useAccountForm("reset_password", theme);
 	const [email, setEmail] = useState("");
 	const [sent, setSent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -918,9 +925,9 @@ enum PasswordResetPhase {
 	AuthorizationResumeFailed,
 }
 
-interface ResetPasswordProps extends AccountRouteProps, AuthenticationCompletionProps {}
+interface ResetPasswordProps extends AccountFormRouteProps, AuthenticationCompletionProps {}
 
-function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: ResetPasswordProps): ReactElement {
+function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: ResetPasswordProps): ReactElement {
 	const [{invalid, token}] = useState(() => {
 		const parameters = new URLSearchParams(window.location.search);
 		const initialToken = parameters.get("token");
@@ -929,7 +936,7 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: Rese
 	const [oauthQuery] = useState(passwordResetOAuthQuery);
 	// Consuming the emailed recovery link is not gated: it already carries a single-use credential.
 	// The sign-in that immediately follows it is an ordinary sign-in, and is gated like one.
-	const {blocked, discoveryError, verification} = useAccountForm("sign_in");
+	const {blocked, discoveryError, verification} = useAccountForm("sign_in", theme);
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticationUser | null>(null);
@@ -1555,9 +1562,45 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 	);
 }
 
+interface AppearancePanelProps {
+	theme: Theme;
+}
+
+// 🌗 A native radio group: arrow keys move between the three states, the legend names the group,
+// and the checked radio is the state a screen reader reports. No ARIA of our own is needed.
+function AppearancePanel({theme}: AppearancePanelProps): ReactElement {
+	return (
+		<div className="hint appearance" role="region" aria-label="Appearance">
+			<h3>Appearance</h3>
+			<p>
+				Light, dark, or whatever this device is set to. The choice is remembered on this browser only; it is not
+				part of your account.
+			</p>
+			<fieldset className="theme-options">
+				<legend>Theme</legend>
+				{THEME_CHOICES.map((choice) => (
+					<label key={choice.preference} className="theme-option">
+						<input
+							type="radio"
+							name="theme"
+							value={choice.preference}
+							checked={theme.preference === choice.preference}
+							onChange={() => {
+								theme.select(choice.preference);
+							}}
+						/>
+						{choice.label}
+					</label>
+				))}
+			</fieldset>
+		</div>
+	);
+}
+
 function Settings({
 	session,
 	connectedMcpClientCount,
+	theme,
 	onBack,
 	onSignIn,
 	onRegister,
@@ -1654,6 +1697,7 @@ function Settings({
 				)}
 			</div>
 			{session !== null && <SignInMethodsPanel onSignedOut={onSignedOut} />}
+			<AppearancePanel theme={theme} />
 			<div className="hint connected-clients">
 				<h3>Connected MCP clients</h3>
 				<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>
@@ -1814,6 +1858,7 @@ function Settings({
 }
 
 export function App(): ReactElement {
+	const theme = useTheme();
 	const [session, setSession] = useState<AuthenticationUser | null>(null);
 	const [sessionReady, setSessionReady] = useState(false);
 	const [currentQuestions, setCurrentQuestions] = useState<DeckQuestion[]>([]);
@@ -2055,6 +2100,7 @@ export function App(): ReactElement {
 					<Settings
 						session={session}
 						connectedMcpClientCount={connectedMcpClientCount}
+						theme={theme}
 						onBack={() => {
 							navigate("deck");
 						}}
@@ -2072,6 +2118,7 @@ export function App(): ReactElement {
 			case "sign-in":
 				return (
 					<SignIn
+						theme={theme.resolved}
 						onNavigate={navigate}
 						onAuthenticated={(user) => {
 							setSession(user);
@@ -2088,6 +2135,7 @@ export function App(): ReactElement {
 			case "register":
 				return (
 					<Register
+						theme={theme.resolved}
 						onNavigate={navigate}
 						onRegistered={(email, delivery) => {
 							setRegistrationEmail(email);
@@ -2101,14 +2149,16 @@ export function App(): ReactElement {
 					<VerifyEmail
 						initialDelivery={verificationDelivery}
 						initialEmail={registrationEmail}
+						theme={theme.resolved}
 						onNavigate={navigate}
 					/>
 				);
 			case "forgot-password":
-				return <ForgotPassword onNavigate={navigate} />;
+				return <ForgotPassword theme={theme.resolved} onNavigate={navigate} />;
 			case "reset-password":
 				return (
 					<ResetPassword
+						theme={theme.resolved}
 						onNavigate={navigate}
 						onAuthenticated={(user) => {
 							setSession(user);

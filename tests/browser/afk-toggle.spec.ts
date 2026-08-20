@@ -97,141 +97,208 @@ async function assertTextContrast(page: Page, buttonName: string): Promise<void>
 	expect(contrastRatio(parseColor(colors.text), renderedBackground)).toBeGreaterThanOrEqual(4.5);
 }
 
-test("AFK off is a neutral available toggle with hover and pressed feedback", async ({page}) => {
-	await routeAfkDeck(page, false);
-	const toggle = page.getByRole("button", {name: "AFK off"});
-	await expect(toggle).toHaveAttribute("aria-pressed", "false");
-	expect(
-		await toggle.evaluate((element) => {
-			const style = getComputedStyle(element);
-			return {
-				backgroundColor: style.backgroundColor,
-				borderColor: style.borderColor,
-				className: element.getAttribute("class"),
-				color: style.color,
-				cursor: style.cursor,
-				disabled: (element as HTMLButtonElement).disabled,
-			};
-		}),
-	).toStrictEqual({
-		backgroundColor: "rgba(255, 255, 255, 0.04)",
-		borderColor: "rgb(98, 104, 115)",
-		className: "afk-toggle afk-off",
-		color: "rgb(185, 190, 199)",
-		cursor: "pointer",
-		disabled: false,
-	});
-	await assertTextContrast(page, "AFK off");
-	await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "afk-off.png")});
+// 🌗 Every state of the most colour-stateful control in the app, in both palettes. The ratios
+// themselves are proved once against the tokens in tests/theme-contrast.test.ts; what is pinned
+// here is that each state actually reaches for the token it should.
+interface AfkPalette {
+	checkingBackground: string;
+	checkingBorder: string;
+	checkingText: string;
+	focusRing: string;
+	hoverBackground: string;
+	hoverBorder: string;
+	hoverText: string;
+	offBackground: string;
+	offBorder: string;
+	offText: string;
+	onBorder: string;
+	onText: string;
+	pressedBackground: string;
+}
 
-	await toggle.hover();
-	expect(
-		await toggle.evaluate((element) => {
-			const style = getComputedStyle(element);
-			return {backgroundColor: style.backgroundColor, borderColor: style.borderColor, color: style.color};
-		}),
-	).toStrictEqual({
-		backgroundColor: "rgba(255, 255, 255, 0.08)",
-		borderColor: "rgb(143, 150, 161)",
-		color: "rgb(236, 238, 242)",
-	});
-	const bounds = await toggle.boundingBox();
-	if (bounds === null) {
-		throw new Error("AFK toggle bounds are missing");
-	}
-	await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-	await page.mouse.down();
-	expect(
-		await toggle.evaluate((element) => {
-			const style = getComputedStyle(element);
-			return {backgroundColor: style.backgroundColor, transform: style.transform};
-		}),
-	).toStrictEqual({backgroundColor: "rgba(255, 255, 255, 0.12)", transform: "matrix(1, 0, 0, 1, 0, 1)"});
-	await page.mouse.up();
-});
+const PALETTES: {expected: AfkPalette; theme: "dark" | "light"}[] = [
+	{
+		theme: "light",
+		expected: {
+			checkingBackground: "rgba(0, 0, 0, 0.03)",
+			checkingBorder: "rgb(131, 136, 148)",
+			checkingText: "rgb(90, 96, 107)",
+			focusRing: "rgb(43, 47, 54)",
+			hoverBackground: "rgba(0, 0, 0, 0.06)",
+			hoverBorder: "rgb(118, 124, 136)",
+			hoverText: "rgb(22, 24, 29)",
+			offBackground: "rgba(0, 0, 0, 0.04)",
+			offBorder: "rgb(118, 124, 136)",
+			offText: "rgb(65, 70, 82)",
+			onBorder: "rgb(13, 104, 57)",
+			onText: "rgb(13, 104, 57)",
+			pressedBackground: "rgba(0, 0, 0, 0.11)",
+		},
+	},
+	{
+		theme: "dark",
+		expected: {
+			checkingBackground: "rgba(255, 255, 255, 0.02)",
+			checkingBorder: "rgb(107, 113, 125)",
+			checkingText: "rgb(143, 150, 161)",
+			focusRing: "rgb(215, 218, 224)",
+			hoverBackground: "rgba(255, 255, 255, 0.06)",
+			hoverBorder: "rgb(118, 125, 138)",
+			hoverText: "rgb(236, 238, 242)",
+			offBackground: "rgba(255, 255, 255, 0.04)",
+			offBorder: "rgb(118, 125, 138)",
+			offText: "rgb(185, 190, 199)",
+			onBorder: "rgb(62, 203, 128)",
+			onText: "rgb(62, 203, 128)",
+			pressedBackground: "rgba(255, 255, 255, 0.12)",
+		},
+	},
+];
 
-test("AFK on uses the healthy green pressed treatment", async ({page}) => {
-	await routeAfkDeck(page, true);
-	const toggle = page.getByRole("button", {name: "AFK on"});
-	await expect(toggle).toHaveAttribute("aria-pressed", "true");
-	expect(
-		await toggle.evaluate((element) => {
-			const style = getComputedStyle(element);
-			return {
-				backgroundColor: style.backgroundColor,
-				borderColor: style.borderColor,
-				className: element.getAttribute("class"),
-				color: style.color,
-				disabled: (element as HTMLButtonElement).disabled,
-			};
-		}),
-	).toStrictEqual({
-		backgroundColor: "rgba(46, 184, 114, 0.16)",
-		borderColor: "rgb(46, 184, 114)",
-		className: "afk-toggle afk-on",
-		color: "rgb(46, 184, 114)",
-		disabled: false,
-	});
-	await assertTextContrast(page, "AFK on");
-	await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "afk-on.png")});
-});
+for (const {expected, theme} of PALETTES) {
+	test.describe(`AFK in ${theme} mode`, () => {
+		test.use({colorScheme: theme});
 
-test("AFK checking is a calm busy disabled state", async ({page}) => {
-	await routeAfkDeck(page, null);
-	const toggle = page.getByRole("button", {name: "Checking AFK…"});
-	await expect(toggle).toBeDisabled();
-	expect(
-		await toggle.evaluate((element) => {
-			const style = getComputedStyle(element);
-			return {
-				ariaBusy: element.getAttribute("aria-busy"),
-				ariaPressed: element.getAttribute("aria-pressed"),
-				backgroundColor: style.backgroundColor,
-				borderColor: style.borderColor,
-				borderStyle: style.borderStyle,
-				className: element.getAttribute("class"),
-				color: style.color,
-				cursor: style.cursor,
-			};
-		}),
-	).toStrictEqual({
-		ariaBusy: "true",
-		ariaPressed: null,
-		backgroundColor: "rgba(255, 255, 255, 0.02)",
-		borderColor: "rgb(65, 69, 78)",
-		borderStyle: "dashed",
-		className: "afk-toggle afk-checking",
-		color: "rgb(143, 150, 161)",
-		cursor: "progress",
-	});
-	await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "afk-checking.png")});
-});
+		test("AFK off is a neutral available toggle with hover and pressed feedback", async ({page}) => {
+			await routeAfkDeck(page, false);
+			const toggle = page.getByRole("button", {name: "AFK off"});
+			await expect(toggle).toHaveAttribute("aria-pressed", "false");
+			expect(
+				await toggle.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {
+						backgroundColor: style.backgroundColor,
+						borderColor: style.borderColor,
+						className: element.getAttribute("class"),
+						color: style.color,
+						cursor: style.cursor,
+						disabled: (element as HTMLButtonElement).disabled,
+					};
+				}),
+			).toStrictEqual({
+				backgroundColor: expected.offBackground,
+				borderColor: expected.offBorder,
+				className: "afk-toggle afk-off",
+				color: expected.offText,
+				cursor: "pointer",
+				disabled: false,
+			});
+			await assertTextContrast(page, "AFK off");
+			await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, `afk-off-${theme}.png`)});
 
-test("AFK toggle exposes a visible keyboard focus ring", async ({page}) => {
-	await routeAfkDeck(page, false);
-	await page.keyboard.press("Tab");
-	await expect(page.getByRole("button", {name: "1 MCP client authorized"})).toBeFocused();
-	await page.keyboard.press("Tab");
-	const toggle = page.getByRole("button", {name: "AFK off"});
-	await expect(toggle).toBeFocused();
-	expect(
-		await toggle.evaluate((element) => {
-			const style = getComputedStyle(element);
-			return {
-				outlineColor: style.outlineColor,
-				outlineOffset: style.outlineOffset,
-				outlineStyle: style.outlineStyle,
-				outlineWidth: style.outlineWidth,
-			};
-		}),
-	).toStrictEqual({
-		outlineColor: "rgb(215, 218, 224)",
-		outlineOffset: "2px",
-		outlineStyle: "solid",
-		outlineWidth: "2px",
+			await toggle.hover();
+			expect(
+				await toggle.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {backgroundColor: style.backgroundColor, borderColor: style.borderColor, color: style.color};
+				}),
+			).toStrictEqual({
+				backgroundColor: expected.hoverBackground,
+				borderColor: expected.hoverBorder,
+				color: expected.hoverText,
+			});
+			const bounds = await toggle.boundingBox();
+			if (bounds === null) {
+				throw new Error("AFK toggle bounds are missing");
+			}
+			await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+			await page.mouse.down();
+			expect(
+				await toggle.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {backgroundColor: style.backgroundColor, transform: style.transform};
+				}),
+			).toStrictEqual({backgroundColor: expected.pressedBackground, transform: "matrix(1, 0, 0, 1, 0, 1)"});
+			await page.mouse.up();
+		});
+
+		test("AFK on uses the healthy green pressed treatment", async ({page}) => {
+			await routeAfkDeck(page, true);
+			const toggle = page.getByRole("button", {name: "AFK on"});
+			await expect(toggle).toHaveAttribute("aria-pressed", "true");
+			expect(
+				await toggle.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {
+						backgroundColor: style.backgroundColor,
+						borderColor: style.borderColor,
+						className: element.getAttribute("class"),
+						color: style.color,
+						disabled: (element as HTMLButtonElement).disabled,
+					};
+				}),
+			).toStrictEqual({
+				backgroundColor: "rgba(46, 184, 114, 0.16)",
+				borderColor: expected.onBorder,
+				className: "afk-toggle afk-on",
+				color: expected.onText,
+				disabled: false,
+			});
+			await assertTextContrast(page, "AFK on");
+			await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, `afk-on-${theme}.png`)});
+		});
+
+		test("AFK checking is a calm busy disabled state", async ({page}) => {
+			await routeAfkDeck(page, null);
+			const toggle = page.getByRole("button", {name: "Checking AFK…"});
+			await expect(toggle).toBeDisabled();
+			expect(
+				await toggle.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {
+						ariaBusy: element.getAttribute("aria-busy"),
+						ariaPressed: element.getAttribute("aria-pressed"),
+						backgroundColor: style.backgroundColor,
+						borderColor: style.borderColor,
+						borderStyle: style.borderStyle,
+						className: element.getAttribute("class"),
+						color: style.color,
+						cursor: style.cursor,
+					};
+				}),
+			).toStrictEqual({
+				ariaBusy: "true",
+				ariaPressed: null,
+				backgroundColor: expected.checkingBackground,
+				borderColor: expected.checkingBorder,
+				borderStyle: "dashed",
+				className: "afk-toggle afk-checking",
+				color: expected.checkingText,
+				cursor: "progress",
+			});
+			await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, `afk-checking-${theme}.png`)});
+		});
+
+		test("AFK toggle exposes a visible keyboard focus ring", async ({page}) => {
+			await routeAfkDeck(page, false);
+			await page.keyboard.press("Tab");
+			await expect(page.getByRole("button", {name: "1 MCP client authorized"})).toBeFocused();
+			await page.keyboard.press("Tab");
+			const toggle = page.getByRole("button", {name: "AFK off"});
+			await expect(toggle).toBeFocused();
+			expect(
+				await toggle.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {
+						outlineColor: style.outlineColor,
+						outlineOffset: style.outlineOffset,
+						outlineStyle: style.outlineStyle,
+						outlineWidth: style.outlineWidth,
+					};
+				}),
+			).toStrictEqual({
+				outlineColor: expected.focusRing,
+				outlineOffset: "2px",
+				outlineStyle: "solid",
+				outlineWidth: "2px",
+			});
+			await page.screenshot({
+				fullPage: true,
+				path: resolve(screenshotDirectory, `afk-keyboard-focus-${theme}.png`),
+			});
+		});
 	});
-	await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "afk-keyboard-focus.png")});
-});
+}
 
 test("AFK controls remain readable within a narrow mobile header", async ({browser}) => {
 	const context = await browser.newContext({

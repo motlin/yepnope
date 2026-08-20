@@ -1,14 +1,133 @@
 /* 🎨 Ported from mockups/index.html (variant 2, dense typography), reshaped from a
    402x874 phone frame into a full-viewport installed PWA. */
 
+/* 🌗 The only place a colour is written down. The complete palette is declared here in light, and
+   dark redefines the same names twice below: once for `prefers-color-scheme` while no explicit
+   choice exists, and once for the `data-theme` attribute `src/theme.ts` writes when one does. No
+   colour is ever defined only inside a media or attribute block, so every rule below can reach a
+   value whatever the visitor chose. */
 :root {
-	--bg: #17181c;
+	color-scheme: light;
+
+	/* Surfaces */
+	--surface-page: #f1f2f4;
+	--surface-panel: #ffffff;
+	--surface-inset: #f4f5f7;
+	--surface-raised: #e4e6ea;
+	--surface-behind: #d8dade;
+
+	/* Borders */
+	--border-panel: #dcdee3;
+	--border-subtle: #e2e4e9;
+	--border-control: #838894;
+	--border-control-strong: #767c88;
+
+	/* Text, brightest to dimmest */
+	--text-strong: #16181d;
+	--text-body: #2b2f36;
+	--text-secondary: #414652;
+	--text-tertiary: #4e5460;
+	--text-muted: #5a606b;
+	--text-faint: #63636e;
+
+	/* Pointer and keyboard state, layered over whatever surface the control sits on */
+	--overlay-faint: rgb(0 0 0 / 3%);
+	--overlay-soft: rgb(0 0 0 / 4%);
+	--overlay-hover: rgb(0 0 0 / 6%);
+	--overlay-active: rgb(0 0 0 / 11%);
+	--focus-ring: #2b2f36;
+
+	/* Dispositions: `-fill` paints a surface, `-ink` writes on one */
+	--yep-fill: #2eb872;
+	--yep-on-fill: #06130c;
+	--yep-ink: #0d6839;
+	--yep-tint: rgb(46 184 114 / 16%);
+	--yep-tint-hover: rgb(46 184 114 / 24%);
+	--yep-tint-active: rgb(46 184 114 / 30%);
+	--yep-halo: rgb(46 184 114 / 25%);
+	--nope-ink: #bf2126;
+	--skip-ink: #5a606b;
+
+	/* Status messages */
+	--danger-surface: #fdecec;
+	--danger-text: #a51d22;
+	--success-surface: #e9f7ef;
+	--success-text: #0f6b3c;
+
+	/* 🃏 The question card is a printed card in both themes, so its palette does not flip. */
 	--card-bg: #ffffff;
 	--card-text: #16181d;
-	--muted: #7b818c;
-	--yep: #2eb872;
-	--nope: #e5484d;
-	--skip: #8b8f98;
+	--card-chip-bg: #eef0f3;
+	--card-chip-text: #4b5058;
+	--card-code-bg: #f0f1f4;
+	--card-stamp-backing: rgb(255 255 255 / 85%);
+	--card-yep: #0d6839;
+	--card-nope: #bf2126;
+	--card-skip: #5a606b;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		color-scheme: dark;
+		--surface-page: #17181c;
+		--surface-panel: #1d1f24;
+		--surface-inset: #141519;
+		--surface-raised: #2a2d33;
+		--surface-behind: #22242a;
+		--border-panel: #2a2d33;
+		--border-subtle: #32353d;
+		--border-control: #6b717d;
+		--border-control-strong: #767d8a;
+		--text-strong: #eceef2;
+		--text-body: #d7dae0;
+		--text-secondary: #b9bec7;
+		--text-tertiary: #aeb4be;
+		--text-muted: #8f96a1;
+		--text-faint: #838994;
+		--overlay-faint: rgb(255 255 255 / 2%);
+		--overlay-soft: rgb(255 255 255 / 4%);
+		--overlay-hover: rgb(255 255 255 / 6%);
+		--overlay-active: rgb(255 255 255 / 12%);
+		--focus-ring: #d7dae0;
+		--yep-ink: #3ecb80;
+		--nope-ink: #ef5f64;
+		--skip-ink: #9298a2;
+		--danger-surface: #39252a;
+		--danger-text: #ffb4b7;
+		--success-surface: #1f342f;
+		--success-text: #b6f1d2;
+	}
+}
+
+:root[data-theme="dark"] {
+	color-scheme: dark;
+	--surface-page: #17181c;
+	--surface-panel: #1d1f24;
+	--surface-inset: #141519;
+	--surface-raised: #2a2d33;
+	--surface-behind: #22242a;
+	--border-panel: #2a2d33;
+	--border-subtle: #32353d;
+	--border-control: #6b717d;
+	--border-control-strong: #767d8a;
+	--text-strong: #eceef2;
+	--text-body: #d7dae0;
+	--text-secondary: #b9bec7;
+	--text-tertiary: #aeb4be;
+	--text-muted: #8f96a1;
+	--text-faint: #838994;
+	--overlay-faint: rgb(255 255 255 / 2%);
+	--overlay-soft: rgb(255 255 255 / 4%);
+	--overlay-hover: rgb(255 255 255 / 6%);
+	--overlay-active: rgb(255 255 255 / 12%);
+	--focus-ring: #d7dae0;
+	--yep-ink: #3ecb80;
+	--nope-ink: #ef5f64;
+	--skip-ink: #9298a2;
+	--danger-surface: #39252a;
+	--danger-text: #ffb4b7;
+	--success-surface: #1f342f;
+	--success-text: #b6f1d2;
 }
 
 * {
@@ -22,10 +141,16 @@ body {
 
 body {
 	margin: 0;
-	background: var(--bg);
-	color: #d7dae0;
+	background: var(--surface-page);
+	color: var(--text-body);
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 	overscroll-behavior: none;
+}
+
+/* Every control gets the same ring, and the ring is a token, so it stays visible in both themes. */
+:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
 }
 
 #app {
@@ -70,10 +195,10 @@ body {
 
 .afk-toggle,
 .account-status {
-	border: 1px solid var(--muted);
+	border: 1px solid var(--border-control);
 	border-radius: 999px;
 	background: none;
-	color: var(--muted);
+	color: var(--text-faint);
 	font-size: 12px;
 	font-weight: 600;
 	letter-spacing: 0.04em;
@@ -82,47 +207,45 @@ body {
 }
 
 .afk-toggle.afk-off {
-	border-color: #626873;
-	background: rgb(255 255 255 / 4%);
-	color: #b9bec7;
+	border-color: var(--border-control-strong);
+	background: var(--overlay-soft);
+	color: var(--text-secondary);
 }
 
 .afk-toggle.afk-on {
-	border-color: var(--yep);
-	background: rgb(46 184 114 / 16%);
-	color: var(--yep);
+	border-color: var(--yep-ink);
+	background: var(--yep-tint);
+	color: var(--yep-ink);
 }
 
 .afk-toggle:hover:not(:disabled) {
-	border-color: #8f96a1;
-	background: rgb(255 255 255 / 8%);
-	color: #eceef2;
+	border-color: var(--border-control-strong);
+	background: var(--overlay-hover);
+	color: var(--text-strong);
 }
 
 .afk-toggle.afk-on:hover:not(:disabled) {
-	border-color: var(--yep);
-	background: rgb(46 184 114 / 24%);
-	color: var(--yep);
+	border-color: var(--yep-ink);
+	background: var(--yep-tint-hover);
+	color: var(--yep-ink);
 }
 
-.afk-toggle:focus-visible {
-	outline: 2px solid #d7dae0;
-	outline-offset: 2px;
-}
-
+/* Touch never hovers, so the pressed state restates its own colour rather than inheriting one. */
 .afk-toggle:active:not(:disabled) {
-	background: rgb(255 255 255 / 12%);
+	background: var(--overlay-active);
+	color: var(--text-strong);
 	transform: translateY(1px);
 }
 
 .afk-toggle.afk-on:active:not(:disabled) {
-	background: rgb(46 184 114 / 30%);
+	background: var(--yep-tint-active);
+	color: var(--yep-ink);
 }
 
 .afk-toggle:disabled {
-	border-color: #41454e;
-	background: rgb(255 255 255 / 2%);
-	color: #8f96a1;
+	border-color: var(--border-control);
+	background: var(--overlay-faint);
+	color: var(--text-muted);
 	cursor: not-allowed;
 	opacity: 1;
 }
@@ -135,7 +258,7 @@ body {
 .settings-button {
 	background: none;
 	border: 0;
-	color: var(--muted);
+	color: var(--text-faint);
 	font-size: 17px;
 	cursor: pointer;
 	padding: 2px 4px;
@@ -152,12 +275,12 @@ body {
 .deck-header .project {
 	font-size: 15px;
 	font-weight: 600;
-	color: #eceef2;
+	color: var(--text-strong);
 }
 
 .deck-header .count {
 	font-size: 13px;
-	color: var(--muted);
+	color: var(--text-faint);
 }
 
 .deck {
@@ -171,7 +294,7 @@ body {
 	position: absolute;
 	inset: 8px 10px auto;
 	height: 24px;
-	background: #22242a;
+	background: var(--surface-behind);
 	border-radius: 20px 20px 0 0;
 }
 
@@ -219,8 +342,8 @@ body {
 .chip {
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
 	font-size: 11px;
-	color: #4b5058;
-	background: #eef0f3;
+	color: var(--card-chip-text);
+	background: var(--card-chip-bg);
 	border-radius: 10px;
 	padding: 3px 9px;
 	white-space: nowrap;
@@ -261,7 +384,7 @@ body {
 .card .body code {
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
 	font-size: 0.88em;
-	background: #f0f1f4;
+	background: var(--card-code-bg);
 	border-radius: 4px;
 	padding: 1px 5px;
 }
@@ -278,32 +401,32 @@ body {
 	border-radius: 10px;
 	opacity: 0;
 	pointer-events: none;
-	background: rgba(255, 255, 255, 0.85);
+	background: var(--card-stamp-backing);
 }
 
 .stamp.yep {
-	color: var(--yep);
-	border-color: var(--yep);
+	color: var(--card-yep);
+	border-color: var(--card-yep);
 	transform: translate(-50%, -50%) rotate(-12deg);
 }
 
 .stamp.nope {
-	color: var(--nope);
-	border-color: var(--nope);
+	color: var(--card-nope);
+	border-color: var(--card-nope);
 	transform: translate(-50%, -50%) rotate(12deg);
 }
 
 .stamp.skip {
-	color: var(--skip);
-	border-color: var(--skip);
+	color: var(--card-skip);
+	border-color: var(--card-skip);
 	transform: translate(-50%, -50%) rotate(-4deg);
 }
 
 .resolved {
 	position: absolute;
 	inset: 20px 0 0;
-	background: #1d1f24;
-	border: 1px solid #2a2d33;
+	background: var(--surface-panel);
+	border: 1px solid var(--border-panel);
 	border-radius: 20px;
 	padding: 24px;
 	display: flex;
@@ -314,13 +437,13 @@ body {
 .resolved h3 {
 	margin: 0 0 6px;
 	font-size: 17px;
-	color: #eceef2;
+	color: var(--text-strong);
 }
 
 .resolved p {
 	margin: 0;
 	font-size: 14px;
-	color: var(--muted);
+	color: var(--text-faint);
 }
 
 .undo-bar {
@@ -331,11 +454,11 @@ body {
 	gap: 12px;
 	margin-top: 10px;
 	padding: 8px 10px 8px 14px;
-	border: 1px solid #2c2f36;
+	border: 1px solid var(--border-panel);
 	border-radius: 16px;
-	background: #1d1f24;
+	background: var(--surface-panel);
 	font-size: 13px;
-	color: var(--muted);
+	color: var(--text-faint);
 }
 
 .undo-message {
@@ -355,35 +478,30 @@ body {
 }
 
 .undo-disposition.yep {
-	color: var(--yep);
+	color: var(--yep-ink);
 }
 
 .undo-disposition.nope {
-	color: var(--nope);
+	color: var(--nope-ink);
 }
 
 .undo-disposition.skip {
-	color: var(--skip);
+	color: var(--skip-ink);
 }
 
 .undo-button {
 	background: none;
-	border: 1.5px solid #4b5058;
+	border: 1.5px solid var(--border-control-strong);
 	border-radius: 18px;
 	padding: 6px 18px;
 	font-size: 13px;
 	font-weight: 600;
-	color: #eceef2;
+	color: var(--text-strong);
 	cursor: pointer;
 }
 
 .undo-button:hover {
-	background: rgba(255, 255, 255, 0.06);
-}
-
-.undo-button:focus-visible {
-	outline: 2px solid #eceef2;
-	outline-offset: 2px;
+	background: var(--overlay-hover);
 }
 
 .actions {
@@ -406,22 +524,22 @@ body {
 }
 
 .actions .btn-nope {
-	color: var(--nope);
-	border-color: var(--nope);
+	color: var(--nope-ink);
+	border-color: var(--nope-ink);
 }
 
 .actions .btn-skip {
-	color: var(--skip);
-	border-color: var(--skip);
+	color: var(--skip-ink);
+	border-color: var(--skip-ink);
 }
 
 .actions .btn-yep {
-	color: var(--yep);
-	border-color: var(--yep);
+	color: var(--yep-ink);
+	border-color: var(--yep-ink);
 }
 
 .actions button:hover {
-	background: rgba(255, 255, 255, 0.06);
+	background: var(--overlay-hover);
 }
 
 .loading {
@@ -429,7 +547,7 @@ body {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	color: var(--muted);
+	color: var(--text-faint);
 	font-size: 14px;
 }
 
@@ -460,21 +578,21 @@ body {
 
 .account-panel {
 	width: 100%;
-	background: #1d1f24;
-	border: 1px solid #2a2d33;
+	background: var(--surface-panel);
+	border: 1px solid var(--border-panel);
 	border-radius: 18px;
 	padding: 22px;
 }
 
 .account-panel h1 {
 	margin: 0 0 8px;
-	color: #eceef2;
+	color: var(--text-strong);
 	font-size: 23px;
 }
 
 .account-panel > p {
 	margin: 0 0 18px;
-	color: #b9bec7;
+	color: var(--text-secondary);
 	font-size: 14px;
 	line-height: 1.45;
 }
@@ -486,8 +604,8 @@ body {
 	width: 100%;
 	border: 0;
 	border-radius: 10px;
-	background: var(--yep);
-	color: #06130c;
+	background: var(--yep-fill);
+	color: var(--yep-on-fill);
 	cursor: pointer;
 	font-size: 14px;
 	font-weight: 650;
@@ -501,14 +619,9 @@ body {
 
 .signed-out-actions > button.secondary,
 .sign-in-alternatives > button.secondary {
-	border: 1px solid #626873;
+	border: 1px solid var(--border-control-strong);
 	background: transparent;
-	color: #eceef2;
-}
-
-.account-panel button:focus-visible {
-	outline: 2px solid #d7dae0;
-	outline-offset: 2px;
+	color: var(--text-strong);
 }
 
 .account-form {
@@ -521,25 +634,25 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-	color: #d7dae0;
+	color: var(--text-body);
 	font-size: 13px;
 	font-weight: 600;
 }
 
 .account-form input {
 	width: 100%;
-	border: 1px solid #41454e;
+	border: 1px solid var(--border-control);
 	border-radius: 9px;
-	background: #141519;
-	color: #eceef2;
+	background: var(--surface-inset);
+	color: var(--text-strong);
 	font: inherit;
 	font-weight: 400;
 	padding: 11px 12px;
 }
 
 .account-form input:focus {
-	border-color: var(--yep);
-	outline: 2px solid rgb(46 184 114 / 20%);
+	border-color: var(--yep-ink);
+	outline: 2px solid var(--yep-halo);
 }
 
 .account-links {
@@ -553,7 +666,7 @@ body {
 .account-links button {
 	border: 0;
 	background: none;
-	color: #aeb4be;
+	color: var(--text-tertiary);
 	cursor: pointer;
 	font-size: 13px;
 	padding: 4px 0;
@@ -573,7 +686,7 @@ body {
 	align-items: center;
 	gap: 10px;
 	margin: 0;
-	color: #8f96a1;
+	color: var(--text-muted);
 	font-size: 12px;
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
@@ -583,7 +696,7 @@ body {
 .sign-in-alternatives-divider::after {
 	content: "";
 	flex: 1;
-	border-top: 1px solid #32353d;
+	border-top: 1px solid var(--border-subtle);
 }
 
 .sign-in-methods > button {
@@ -612,29 +725,29 @@ body {
 
 .human-verification-status {
 	margin: 0;
-	color: #aeb4be;
+	color: var(--text-tertiary);
 	font-size: 12px;
 	line-height: 1.4;
 }
 
 .human-verification-disclosure {
 	margin: 0;
-	color: #8f96a1;
+	color: var(--text-muted);
 	font-size: 11px;
 	line-height: 1.45;
 }
 
 .human-verification-disclosure a {
-	color: #aeb4be;
+	color: var(--text-tertiary);
 	text-underline-offset: 3px;
 }
 
 .human-verification > button.secondary {
 	width: 100%;
-	border: 1px solid #626873;
+	border: 1px solid var(--border-control-strong);
 	border-radius: 10px;
 	background: transparent;
-	color: #eceef2;
+	color: var(--text-strong);
 	cursor: pointer;
 	font-size: 14px;
 	font-weight: 650;
@@ -657,13 +770,13 @@ body {
 }
 
 .form-error {
-	background: rgb(229 72 77 / 14%);
-	color: #ffb4b7;
+	background: var(--danger-surface);
+	color: var(--danger-text);
 }
 
 .form-success {
-	background: rgb(46 184 114 / 14%);
-	color: #b6f1d2;
+	background: var(--success-surface);
+	color: var(--success-text);
 }
 
 .oauth-capabilities {
@@ -680,17 +793,17 @@ body {
 	flex-direction: column;
 	gap: 3px;
 	border-radius: 10px;
-	background: #141519;
+	background: var(--surface-inset);
 	padding: 12px;
 }
 
 .oauth-capabilities strong {
-	color: #eceef2;
+	color: var(--text-strong);
 	font-size: 14px;
 }
 
 .oauth-capabilities span {
-	color: #aeb4be;
+	color: var(--text-tertiary);
 	font-size: 13px;
 	line-height: 1.4;
 }
@@ -705,8 +818,8 @@ body {
 .oauth-actions button {
 	border: 0;
 	border-radius: 10px;
-	background: var(--yep);
-	color: #06130c;
+	background: var(--yep-fill);
+	color: var(--yep-on-fill);
 	cursor: pointer;
 	font-size: 14px;
 	font-weight: 650;
@@ -714,8 +827,8 @@ body {
 }
 
 .oauth-actions button.secondary {
-	background: #343840;
-	color: #eceef2;
+	background: var(--surface-raised);
+	color: var(--text-strong);
 }
 
 .oauth-handoff {
@@ -723,25 +836,25 @@ body {
 	flex-direction: column;
 	gap: 6px;
 	border-radius: 10px;
-	background: #141519;
+	background: var(--surface-inset);
 	padding: 14px;
 }
 
 .oauth-handoff strong {
-	color: #eceef2;
+	color: var(--text-strong);
 	font-size: 15px;
 	line-height: 1.35;
 }
 
 .oauth-handoff span {
-	color: #aeb4be;
+	color: var(--text-tertiary);
 	font-size: 13px;
 	line-height: 1.45;
 }
 
 .hint {
-	background: #1d1f24;
-	border: 1px solid #2a2d33;
+	background: var(--surface-panel);
+	border: 1px solid var(--border-panel);
 	border-radius: 14px;
 	padding: 14px 16px;
 }
@@ -749,19 +862,19 @@ body {
 .hint h3 {
 	margin: 0 0 6px;
 	font-size: 15px;
-	color: #eceef2;
+	color: var(--text-strong);
 }
 
 .hint p {
 	margin: 0 0 8px;
 	font-size: 14px;
-	color: #b9bec7;
+	color: var(--text-secondary);
 	line-height: 1.4;
 }
 
 .hint button {
-	background: var(--yep);
-	color: #06130c;
+	background: var(--yep-fill);
+	color: var(--yep-on-fill);
 	border: 0;
 	border-radius: 10px;
 	padding: 9px 14px;
@@ -777,8 +890,44 @@ body {
 
 .hint h4 {
 	margin: 16px 0 8px;
-	color: #d7dae0;
+	color: var(--text-body);
 	font-size: 13px;
+}
+
+/* 🌗 The theme control. Native radios so the group is arrow-key navigable, labelled by its legend,
+   and its current value exposed without any ARIA of our own. */
+.theme-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin: 0;
+	border: 0;
+	padding: 0;
+}
+
+.theme-options legend {
+	margin-bottom: 8px;
+	padding: 0;
+	color: var(--text-body);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.theme-option {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	color: var(--text-body);
+	font-size: 14px;
+	cursor: pointer;
+}
+
+.theme-option input {
+	accent-color: var(--yep-ink);
+	margin: 0;
+	width: 16px;
+	height: 16px;
+	cursor: pointer;
 }
 
 .device-list {
@@ -795,7 +944,7 @@ body {
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	border-top: 1px solid #32353d;
+	border-top: 1px solid var(--border-subtle);
 	padding-top: 10px;
 }
 
@@ -805,13 +954,13 @@ body {
 }
 
 .managed-device strong {
-	color: #eceef2;
+	color: var(--text-strong);
 	font-size: 14px;
 }
 
 .managed-device small {
 	margin-top: 3px;
-	color: #8f96a1;
+	color: var(--text-muted);
 	font-size: 11px;
 	line-height: 1.35;
 }
@@ -841,28 +990,28 @@ body {
 .device-rename label {
 	flex-direction: column;
 	gap: 5px;
-	color: #b9bec7;
+	color: var(--text-secondary);
 	font-size: 12px;
 }
 
 .device-rename input {
 	min-width: 0;
-	border: 1px solid #41454e;
+	border: 1px solid var(--border-control);
 	border-radius: 8px;
-	background: #141519;
-	color: #eceef2;
+	background: var(--surface-inset);
+	color: var(--text-strong);
 	font: inherit;
 	padding: 7px 8px;
 }
 
 .hint button.secondary {
-	border: 1px solid #41454e;
+	border: 1px solid var(--border-control);
 	background: transparent;
-	color: #d7dae0;
+	color: var(--text-body);
 }
 
 .account-email {
-	color: #eceef2 !important;
+	color: var(--text-strong) !important;
 	font-weight: 650;
 }
 
@@ -878,9 +1027,9 @@ body {
 	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: center;
 	gap: 8px 12px;
-	border: 1px solid #32353d;
+	border: 1px solid var(--border-subtle);
 	border-radius: 10px;
-	background: #191a1f;
+	background: var(--surface-inset);
 	padding: 10px 12px;
 }
 
@@ -891,13 +1040,13 @@ body {
 
 .install-command strong {
 	margin-bottom: 5px;
-	color: #d7dae0;
+	color: var(--text-body);
 	font-size: 12px;
 }
 
 .install-command code {
 	overflow-wrap: anywhere;
-	color: #eceef2;
+	color: var(--text-strong);
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
 	font-size: 12px;
 	line-height: 1.45;
@@ -906,12 +1055,12 @@ body {
 
 .install-command small {
 	grid-column: 1 / -1;
-	color: #ffb4b7;
+	color: var(--danger-text);
 	font-size: 11px;
 }
 
 .connected-clients a {
-	color: #b6f1d2;
+	color: var(--success-text);
 }
 
 .refresh-devices {
@@ -920,8 +1069,8 @@ body {
 
 .settings .back {
 	margin-top: auto;
-	background: #2a2d33;
-	color: #d7dae0;
+	background: var(--surface-raised);
+	color: var(--text-body);
 	border: 0;
 	border-radius: 10px;
 	padding: 10px;

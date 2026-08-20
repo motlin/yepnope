@@ -3,6 +3,7 @@ import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {useState, type ReactElement} from "react";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {HumanVerificationField} from "../src/human-verification";
+import type {ResolvedTheme} from "../src/theme";
 import {humanVerificationBlocksSubmit, useHumanVerification} from "../src/turnstile";
 
 const TEST_SITE_KEY = "1x00000000000000000000AA";
@@ -70,10 +71,11 @@ function installTurnstileStub(): TurnstileStub {
 interface HarnessProps {
 	action?: string;
 	siteKey: string | null;
+	theme?: ResolvedTheme;
 }
 
-function Harness({action = "sign_in", siteKey}: HarnessProps): ReactElement {
-	const verification = useHumanVerification(action, siteKey);
+function Harness({action = "sign_in", siteKey, theme = "dark"}: HarnessProps): ReactElement {
+	const verification = useHumanVerification(action, siteKey, theme);
 	const [outcome, setOutcome] = useState("idle");
 	return (
 		<form
@@ -164,6 +166,26 @@ describe("The human-verification check", () => {
 			retry: "never",
 			sitekey: TEST_SITE_KEY,
 			size: "flexible",
+			theme: "dark",
+		});
+	});
+
+	// 🌗 Cloudflare draws the widget itself, so the only way it can match a light page is to be told.
+	it("draws the widget in the palette the page is painted in, and redraws it when that changes", async () => {
+		const turnstile = installTurnstileStub();
+
+		const view = render(<Harness siteKey={TEST_SITE_KEY} theme="light" />);
+		await waitFor(() => {
+			expect(turnstile.widgetCount()).toBe(1);
+		});
+		expect(turnstile.options().theme).toBe("light");
+
+		view.rerender(<Harness siteKey={TEST_SITE_KEY} theme="dark" />);
+		await waitFor(() => {
+			expect(turnstile.widgetCount()).toBe(2);
+		});
+		expect({removals: turnstile.removals, theme: turnstile.options().theme}).toStrictEqual({
+			removals: ["widget-1"],
 			theme: "dark",
 		});
 	});

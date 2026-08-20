@@ -4,7 +4,21 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 		<title>YepNope</title>
-		<meta name="theme-color" content="#17181c" />
+		<meta name="theme-color" content="#f1f2f4" />
+		<!-- 🌗 Applies the stored theme before the first paint, so an explicit choice never flashes the
+		     other palette while the module bundle loads. Everything after this is src/theme.ts. -->
+		<script>
+			(() => {
+				const stored = window.localStorage.getItem("yepnope.theme");
+				const explicit = stored === "light" || stored === "dark" ? stored : null;
+				if (explicit !== null) {
+					document.documentElement.setAttribute("data-theme", explicit);
+				}
+				const dark =
+					explicit === null ? window.matchMedia("(prefers-color-scheme: dark)").matches : explicit === "dark";
+				document.querySelector('meta[name="theme-color"]').content = dark ? "#17181c" : "#f1f2f4";
+			})();
+		</script>
 		<link rel="manifest" href="/manifest.webmanifest" />
 		<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
