@@ -4,7 +4,9 @@ Swipe to answer your coding agent's yes/no questions.
 
 Agents ask brief, self-contained questions through an MCP tool or the Claude Code
 permission hook; the questions land on your phone as swipe cards. Right is yep,
-left is nope, down is skip. The agent blocks until every card is answered.
+left is nope, down is skip. Every swipe is held for five seconds behind an undo
+button (keyboard shortcut `u`), including the last card of a batch, so a
+mis-swipe can be taken back. The agent blocks until every card is answered.
 
 ## Install the agent integration
 

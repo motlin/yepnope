@@ -185,7 +185,9 @@ body {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
-	touch-action: none;
+
+	/* 🤏 Leave pinch-zoom to the browser; only single-finger panning is a swipe. */
+	touch-action: pinch-zoom;
 	user-select: none;
 	cursor: grab;
 	will-change: transform;
@@ -319,6 +321,69 @@ body {
 	margin: 0;
 	font-size: 14px;
 	color: var(--muted);
+}
+
+.undo-bar {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 10px;
+	padding: 8px 10px 8px 14px;
+	border: 1px solid #2c2f36;
+	border-radius: 16px;
+	background: #1d1f24;
+	font-size: 13px;
+	color: var(--muted);
+}
+
+.undo-message {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+}
+
+.undo-disposition {
+	font-weight: 600;
+}
+
+.undo-countdown {
+	font-variant-numeric: tabular-nums;
+}
+
+.undo-disposition.yep {
+	color: var(--yep);
+}
+
+.undo-disposition.nope {
+	color: var(--nope);
+}
+
+.undo-disposition.skip {
+	color: var(--skip);
+}
+
+.undo-button {
+	background: none;
+	border: 1.5px solid #4b5058;
+	border-radius: 18px;
+	padding: 6px 18px;
+	font-size: 13px;
+	font-weight: 600;
+	color: #eceef2;
+	cursor: pointer;
+}
+
+.undo-button:hover {
+	background: rgba(255, 255, 255, 0.06);
+}
+
+.undo-button:focus-visible {
+	outline: 2px solid #eceef2;
+	outline-offset: 2px;
 }
 
 .actions {

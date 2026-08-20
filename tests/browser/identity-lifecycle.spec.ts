@@ -46,6 +46,11 @@ async function sessionUserId(page: Page): Promise<string> {
 	return ((await response.json()) as SessionResponse).user.id;
 }
 
+async function activitySummary(page: Page): Promise<{body: unknown; status: number}> {
+	const response = await page.request.get("/api/v1/activity-summary");
+	return {body: await response.json(), status: response.status()};
+}
+
 async function answerCurrentCard(page: Page, buttonName: string, nextHeading: string): Promise<void> {
 	await page.getByRole("button", {name: buttonName}).click();
 	await expect(page.getByRole("heading", {name: nextHeading})).toBeVisible();
@@ -185,21 +190,45 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await answerCurrentCard(firstPage, "← Nope", "Defer the optional browser test?");
 		await answerCurrentCard(firstPage, "↓ Skip", "All caught up");
 
-		const summary = await firstPage.request.get("/api/v1/activity-summary");
-		expect({body: await summary.json(), status: summary.status()}).toStrictEqual({
-			body: {
-				activity_summary: {
-					expired: 0,
-					nope: 1,
-					outstanding: 0,
-					retracted: 0,
-					skip: 1,
-					total_questions: 3,
-					yep: 1,
+		// ↩️ The last swipe of a batch waits out the undo window, so taking it back leaves the
+		// question outstanding and the agent still blocked.
+		await firstPage.getByRole("button", {name: "Undo skip"}).click();
+		await expect(firstPage.getByRole("heading", {name: "Defer the optional browser test?"})).toBeVisible();
+		await expect
+			.poll(async () => activitySummary(firstPage))
+			.toStrictEqual({
+				body: {
+					activity_summary: {
+						expired: 0,
+						nope: 1,
+						outstanding: 1,
+						retracted: 0,
+						skip: 0,
+						total_questions: 3,
+						yep: 1,
+					},
 				},
-			},
-			status: 200,
-		});
+				status: 200,
+			});
+
+		await answerCurrentCard(firstPage, "↓ Skip", "All caught up");
+		await expect(firstPage.getByRole("button", {name: "Undo skip"})).toBeHidden({timeout: 15_000});
+		await expect
+			.poll(async () => activitySummary(firstPage))
+			.toStrictEqual({
+				body: {
+					activity_summary: {
+						expired: 0,
+						nope: 1,
+						outstanding: 0,
+						retracted: 0,
+						skip: 1,
+						total_questions: 3,
+						yep: 1,
+					},
+				},
+				status: 200,
+			});
 
 		const failureContext = await browser.newContext({ignoreHTTPSErrors: true});
 		contexts.push(failureContext);
