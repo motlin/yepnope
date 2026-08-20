@@ -238,6 +238,72 @@ the tool. If setup is missing, Claude Code recommends `/yepnope-setup`; Codex
 recommends `$yepnope-setup`. Neither skill edits status-line settings or starts
 background monitoring.
 
+## Sign-in methods
+
+An account can be reached by email and password, a passwordless emailed
+sign-in link, a passkey, and any configured social provider. All of them
+resolve to the same account: linking requires the provider's own verified-email
+claim and an exact address match, and Better Auth's local-verification gate
+means a pre-registered but unverified account cannot absorb someone else's
+social identity. Passkeys and providers are added and removed under **Settings
+-> Sign-in methods**; the last remaining method cannot be disconnected.
+
+`GET /api/v1/auth-methods` reports what the running deployment can actually
+complete, and the sign-in page renders only those methods, so a deployment
+without provider secrets never shows a button that would dead-end.
+
+### Configuring social providers
+
+GitHub and Google are the two providers the client knows how to render. Each is
+enabled purely by setting both of its secrets; unset either one and the provider
+disappears from the sign-in page and is rejected by the API.
+
+1. Register the OAuth application with the provider and set its callback URL to
+   `https://yepnope.app/api/auth/callback/github` or
+   `https://yepnope.app/api/auth/callback/google`. Google additionally needs
+   `https://yepnope.app` as an authorized JavaScript origin, and its consent
+   screen must request the `email` and `profile` scopes so the verified-email
+   claim arrives.
+2. Store the credentials as Wrangler secrets, never as `vars`:
+
+    ```sh
+    wrangler secret put GITHUB_CLIENT_ID
+    wrangler secret put GITHUB_CLIENT_SECRET
+    wrangler secret put GOOGLE_CLIENT_ID
+    wrangler secret put GOOGLE_CLIENT_SECRET
+    ```
+
+3. Redeploy with `npm run deploy`, then confirm the provider is advertised:
+
+    ```sh
+    curl -s https://yepnope.app/api/v1/auth-methods
+    ```
+
+For local development, put the same names in `.dev.vars` (see
+`.dev.vars.example`) and register a second OAuth application whose callback URL
+points at your dev origin. Provider credentials are per-origin; never reuse the
+production application's secrets locally.
+
+`BETTER_AUTH_SECRET` is likewise a Wrangler secret
+(`wrangler secret put BETTER_AUTH_SECRET`, generated with
+`openssl rand -base64 32`), as is `VAPID_PRIVATE_JWK`.
+
+### Passkeys and emailed sign-in links
+
+Both are enabled unconditionally and need no secrets. Passkeys are bound to the
+relying party derived from `BETTER_AUTH_URL`, so changing that hostname
+invalidates every registered passkey. Emailed sign-in links expire in 15
+minutes, are stored only as a hash, and are delivered through the same
+Cloudflare `send_email` binding as verification and password-reset mail.
+
+### Verifying a deployment
+
+After each deploy, exercise every advertised method against production once:
+sign in with email and password, request an emailed link and follow it,
+register and then use a passkey, and complete each configured provider's
+round trip. `/api/v1/auth-methods` is the checklist — every `true` and every
+listed provider needs one pass.
+
 ## Privacy and retention
 
 YepNope can read question bodies and answers stored by the service. End-to-end

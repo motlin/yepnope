@@ -38,7 +38,9 @@
 	"dependencies": {
 		"@better-auth/drizzle-adapter": "1.7.0",
 		"@better-auth/mcp": "1.7.0",
+		"@better-auth/passkey": "1.7.0",
 		"@modelcontextprotocol/sdk": "1.30.0",
+		"@simplewebauthn/browser": "^13.3.0",
 		"agentation": "^3.0.2",
 		"better-auth": "1.7.0",
 		"drizzle-orm": "^0.45.2",

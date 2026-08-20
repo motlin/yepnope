@@ -1,6 +1,6 @@
 import {defineConfig} from "playwright/test";
 
-const serverOrigin = "https://127.0.0.1:4173";
+const serverOrigin = "https://localhost:4173";
 
 export default defineConfig({
 	testDir: "./tests/browser",

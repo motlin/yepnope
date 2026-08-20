@@ -1,7 +1,8 @@
 import {mcp} from "@better-auth/mcp";
+import {passkey} from "@better-auth/passkey";
 import {drizzleAdapter} from "@better-auth/drizzle-adapter";
 import {betterAuth} from "better-auth";
-import {jwt} from "better-auth/plugins";
+import {jwt, magicLink} from "better-auth/plugins";
 import {and, eq, isNull} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {z} from "zod";
@@ -16,6 +17,7 @@ import {
 	oauthConsents,
 	oauthRefreshTokens,
 	oauthResources,
+	passkeys,
 	sessions,
 	users,
 	verifications,
@@ -25,12 +27,15 @@ import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountI
 const AUTHENTICATION_PATH = "/api/auth";
 const EMAIL_REGISTRATION_PATH = `${AUTHENTICATION_PATH}/sign-up/email`;
 const EMAIL_SIGN_IN_PATH = `${AUTHENTICATION_PATH}/sign-in/email`;
+const MAGIC_LINK_SIGN_IN_PATH = `${AUTHENTICATION_PATH}/sign-in/magic-link`;
 const EMAIL_VERIFICATION_REQUEST_PATH = `${AUTHENTICATION_PATH}/send-verification-email`;
 const EMAIL_VERIFICATION_PATH = `${AUTHENTICATION_PATH}/verify-email`;
 const EMAIL_VERIFICATION_IDENTIFIER_PREFIX = "yepnope-email-verification:";
 const PASSWORD_RECOVERY_REQUEST_PATH = `${AUTHENTICATION_PATH}/request-password-reset`;
 const PUBLIC_AUTHENTICATION_RESPONSE_FLOOR_MILLISECONDS = 500;
 const AUTHENTICATION_TOKEN_EXPIRY_SECONDS = 60 * 60;
+const MAGIC_LINK_EXPIRY_SECONDS = 15 * 60;
+const MAGIC_LINK_RATE_LIMIT = {window: 60, max: 5} as const;
 const OAUTH_ACCESS_TOKEN_EXPIRY_SECONDS = 10 * 60;
 const OAUTH_AUTHORIZATION_CODE_EXPIRY_SECONDS = 5 * 60;
 const OAUTH_REFRESH_TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
@@ -53,6 +58,15 @@ const emailSignInSchema = z
 		oauth_query: z.string().optional(),
 		password: z.string(),
 		rememberMe: z.boolean().optional(),
+	})
+	.strict();
+const magicLinkSignInSchema = z
+	.object({
+		callbackURL: z.string().optional(),
+		email: z.email(),
+		name: z.string().optional(),
+		newUserCallbackURL: z.string().optional(),
+		errorCallbackURL: z.string().optional(),
 	})
 	.strict();
 const emailVerificationRequestSchema = z
@@ -100,6 +114,7 @@ const authenticationSchema = {
 	oauthConsent: oauthConsents,
 	oauthRefreshToken: oauthRefreshTokens,
 	oauthResource: oauthResources,
+	passkey: passkeys,
 	session: sessions,
 	user: users,
 	verification: verifications,
@@ -107,12 +122,82 @@ const authenticationSchema = {
 
 type AuthenticationEnvironment = Pick<
 	Env,
-	"AUTH_EMAIL_FROM" | "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "DB" | "USER_DO"
+	| "AUTH_EMAIL_FROM"
+	| "BETTER_AUTH_SECRET"
+	| "BETTER_AUTH_URL"
+	| "DB"
+	| "GITHUB_CLIENT_ID"
+	| "GITHUB_CLIENT_SECRET"
+	| "GOOGLE_CLIENT_ID"
+	| "GOOGLE_CLIENT_SECRET"
+	| "USER_DO"
 >;
+
+// 🔌 Social providers are configuration, not code: a provider appears only once both of its
+// secrets are set, so a deploy without credentials simply never advertises or accepts it.
+const SOCIAL_PROVIDERS = ["github", "google"] as const;
+export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
+
+interface SocialProviderCredentials {
+	clientId: string;
+	clientSecret: string;
+}
+
+const SOCIAL_PROVIDER_CREDENTIAL_NAMES: Readonly<
+	Record<SocialProvider, {id: keyof AuthenticationEnvironment; secret: keyof AuthenticationEnvironment}>
+> = {
+	github: {id: "GITHUB_CLIENT_ID", secret: "GITHUB_CLIENT_SECRET"},
+	google: {id: "GOOGLE_CLIENT_ID", secret: "GOOGLE_CLIENT_SECRET"},
+};
+
+export interface AuthenticationMethods {
+	emailPassword: boolean;
+	magicLink: boolean;
+	passkey: boolean;
+	social: SocialProvider[];
+}
+
+function configuredSecret(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const trimmed = value.trim();
+	return trimmed === "" ? null : trimmed;
+}
+
+function socialProviderCredentials(
+	environment: AuthenticationEnvironment,
+): Partial<Record<SocialProvider, SocialProviderCredentials>> {
+	const credentials: Partial<Record<SocialProvider, SocialProviderCredentials>> = {};
+	for (const provider of SOCIAL_PROVIDERS) {
+		const names = SOCIAL_PROVIDER_CREDENTIAL_NAMES[provider];
+		const clientId = configuredSecret(environment[names.id]);
+		const clientSecret = configuredSecret(environment[names.secret]);
+		if (clientId !== null && clientSecret !== null) {
+			credentials[provider] = {clientId, clientSecret};
+		}
+	}
+	return credentials;
+}
+
+/**
+ * The sign-in methods this deployment can actually complete. The browser reads this so it never
+ * renders a provider button that would dead-end on a missing secret.
+ */
+export function authenticationMethods(environment: AuthenticationEnvironment): AuthenticationMethods {
+	const credentials = socialProviderCredentials(environment);
+	return {
+		emailPassword: true,
+		magicLink: true,
+		passkey: true,
+		social: SOCIAL_PROVIDERS.filter((provider) => credentials[provider] !== undefined),
+	};
+}
 type AuthenticationEmail = Parameters<SendEmail["send"]>[0];
 
 interface AuthenticationEmailCopy {
 	actionLabel: string;
+	expiry: string;
 	introduction: string;
 	preheader: string;
 	subject: string;
@@ -124,10 +209,25 @@ export interface AuthenticationDependencies {
 	sendEmail: (message: AuthenticationEmail) => Promise<void>;
 }
 
+/**
+ * A wrapper around the Better Auth handler. `createAuthentication` composes an ordered list of
+ * these so the request path reads as a list rather than a pyramid of nested callbacks.
+ */
+type AuthenticationHandler = (request: Request) => Promise<Response>;
+type AuthenticationMiddleware = (next: AuthenticationHandler) => AuthenticationHandler;
+
+function composeAuthenticationMiddleware(
+	middleware: readonly AuthenticationMiddleware[],
+	handler: AuthenticationHandler,
+): AuthenticationHandler {
+	return middleware.reduceRight((next, wrap) => wrap(next), handler);
+}
+
 export interface AuthenticationObservation {
 	event:
 		| "authentication_email_delivery_failed"
 		| "authentication_library_log"
+		| "authentication_method_completed"
 		| "public_authentication_response_normalized";
 	level: "debug" | "error" | "info" | "warn";
 	reason: string;
@@ -153,6 +253,7 @@ async function sendAuthenticationEmail(
 
 enum PublicAuthenticationOperation {
 	Register = "register",
+	RequestMagicLink = "request_magic_link",
 	RequestPasswordRecovery = "request_password_recovery",
 	RequestVerification = "request_verification",
 	SignIn = "sign_in",
@@ -198,6 +299,10 @@ async function publicAuthenticationOperation(request: Request): Promise<PublicAu
 			return emailRegistrationSchema.safeParse(body).success ? PublicAuthenticationOperation.Register : null;
 		case EMAIL_SIGN_IN_PATH:
 			return emailSignInSchema.safeParse(body).success ? PublicAuthenticationOperation.SignIn : null;
+		case MAGIC_LINK_SIGN_IN_PATH:
+			return magicLinkSignInSchema.safeParse(body).success
+				? PublicAuthenticationOperation.RequestMagicLink
+				: null;
 		case EMAIL_VERIFICATION_REQUEST_PATH:
 			return emailVerificationRequestSchema.safeParse(body).success
 				? PublicAuthenticationOperation.RequestVerification
@@ -227,67 +332,93 @@ function publicAuthenticationResponse(operation: PublicAuthenticationOperation):
 		: Response.json(PUBLIC_AUTHENTICATION_ACCEPTED_BODY, {headers});
 }
 
-async function nonEnumeratingAuthenticationHandler(
-	handler: (request: Request) => Promise<Response>,
-	request: Request,
-	observe: AuthenticationDependencies["observe"],
-): Promise<Response> {
-	const operation = await publicAuthenticationOperation(request);
-	if (operation === null) {
-		return handler(request);
-	}
-	const startedAt = performance.now();
-	let response: Response;
-	try {
-		response = await handler(request);
-	} catch {
+function nonEnumeratingAuthenticationHandler(observe: AuthenticationDependencies["observe"]): AuthenticationMiddleware {
+	return (next) => async (request) => {
+		const operation = await publicAuthenticationOperation(request);
+		if (operation === null) {
+			return next(request);
+		}
+		const startedAt = performance.now();
+		let response: Response;
+		try {
+			response = await next(request);
+		} catch {
+			observe({
+				event: "public_authentication_response_normalized",
+				level: "error",
+				reason: operation,
+				status: null,
+			});
+			await waitForPublicAuthenticationResponseFloor(startedAt);
+			return publicAuthenticationResponse(operation);
+		}
+		if (operation === PublicAuthenticationOperation.SignIn && response.ok) {
+			await waitForPublicAuthenticationResponseFloor(startedAt);
+			return response;
+		}
 		observe({
 			event: "public_authentication_response_normalized",
-			level: "error",
+			level: response.ok ? "info" : "warn",
 			reason: operation,
-			status: null,
+			status: response.status,
 		});
 		await waitForPublicAuthenticationResponseFloor(startedAt);
 		return publicAuthenticationResponse(operation);
-	}
-	if (operation === PublicAuthenticationOperation.SignIn && response.ok) {
-		await waitForPublicAuthenticationResponseFloor(startedAt);
-		return response;
-	}
-	observe({
-		event: "public_authentication_response_normalized",
-		level: response.ok ? "info" : "warn",
-		reason: operation,
-		status: response.status,
-	});
-	await waitForPublicAuthenticationResponseFloor(startedAt);
-	return publicAuthenticationResponse(operation);
+	};
 }
 
-async function nameFreeAuthenticationHandler(
-	handler: (request: Request) => Promise<Response>,
-	request: Request,
-): Promise<Response> {
-	const url = new URL(request.url);
-	if (request.method !== "POST" || url.pathname !== EMAIL_REGISTRATION_PATH) {
-		return handler(request);
-	}
-	const registration = emailRegistrationSchema.safeParse(await request.json().catch(() => null));
-	if (!registration.success) {
-		return Response.json(
-			{code: "INVALID_REGISTRATION_REQUEST", message: "Registration requires an email and password"},
-			{status: 400},
+// 📊 Method-usage telemetry: which mechanism completed, never who used it. `reason` is drawn from a
+// closed set of mechanism names so no email, token, or provider account id can reach a log sink.
+const COMPLETED_AUTHENTICATION_METHODS: ReadonlyMap<string, string> = new Map([
+	[`${AUTHENTICATION_PATH}/magic-link/verify`, "magic_link"],
+	[`${AUTHENTICATION_PATH}/passkey/verify-authentication`, "passkey"],
+	[`${AUTHENTICATION_PATH}/passkey/verify-registration`, "passkey_registered"],
+	[EMAIL_VERIFICATION_PATH, "email_verification"],
+	...SOCIAL_PROVIDERS.map(
+		(provider) => [`${AUTHENTICATION_PATH}/callback/${provider}`, `social_${provider}`] as const,
+	),
+]);
+
+function methodUsageAuthenticationHandler(observe: AuthenticationDependencies["observe"]): AuthenticationMiddleware {
+	return (next) => async (request) => {
+		const method = COMPLETED_AUTHENTICATION_METHODS.get(new URL(request.url).pathname);
+		if (method === undefined) {
+			return next(request);
+		}
+		const response = await next(request);
+		observe({
+			event: "authentication_method_completed",
+			level: response.status >= 400 ? "warn" : "info",
+			reason: method,
+			status: response.status,
+		});
+		return response;
+	};
+}
+
+function nameFreeAuthenticationHandler(): AuthenticationMiddleware {
+	return (next) => async (request) => {
+		const url = new URL(request.url);
+		if (request.method !== "POST" || url.pathname !== EMAIL_REGISTRATION_PATH) {
+			return next(request);
+		}
+		const registration = emailRegistrationSchema.safeParse(await request.json().catch(() => null));
+		if (!registration.success) {
+			return Response.json(
+				{code: "INVALID_REGISTRATION_REQUEST", message: "Registration requires an email and password"},
+				{status: 400},
+			);
+		}
+		const headers = new Headers(request.headers);
+		headers.delete("Content-Length");
+		return next(
+			new Request(request.url, {
+				method: request.method,
+				headers,
+				body: JSON.stringify({...registration.data, name: ""}),
+			}),
 		);
-	}
-	const headers = new Headers(request.headers);
-	headers.delete("Content-Length");
-	return handler(
-		new Request(request.url, {
-			method: request.method,
-			headers,
-			body: JSON.stringify({...registration.data, name: ""}),
-		}),
-	);
+	};
 }
 
 function isLoopbackRedirectUri(value: string): boolean {
@@ -317,69 +448,67 @@ function hasExactOAuthScopes(scope: string | undefined): boolean {
 	);
 }
 
-async function restrictedDynamicClientRegistrationHandler(
-	handler: (request: Request) => Promise<Response>,
-	request: Request,
-): Promise<Response> {
-	const url = new URL(request.url);
-	if (request.method !== "POST" || url.pathname !== `${AUTHENTICATION_PATH}/oauth2/register`) {
-		return handler(request);
-	}
-	const parsed = dynamicClientRegistrationSchema.safeParse(
-		await request
-			.clone()
-			.json()
-			.catch(() => null),
-	);
-	if (
-		!parsed.success ||
-		!parsed.data.grant_types.includes("authorization_code") ||
-		!parsed.data.redirect_uris.every(isLoopbackRedirectUri) ||
-		!hasExactOAuthScopes(parsed.data.scope) ||
-		(parsed.data.resources !== undefined &&
-			(parsed.data.resources.length !== 1 || parsed.data.resources[0] !== `${url.origin}${MCP_RESOURCE_PATH}`))
-	) {
-		return Response.json(
-			{error: "invalid_client_metadata", error_description: "Client registration metadata is not permitted"},
-			{status: 400},
+function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware {
+	return (next) => async (request) => {
+		const url = new URL(request.url);
+		if (request.method !== "POST" || url.pathname !== `${AUTHENTICATION_PATH}/oauth2/register`) {
+			return next(request);
+		}
+		const parsed = dynamicClientRegistrationSchema.safeParse(
+			await request
+				.clone()
+				.json()
+				.catch(() => null),
 		);
-	}
-	if (parsed.data.application_type !== undefined) {
-		return handler(request);
-	}
-	// Better Auth defaults an absent application_type to "web" and then rejects the loopback
-	// redirect URIs these clients must use, so name the native client type the request implies.
-	return handler(
-		new Request(request, {
-			method: "POST",
-			headers: request.headers,
-			body: JSON.stringify({...parsed.data, application_type: "native"}),
-		}),
-	);
+		if (
+			!parsed.success ||
+			!parsed.data.grant_types.includes("authorization_code") ||
+			!parsed.data.redirect_uris.every(isLoopbackRedirectUri) ||
+			!hasExactOAuthScopes(parsed.data.scope) ||
+			(parsed.data.resources !== undefined &&
+				(parsed.data.resources.length !== 1 ||
+					parsed.data.resources[0] !== `${url.origin}${MCP_RESOURCE_PATH}`))
+		) {
+			return Response.json(
+				{error: "invalid_client_metadata", error_description: "Client registration metadata is not permitted"},
+				{status: 400},
+			);
+		}
+		if (parsed.data.application_type !== undefined) {
+			return next(request);
+		}
+		// Better Auth defaults an absent application_type to "web" and then rejects the loopback
+		// redirect URIs these clients must use, so name the native client type the request implies.
+		return next(
+			new Request(request, {
+				method: "POST",
+				headers: request.headers,
+				body: JSON.stringify({...parsed.data, application_type: "native"}),
+			}),
+		);
+	};
 }
 
-async function singleUseEmailVerificationHandler(
-	handler: (request: Request) => Promise<Response>,
-	request: Request,
-	database: D1Database,
-): Promise<Response> {
-	const url = new URL(request.url);
-	if (request.method !== "GET" || url.pathname !== EMAIL_VERIFICATION_PATH) {
-		return handler(request);
-	}
-	const token = url.searchParams.get("token");
-	if (token === null) {
-		return handler(request);
-	}
-	const consumed = await database
-		.prepare("DELETE FROM verification WHERE identifier = ? RETURNING id")
-		.bind(`${EMAIL_VERIFICATION_IDENTIFIER_PREFIX}${await hashToken(token)}`)
-		.first();
-	if (consumed !== null) {
-		return handler(request);
-	}
-	url.searchParams.set("token", "consumed");
-	return handler(new Request(url, request));
+function singleUseEmailVerificationHandler(database: D1Database): AuthenticationMiddleware {
+	return (next) => async (request) => {
+		const url = new URL(request.url);
+		if (request.method !== "GET" || url.pathname !== EMAIL_VERIFICATION_PATH) {
+			return next(request);
+		}
+		const token = url.searchParams.get("token");
+		if (token === null) {
+			return next(request);
+		}
+		const consumed = await database
+			.prepare("DELETE FROM verification WHERE identifier = ? RETURNING id")
+			.bind(`${EMAIL_VERIFICATION_IDENTIFIER_PREFIX}${await hashToken(token)}`)
+			.first();
+		if (consumed !== null) {
+			return next(request);
+		}
+		url.searchParams.set("token", "consumed");
+		return next(new Request(url, request));
+	};
 }
 
 function escapeHtml(value: string): string {
@@ -398,6 +527,7 @@ function authenticationEmail(
 	copy: AuthenticationEmailCopy,
 ): AuthenticationEmail {
 	const safeActionLabel = escapeHtml(copy.actionLabel);
+	const safeExpiry = escapeHtml(`This link expires in ${copy.expiry}.`);
 	const safeIntroduction = escapeHtml(copy.introduction);
 	const safePreheader = escapeHtml(copy.preheader);
 	const safeSubject = escapeHtml(copy.subject);
@@ -406,7 +536,7 @@ function authenticationEmail(
 		to,
 		from: {email: environment.AUTH_EMAIL_FROM, name: "YepNope"},
 		subject: copy.subject,
-		text: `${copy.introduction}\n\n${copy.actionLabel}: ${url}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+		text: `${copy.introduction}\n\n${copy.actionLabel}: ${url}\n\nThis link expires in ${copy.expiry}. If you did not request this, you can ignore this email.`,
 		html: `<!doctype html>
 <html lang="en">
 <head>
@@ -433,7 +563,7 @@ function authenticationEmail(
 </td>
 </tr>
 </table>
-<p style="margin:24px 0 0;color:#52525b;font-size:14px;line-height:1.5;">This link expires in one hour.</p>
+<p style="margin:24px 0 0;color:#52525b;font-size:14px;line-height:1.5;">${safeExpiry}</p>
 <p style="margin:12px 0 0;color:#71717a;font-size:12px;line-height:1.5;">Button not working? <a href="${safeUrl}" style="color:#52525b;text-decoration:underline;">Open this secure link</a>.</p>
 <p style="margin:20px 0 0;padding-top:20px;border-top:1px solid #e4e4e7;color:#71717a;font-size:12px;line-height:1.5;">If you did not request this, you can ignore this email.</p>
 </td>
@@ -475,6 +605,30 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 		}),
 		plugins: [
 			jwt(),
+			magicLink({
+				expiresIn: MAGIC_LINK_EXPIRY_SECONDS,
+				rateLimit: MAGIC_LINK_RATE_LIMIT,
+				// 🔐 A leaked database row must not be a usable sign-in link.
+				storeToken: {type: "custom-hasher", hash: hashToken},
+				sendMagicLink: async ({email, url}) =>
+					sendAuthenticationEmail(
+						dependencies,
+						authenticationEmail(environment, email, url, {
+							actionLabel: "Sign in",
+							expiry: "15 minutes",
+							introduction: "Use this link to sign in to YepNope. No password needed.",
+							preheader: "Your YepNope sign-in link.",
+							subject: "Sign in to YepNope",
+						}),
+						PublicAuthenticationOperation.RequestMagicLink,
+					),
+			}),
+			passkey({
+				rpID: new URL(environment.BETTER_AUTH_URL).hostname,
+				rpName: "YepNope",
+				origin: environment.BETTER_AUTH_URL,
+				authenticatorSelection: {residentKey: "preferred", userVerification: "preferred"},
+			}),
 			// @ts-expect-error Better Auth 1.7 plugin metadata conflicts with exactOptionalPropertyTypes.
 			mcp({
 				accessTokenExpiresIn: OAUTH_ACCESS_TOKEN_EXPIRY_SECONDS,
@@ -500,11 +654,17 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 				scopes: [...OAUTH_SCOPES],
 			}),
 		],
+		socialProviders: socialProviderCredentials(environment),
 		account: {
 			accountLinking: {
 				enabled: true,
+				// 🛡️ Duplicate-email protection. Linking needs the provider's own verified-email claim
+				// (no provider is blanket-trusted), the addresses must match exactly, and Better Auth's
+				// default requireLocalEmailVerified gate keeps a pre-registered unverified local row
+				// from absorbing a victim's social identity.
 				allowDifferentEmails: false,
 				disableImplicitLinking: false,
+				trustedProviders: [],
 			},
 		},
 		emailVerification: {
@@ -523,6 +683,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 					dependencies,
 					authenticationEmail(environment, user.email, url, {
 						actionLabel: "Verify email",
+						expiry: "one hour",
 						introduction: "Verify your email address to finish creating your YepNope account.",
 						preheader: "Verify your email to finish setting up YepNope.",
 						subject: "Verify your YepNope email",
@@ -542,6 +703,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 					dependencies,
 					authenticationEmail(environment, user.email, url, {
 						actionLabel: "Reset password",
+						expiry: "one hour",
 						introduction: "Choose a new password for your YepNope account.",
 						preheader: "Reset your YepNope password securely.",
 						subject: "Reset your YepNope password",
@@ -586,22 +748,18 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 	});
 	return {
 		...authentication,
-		handler: async (request: Request) =>
-			restrictedDynamicClientRegistrationHandler(
-				async (registrationRequest) =>
-					singleUseEmailVerificationHandler(
-						async (authenticationRequest) =>
-							nonEnumeratingAuthenticationHandler(
-								async (publicRequest) =>
-									nameFreeAuthenticationHandler(authentication.handler, publicRequest),
-								authenticationRequest,
-								dependencies.observe,
-							),
-						registrationRequest,
-						environment.DB,
-					),
-				request,
-			),
+		// Outermost first. Telemetry sits inside the non-enumerating normalizer so it records the
+		// real status rather than the generic one that reaches the caller.
+		handler: composeAuthenticationMiddleware(
+			[
+				restrictedDynamicClientRegistrationHandler(),
+				singleUseEmailVerificationHandler(environment.DB),
+				nonEnumeratingAuthenticationHandler(dependencies.observe),
+				methodUsageAuthenticationHandler(dependencies.observe),
+				nameFreeAuthenticationHandler(),
+			],
+			authentication.handler,
+		),
 	};
 }
 

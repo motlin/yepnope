@@ -2,29 +2,44 @@ import {useCallback, useEffect, useRef, useState, type ReactElement, type ReactN
 import {
 	claimLegacyIdentity,
 	consumePasswordResetToken,
+	deletePasskey,
 	fetchAccountDevices,
 	fetchAfk,
+	fetchAuthenticationMethods,
+	fetchLinkedAccounts,
 	fetchOAuthClient,
+	fetchPasskeys,
 	fetchSession,
+	linkSocialAccount,
 	openCurrentDeckStream,
 	registerAccount,
+	registerPasskey,
 	requestPasswordReset,
 	resumeOAuthAuthorization,
 	renamePushDevice,
 	revokeConnectedMcpClient,
 	revokePushDevice,
+	sendMagicLink,
 	sendVerificationEmail,
 	signIn,
 	signInForOAuth,
+	signInWithPasskey,
 	signOut,
+	startSocialSignIn,
 	submitAnswer,
 	submitOAuthConsent,
+	unlinkAccount,
 	updateAfk,
 	ApiResponseError,
+	SOCIAL_PROVIDER_LABELS,
+	type AuthenticationMethods,
 	type AuthenticationUser,
 	type AccountDevices,
 	type CurrentDeckStream,
+	type LinkedAccount,
 	type OAuthClientSummary,
+	type RegisteredPasskey,
+	type SocialProvider,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {migrateLegacyIdentity} from "./legacy-token";
@@ -281,13 +296,155 @@ interface AuthenticationCompletionProps {
 	onOAuthAuthenticated: (user: AuthenticationUser, redirectUrl: string) => void;
 }
 
+// 🔑 Alternative sign-in methods. Discovery is an enhancement, never a gate: if the Worker cannot be
+// reached the page still renders the email and password form it has always rendered.
+const NO_ALTERNATIVE_METHODS: AuthenticationMethods = {
+	emailPassword: true,
+	magicLink: false,
+	passkey: false,
+	social: [],
+};
+
+const MAGIC_LINK_SENT_MESSAGE =
+	"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.";
+const MAGIC_LINK_MISSING_EMAIL_MESSAGE = "Enter your email address first.";
+// One message for every provider failure. Better Auth's own codes distinguish "no matching account"
+// from "email does not match", and repeating that distinction would tell an anonymous visitor
+// whether an account exists — the very thing the Worker's non-enumerating handler hides.
+const PROVIDER_SIGN_IN_FAILED_MESSAGE =
+	"Sign-in through that provider did not complete. Sign in another way, then connect it from Settings.";
+
+function signInRedirectError(): string | null {
+	return new URLSearchParams(window.location.search).has("error") ? PROVIDER_SIGN_IN_FAILED_MESSAGE : null;
+}
+
+function useAuthenticationMethods(): AuthenticationMethods {
+	const [methods, setMethods] = useState<AuthenticationMethods>(NO_ALTERNATIVE_METHODS);
+	useEffect(() => {
+		let abandoned = false;
+		void fetchAuthenticationMethods().then(
+			(discovered) => {
+				if (!abandoned) {
+					setMethods(discovered);
+				}
+			},
+			() => undefined,
+		);
+		return () => {
+			abandoned = true;
+		};
+	}, []);
+	return methods;
+}
+
+function passkeysUsable(methods: AuthenticationMethods): boolean {
+	return methods.passkey && "PublicKeyCredential" in window;
+}
+
+interface AlternativeSignInProps {
+	callbackURL: string;
+	email: string;
+	methods: AuthenticationMethods;
+	onAuthenticated: (user: AuthenticationUser) => void;
+	onError: (message: string | null) => void;
+}
+
+function AlternativeSignIn({
+	callbackURL,
+	email,
+	methods,
+	onAuthenticated,
+	onError,
+}: AlternativeSignInProps): ReactElement | null {
+	const [status, setStatus] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const passkeyAvailable = passkeysUsable(methods);
+
+	async function run(action: () => Promise<void>): Promise<void> {
+		setBusy(true);
+		setStatus(null);
+		onError(null);
+		try {
+			await action();
+		} catch (caught) {
+			onError(errorMessage(caught));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	if (methods.social.length === 0 && !methods.magicLink && !passkeyAvailable) {
+		return null;
+	}
+	return (
+		<div className="sign-in-alternatives">
+			<p className="sign-in-alternatives-divider">Or</p>
+			{methods.social.map((provider) => (
+				<button
+					key={provider}
+					type="button"
+					className="secondary"
+					disabled={busy}
+					onClick={() =>
+						void run(async () => {
+							followOAuthRedirect(await startSocialSignIn(provider, callbackURL));
+						})
+					}
+				>
+					Continue with {SOCIAL_PROVIDER_LABELS[provider]}
+				</button>
+			))}
+			{passkeyAvailable && (
+				<button
+					type="button"
+					className="secondary"
+					disabled={busy}
+					onClick={() =>
+						void run(async () => {
+							onAuthenticated(await signInWithPasskey());
+						})
+					}
+				>
+					Sign in with a passkey
+				</button>
+			)}
+			{methods.magicLink && (
+				<button
+					type="button"
+					className="secondary"
+					disabled={busy}
+					onClick={() => {
+						if (email.trim() === "") {
+							setStatus(null);
+							onError(MAGIC_LINK_MISSING_EMAIL_MESSAGE);
+							return;
+						}
+						void run(async () => {
+							await sendMagicLink(email);
+							setStatus(MAGIC_LINK_SENT_MESSAGE);
+						});
+					}}
+				>
+					Email me a sign-in link
+				</button>
+			)}
+			{status !== null && (
+				<p className="form-success" role="status">
+					{status}
+				</p>
+			)}
+		</div>
+	);
+}
+
 interface SignInProps extends AccountRouteProps, AuthenticationCompletionProps {}
 
 function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
+	const methods = useAuthenticationMethods();
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(signInRedirectError);
 	const [submitting, setSubmitting] = useState(false);
 
 	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
@@ -355,6 +512,13 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps
 					{submitting ? "Signing in…" : "Sign in"}
 				</button>
 			</form>
+			<AlternativeSignIn
+				callbackURL={oauthQuery === null ? "/" : oauthCallbackPath(oauthQuery)}
+				email={email}
+				methods={methods}
+				onAuthenticated={onAuthenticated}
+				onError={setError}
+			/>
 			<div className="account-links">
 				<button
 					type="button"
@@ -999,9 +1163,16 @@ interface ManagedDeviceRowProps {
 	metadata: string;
 	onRename?: (label: string) => Promise<void>;
 	onRevoke?: () => Promise<void>;
+	revokeLabel?: string;
 }
 
-function ManagedDeviceRow({label, metadata, onRename, onRevoke}: ManagedDeviceRowProps): ReactElement {
+function ManagedDeviceRow({
+	label,
+	metadata,
+	onRename,
+	onRevoke,
+	revokeLabel = "Revoke",
+}: ManagedDeviceRowProps): ReactElement {
 	const [editing, setEditing] = useState(false);
 	const [nextLabel, setNextLabel] = useState(label);
 	const [busy, setBusy] = useState(false);
@@ -1084,7 +1255,7 @@ function ManagedDeviceRow({label, metadata, onRename, onRevoke}: ManagedDeviceRo
 										});
 									}}
 								>
-									Revoke
+									{revokeLabel}
 								</button>
 							)}
 						</div>
@@ -1125,6 +1296,132 @@ function InstallCommand({command, label}: InstallCommandProps): ReactElement {
 				{copyState === "copied" ? "Copied" : "Copy"}
 			</button>
 			{copyState === "error" && <small role="alert">Copy is blocked. Select the command manually.</small>}
+		</div>
+	);
+}
+
+function newPasskeyName(): string {
+	return `Passkey added ${new Date().toLocaleDateString()}`;
+}
+
+interface SignInMethodsPanelProps {
+	onSignedOut: () => void;
+}
+
+// 🔐 One place to see every way into this account, and the only place to add or remove one.
+function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElement {
+	const methods = useAuthenticationMethods();
+	const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([]);
+	const [passkeys, setPasskeys] = useState<RegisteredPasskey[]>([]);
+	const [error, setError] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const passkeyAvailable = passkeysUsable(methods);
+
+	const reload = useCallback(async (): Promise<void> => {
+		const [accounts, credentials] = await Promise.all([fetchLinkedAccounts(), fetchPasskeys()]);
+		setLinkedAccounts(accounts);
+		setPasskeys(credentials);
+	}, []);
+
+	useEffect(() => {
+		void reload().catch((caught: unknown) => {
+			setError(errorMessage(caught));
+		});
+	}, [reload]);
+
+	async function run(action: () => Promise<void>): Promise<void> {
+		setBusy(true);
+		setError(null);
+		try {
+			await action();
+			await reload();
+		} catch (caught) {
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+				onSignedOut();
+				return;
+			}
+			setError(errorMessage(caught));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	function linkedAccountFor(provider: SocialProvider): LinkedAccount | undefined {
+		return linkedAccounts.find((account) => account.provider === provider);
+	}
+
+	return (
+		<div className="hint sign-in-methods" role="region" aria-label="Sign-in methods">
+			<h3>Sign-in methods</h3>
+			<p>
+				Any method listed here signs you into this same account. Keep at least two so losing one device never
+				locks you out.
+			</p>
+			{methods.social.map((provider) => {
+				const linked = linkedAccountFor(provider);
+				const label = SOCIAL_PROVIDER_LABELS[provider];
+				return (
+					<button
+						key={provider}
+						type="button"
+						className="secondary"
+						disabled={busy}
+						onClick={() =>
+							void run(async () => {
+								if (linked === undefined) {
+									followOAuthRedirect(await linkSocialAccount(provider, "/settings"));
+									return;
+								}
+								await unlinkAccount(linked.id);
+							})
+						}
+					>
+						{linked === undefined ? "Connect" : "Disconnect"} {label}
+					</button>
+				);
+			})}
+			<h4>Passkeys</h4>
+			{passkeyAvailable ? (
+				<>
+					{passkeys.length === 0 ? (
+						<p>No passkeys yet. A passkey signs you in with your device unlock instead of a password.</p>
+					) : (
+						<ul className="device-list">
+							{passkeys.map((passkey) => (
+								<ManagedDeviceRow
+									key={passkey.id}
+									label={passkey.name}
+									metadata={`Added ${new Date(passkey.createdAt).toLocaleDateString()}`}
+									revokeLabel="Remove"
+									onRevoke={async () => {
+										await run(async () => {
+											await deletePasskey(passkey.id);
+										});
+									}}
+								/>
+							))}
+						</ul>
+					)}
+					<button
+						type="button"
+						disabled={busy}
+						onClick={() =>
+							void run(async () => {
+								await registerPasskey(newPasskeyName());
+							})
+						}
+					>
+						Add a passkey
+					</button>
+				</>
+			) : (
+				<p>This browser cannot use passkeys.</p>
+			)}
+			{error !== null && (
+				<p className="form-error" role="alert">
+					{error}
+				</p>
+			)}
 		</div>
 	);
 }
@@ -1227,6 +1524,7 @@ function Settings({
 					</>
 				)}
 			</div>
+			{session !== null && <SignInMethodsPanel onSignedOut={onSignedOut} />}
 			<div className="hint connected-clients">
 				<h3>Connected MCP clients</h3>
 				<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>

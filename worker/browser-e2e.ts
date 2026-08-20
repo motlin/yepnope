@@ -40,6 +40,8 @@ function withCapturedEmail(environment: ApplicationEnvironment): ApplicationEnvi
 		BETTER_AUTH_URL: environment.BETTER_AUTH_URL,
 		DB: environment.DB,
 		EMAIL: email,
+		GITHUB_CLIENT_ID: environment.GITHUB_CLIENT_ID,
+		GITHUB_CLIENT_SECRET: environment.GITHUB_CLIENT_SECRET,
 		USER_DO: environment.USER_DO,
 		VAPID_PRIVATE_JWK: environment.VAPID_PRIVATE_JWK,
 		VAPID_SUBJECT: environment.VAPID_SUBJECT,

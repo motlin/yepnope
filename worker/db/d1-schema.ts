@@ -87,6 +87,31 @@ export const verifications = sqliteTable(
 	(table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
+export const passkeys = sqliteTable(
+	"passkey",
+	{
+		id: text("id").primaryKey(),
+		name: text("name"),
+		publicKey: text("public_key").notNull(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, {onDelete: "cascade"}),
+		credentialID: text("credential_id").notNull(),
+		counter: integer("counter").notNull(),
+		deviceType: text("device_type").notNull(),
+		backedUp: integer("backed_up", {mode: "boolean"}).notNull(),
+		transports: text("transports"),
+		aaguid: text("aaguid"),
+		createdAt: integer("created_at", {mode: "timestamp_ms"})
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("passkey_credential_id_unique").on(table.credentialID),
+		index("passkey_user_id_idx").on(table.userId),
+	],
+);
+
 export const jsonWebKeys = sqliteTable("jwks", {
 	id: text("id").primaryKey(),
 	publicKey: text("public_key").notNull(),

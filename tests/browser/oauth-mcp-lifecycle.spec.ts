@@ -11,7 +11,7 @@ import {
 	TOOL_INPUT_SCHEMA,
 } from "../../shim/tool";
 
-const serverOrigin = "https://127.0.0.1:4173";
+const serverOrigin = "https://localhost:4173";
 const issuer = `${serverOrigin}/api/auth`;
 const resource = `${serverOrigin}/mcp`;
 const email = "alice-oauth-browser@example.com";

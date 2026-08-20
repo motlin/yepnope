@@ -24,7 +24,9 @@
 	"rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
 	"vars": {
 		"AUTH_EMAIL_FROM": "auth@example.com",
-		"BETTER_AUTH_URL": "https://127.0.0.1:4173",
+		"GITHUB_CLIENT_ID": "browser-e2e-github-client",
+		"GITHUB_CLIENT_SECRET": "browser-e2e-github-secret",
+		"BETTER_AUTH_URL": "https://localhost:4173",
 		"VAPID_SUBJECT": "mailto:push@example.com",
 	},
 }

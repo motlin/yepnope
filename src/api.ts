@@ -1,3 +1,9 @@
+import {
+	startAuthentication,
+	startRegistration,
+	type PublicKeyCredentialCreationOptionsJSON,
+	type PublicKeyCredentialRequestOptionsJSON,
+} from "@simplewebauthn/browser";
 import {z} from "zod";
 import type {DeckQuestion, Disposition} from "./deck";
 import {APPLICATION_UPDATE_EVENT} from "./application-updates";
@@ -177,6 +183,179 @@ export async function requestPasswordReset(email: string): Promise<void> {
 
 export async function consumePasswordResetToken(token: string, newPassword: string): Promise<void> {
 	await requestJson("/api/auth/reset-password", jsonRequest({token, newPassword}), successResponseSchema);
+}
+
+// 🔑 Alternative sign-in methods. Which of these a deployment can complete depends on its
+// configured secrets, so the browser asks the Worker instead of assuming.
+
+// The label table doubles as the list of providers this build knows how to render.
+export const SOCIAL_PROVIDER_LABELS = {
+	github: "GitHub",
+	google: "Google",
+} as const;
+export type SocialProvider = keyof typeof SOCIAL_PROVIDER_LABELS;
+
+export interface AuthenticationMethods {
+	emailPassword: boolean;
+	magicLink: boolean;
+	passkey: boolean;
+	social: SocialProvider[];
+}
+
+const authenticationMethodsResponseSchema = z.object({
+	email_password: z.boolean(),
+	magic_link: z.boolean(),
+	passkey: z.boolean(),
+	social: z.array(z.string()),
+});
+
+function knownSocialProvider(value: string): value is SocialProvider {
+	return Object.hasOwn(SOCIAL_PROVIDER_LABELS, value);
+}
+
+export async function fetchAuthenticationMethods(): Promise<AuthenticationMethods> {
+	// Deployment configuration, identical for every visitor, so the browser cache may reuse it.
+	const methods = await requestJson("/api/v1/auth-methods", {}, authenticationMethodsResponseSchema);
+	return {
+		emailPassword: methods.email_password,
+		magicLink: methods.magic_link,
+		passkey: methods.passkey,
+		// A provider the Worker offers but this build cannot label is dropped rather than rendered blank.
+		social: methods.social.filter(knownSocialProvider),
+	};
+}
+
+export async function sendMagicLink(email: string, callbackURL = "/"): Promise<void> {
+	await requestJson(
+		"/api/auth/sign-in/magic-link",
+		jsonRequest({email, callbackURL}),
+		publicAuthenticationAcceptedResponseSchema,
+	);
+}
+
+export async function startSocialSignIn(provider: SocialProvider, callbackURL = "/"): Promise<string> {
+	const result = await requestJson(
+		"/api/auth/sign-in/social",
+		jsonRequest({provider, callbackURL, errorCallbackURL: "/sign-in"}),
+		oauthRedirectResponseSchema,
+	);
+	return normalizedOAuthRedirectUrl(result.url);
+}
+
+export async function linkSocialAccount(provider: SocialProvider, callbackURL = "/settings"): Promise<string> {
+	const result = await requestJson(
+		"/api/auth/link-social",
+		jsonRequest({provider, callbackURL, errorCallbackURL: "/settings"}),
+		oauthRedirectResponseSchema,
+	);
+	return normalizedOAuthRedirectUrl(result.url);
+}
+
+export interface LinkedAccount {
+	id: string;
+	provider: string;
+}
+
+const linkedAccountsResponseSchema = z.array(z.object({id: z.string(), providerId: z.string()}));
+
+export async function fetchLinkedAccounts(): Promise<LinkedAccount[]> {
+	const accounts = await requestJson("/api/auth/list-accounts", {cache: "no-store"}, linkedAccountsResponseSchema);
+	return accounts.map((account) => ({id: account.id, provider: account.providerId}));
+}
+
+export async function unlinkAccount(accountId: string): Promise<void> {
+	await requestJson("/api/auth/unlink-account", jsonRequest({accountId}), successResponseSchema);
+}
+
+export interface RegisteredPasskey {
+	id: string;
+	name: string;
+	createdAt: number;
+}
+
+// The WebAuthn options blob is the authenticator's contract, not ours: check that a challenge is
+// present, pass the rest through intact, and let the browser reject anything malformed mid-ceremony.
+const PASSKEY_OPTIONS_ISSUE = {message: "Passkey options are missing a challenge"} as const;
+
+function hasChallenge(value: unknown): boolean {
+	return typeof value === "object" && value !== null && "challenge" in value;
+}
+
+const passkeyRegistrationOptionsSchema = z.custom<PublicKeyCredentialCreationOptionsJSON>(
+	hasChallenge,
+	PASSKEY_OPTIONS_ISSUE,
+);
+const passkeyAuthenticationOptionsSchema = z.custom<PublicKeyCredentialRequestOptionsJSON>(
+	hasChallenge,
+	PASSKEY_OPTIONS_ISSUE,
+);
+const passkeyListResponseSchema = z.array(
+	z.object({id: z.string(), name: z.string().nullish(), createdAt: z.string()}),
+);
+
+const PASSKEY_CANCELLED_MESSAGE = "Passkey sign-in was cancelled.";
+const PASSKEY_REGISTRATION_CANCELLED_MESSAGE = "Passkey setup was cancelled.";
+
+// A ceremony the browser or the person declined is a normal outcome, not a fault to surface raw:
+// WebAuthn errors carry device details that are noise at best and fingerprinting at worst.
+function passkeyCeremonyError(caught: unknown, message: string): Error {
+	return caught instanceof ApiResponseError ? caught : new Error(message);
+}
+
+export async function registerPasskey(name: string): Promise<void> {
+	const options = await requestJson(
+		"/api/auth/passkey/generate-register-options",
+		{cache: "no-store"},
+		passkeyRegistrationOptionsSchema,
+	);
+	let attestation: unknown;
+	try {
+		attestation = await startRegistration({optionsJSON: options});
+	} catch (caught) {
+		throw passkeyCeremonyError(caught, PASSKEY_REGISTRATION_CANCELLED_MESSAGE);
+	}
+	await requestJson(
+		"/api/auth/passkey/verify-registration",
+		jsonRequest({response: attestation, name}),
+		z.object({id: z.string()}).loose(),
+	);
+}
+
+export async function signInWithPasskey(): Promise<AuthenticationUser> {
+	const options = await requestJson(
+		"/api/auth/passkey/generate-authenticate-options",
+		{cache: "no-store"},
+		passkeyAuthenticationOptionsSchema,
+	);
+	let assertion: unknown;
+	try {
+		assertion = await startAuthentication({optionsJSON: options});
+	} catch (caught) {
+		throw passkeyCeremonyError(caught, PASSKEY_CANCELLED_MESSAGE);
+	}
+	const result = await requestJson(
+		"/api/auth/passkey/verify-authentication",
+		jsonRequest({response: assertion}),
+		authenticatedResponseSchema,
+	);
+	return result.user;
+}
+
+export async function fetchPasskeys(): Promise<RegisteredPasskey[]> {
+	const passkeys = await requestJson(
+		"/api/auth/passkey/list-user-passkeys",
+		{cache: "no-store"},
+		passkeyListResponseSchema,
+	);
+	return passkeys.map((passkey) => ({
+		id: passkey.id,
+		name: passkey.name ?? "Passkey",
+		createdAt: Date.parse(passkey.createdAt),
+	}));
+}
+
+export async function deletePasskey(id: string): Promise<void> {
+	await requestJson("/api/auth/passkey/delete-passkey", jsonRequest({id}), successResponseSchema);
 }
 
 export async function signOut(): Promise<void> {

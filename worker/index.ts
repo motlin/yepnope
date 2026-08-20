@@ -2,6 +2,7 @@ import {
 	authenticateBrowserAccount,
 	authenticateBrowserSession,
 	authenticateRequest,
+	authenticationMethods,
 	createWorkerAuthentication,
 	hashToken,
 	MCP_RESOURCE_PATH,
@@ -74,6 +75,20 @@ export default {
 		// 🤝 Machine claims and the VAPID key are the only unauthenticated application routes.
 		if (url.pathname === "/api/v1/pair/claim" && request.method === "POST") {
 			return claimPairing(request, env);
+		}
+		// 🚪 The sign-in screen renders from this before anyone has a session, so it stays public.
+		if (url.pathname === "/api/v1/auth-methods" && request.method === "GET") {
+			const methods = authenticationMethods(env);
+			return Response.json(
+				{
+					email_password: methods.emailPassword,
+					magic_link: methods.magicLink,
+					passkey: methods.passkey,
+					social: methods.social,
+				},
+				// Deploy-constant and identical for every visitor, so it is safe to cache publicly.
+				{headers: {"Cache-Control": "public, max-age=300"}},
+			);
 		}
 		if (url.pathname === "/api/v1/push/public-key" && request.method === "GET") {
 			return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});

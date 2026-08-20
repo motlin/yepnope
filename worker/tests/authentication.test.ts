@@ -155,6 +155,8 @@ describe("Better Auth account recovery", () => {
 		).toStrictEqual({users: 0});
 	});
 
+	// The absent requireLocalEmailVerified above is deliberate: its default keeps a pre-registered
+	// unverified local row from absorbing a victim's social identity on that provider's first sign-in.
 	it("links only provider identities that resolve to the same verified email account", () => {
 		const authentication = createMailboxAuthentication([]);
 		const accountOptions = authentication.options.account;
@@ -165,6 +167,7 @@ describe("Better Auth account recovery", () => {
 			allowDifferentEmails: false,
 			disableImplicitLinking: false,
 			enabled: true,
+			trustedProviders: [],
 		});
 	});
 

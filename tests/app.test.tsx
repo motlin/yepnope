@@ -3,12 +3,16 @@ import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import type {
 	AccountDevices,
+	AuthenticationMethods,
 	AuthenticationUser,
 	CurrentDeckConnectionState,
 	CurrentDeckStream,
 	CurrentDeckStreamOptions,
+	LinkedAccount,
 	LiveApplicationState,
 	OAuthClientSummary,
+	RegisteredPasskey,
+	SocialProvider,
 } from "../src/api";
 import type {DeckQuestion, Disposition} from "../src/deck";
 
@@ -68,6 +72,21 @@ const revokeConnectedMcpClient = vi.hoisted(() =>
 );
 const revokePushDevice = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>());
 
+const fetchAuthenticationMethods = vi.hoisted(() =>
+	vi.fn<() => Promise<AuthenticationMethods>>(async () =>
+		Promise.resolve({emailPassword: true, magicLink: true, passkey: true, social: ["github", "google"]}),
+	),
+);
+const sendMagicLink = vi.hoisted(() => vi.fn<(_email: string) => Promise<void>>(async () => Promise.resolve()));
+const startSocialSignIn = vi.hoisted(() => vi.fn<(_provider: SocialProvider) => Promise<string>>());
+const linkSocialAccount = vi.hoisted(() => vi.fn<(_provider: SocialProvider) => Promise<string>>());
+const fetchLinkedAccounts = vi.hoisted(() => vi.fn<() => Promise<LinkedAccount[]>>(async () => Promise.resolve([])));
+const unlinkAccount = vi.hoisted(() => vi.fn<(_accountId: string) => Promise<void>>(async () => Promise.resolve()));
+const registerPasskey = vi.hoisted(() => vi.fn<(_name: string) => Promise<void>>(async () => Promise.resolve()));
+const signInWithPasskey = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser>>());
+const fetchPasskeys = vi.hoisted(() => vi.fn<() => Promise<RegisteredPasskey[]>>(async () => Promise.resolve([])));
+const deletePasskey = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>(async () => Promise.resolve()));
+
 const fetchAfk = vi.hoisted(() => vi.fn<() => Promise<boolean>>(async () => Promise.resolve(true)));
 const updateAfk = vi.hoisted(() => vi.fn<(afk: boolean) => Promise<boolean>>(async (afk) => Promise.resolve(afk)));
 
@@ -79,7 +98,18 @@ const refreshStream = vi.fn<() => void>();
 
 vi.mock("../src/api", () => ({
 	ApiResponseError,
+	SOCIAL_PROVIDER_LABELS: {github: "GitHub", google: "Google"},
 	claimLegacyIdentity,
+	deletePasskey,
+	fetchAuthenticationMethods,
+	fetchLinkedAccounts,
+	fetchPasskeys,
+	linkSocialAccount,
+	registerPasskey,
+	sendMagicLink,
+	signInWithPasskey,
+	startSocialSignIn,
+	unlinkAccount,
 	consumePasswordResetToken: vi.fn<() => Promise<void>>(async () => Promise.resolve()),
 	fetchAccountDevices,
 	fetchAfk,
@@ -168,6 +198,18 @@ beforeEach(() => {
 	vi.mocked(isIos).mockReturnValue(false);
 	vi.mocked(isStandalone).mockReturnValue(false);
 	fetchOAuthClient.mockResolvedValue({id: "oauth-client", name: "Codex", uri: null});
+	fetchAuthenticationMethods.mockResolvedValue({
+		emailPassword: true,
+		magicLink: true,
+		passkey: true,
+		social: ["github", "google"],
+	});
+	fetchLinkedAccounts.mockResolvedValue([]);
+	fetchPasskeys.mockResolvedValue([]);
+	startSocialSignIn.mockReturnValue(new Promise<string>(() => {}));
+	linkSocialAccount.mockReturnValue(new Promise<string>(() => {}));
+	signInWithPasskey.mockReturnValue(new Promise<AuthenticationUser>(() => {}));
+	Object.defineProperty(window, "PublicKeyCredential", {configurable: true, value: {}});
 	fetchSession.mockResolvedValue(alice);
 	fetchAccountDevices.mockResolvedValue({browserSessions: [], connectedMcpClients: [], pushDevices: []});
 	renamePushDevice.mockResolvedValue(undefined);
@@ -1129,5 +1171,211 @@ describe("Better Auth account routes", () => {
 		);
 		expect(screen.getByRole("button", {name: "AFK off"}).getAttribute("aria-pressed")).toBe("false");
 		expect(fetchSession.mock.calls).toStrictEqual([[], []]);
+	});
+});
+
+// jsdom's `location.assign` is non-configurable, so swap in a live-reading stand-in for the test.
+const LIVE_LOCATION_PROPERTIES = ["hash", "host", "hostname", "href", "origin", "pathname", "port", "protocol"];
+
+function interceptNavigation(): ReturnType<typeof vi.fn> {
+	const assign = vi.fn<(_url: string) => void>();
+	const original = window.location;
+	const stub: Record<string, unknown> = {assign, reload: vi.fn<() => void>(), replace: assign};
+	for (const property of LIVE_LOCATION_PROPERTIES) {
+		Object.defineProperty(stub, property, {
+			enumerable: true,
+			get: () => Reflect.get(original, property) as unknown,
+		});
+	}
+	Object.defineProperty(window, "location", {configurable: true, value: stub});
+	navigationRestores.push(() => {
+		Object.defineProperty(window, "location", {configurable: true, value: original});
+	});
+	return assign;
+}
+
+const navigationRestores: Array<() => void> = [];
+
+afterEach(() => {
+	for (const restore of navigationRestores.splice(0)) {
+		restore();
+	}
+});
+
+describe("Alternative sign-in methods", () => {
+	async function renderSignIn(): Promise<void> {
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/sign-in");
+		render(<App />);
+		await waitFor(() => {
+			expect(fetchAuthenticationMethods).toHaveBeenCalled();
+		});
+	}
+
+	it("offers only the providers this deployment configured", async () => {
+		fetchAuthenticationMethods.mockResolvedValue({
+			emailPassword: true,
+			magicLink: true,
+			passkey: true,
+			social: ["github"],
+		});
+		await renderSignIn();
+
+		expect(await screen.findByRole("button", {name: "Continue with GitHub"})).toBeDefined();
+		expect(screen.queryByRole("button", {name: "Continue with Google"})).toBeNull();
+	});
+
+	it("sends the browser to the provider once its button is pressed", async () => {
+		const assign = interceptNavigation();
+		startSocialSignIn.mockResolvedValue("https://github.com/login/oauth/authorize?state=abc");
+		await renderSignIn();
+
+		fireEvent.click(await screen.findByRole("button", {name: "Continue with GitHub"}));
+
+		await waitFor(() => {
+			expect(startSocialSignIn.mock.calls).toStrictEqual([["github", "/"]]);
+			expect(assign.mock.calls).toStrictEqual([["https://github.com/login/oauth/authorize?state=abc"]]);
+		});
+	});
+
+	it("emails a sign-in link to the address already typed", async () => {
+		await renderSignIn();
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.click(await screen.findByRole("button", {name: "Email me a sign-in link"}));
+
+		await waitFor(() => {
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com"]]);
+		});
+		expect((await screen.findByRole("status")).textContent).toBe(
+			"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.",
+		);
+	});
+
+	it("asks for an address before requesting a sign-in link", async () => {
+		await renderSignIn();
+
+		fireEvent.click(await screen.findByRole("button", {name: "Email me a sign-in link"}));
+
+		expect((await screen.findByRole("alert")).textContent).toBe("Enter your email address first.");
+		expect(sendMagicLink).not.toHaveBeenCalled();
+	});
+
+	it("signs in with a passkey and lands where a password sign-in lands", async () => {
+		signInWithPasskey.mockResolvedValue(alice);
+		await renderSignIn();
+
+		fireEvent.click(await screen.findByRole("button", {name: "Sign in with a passkey"}));
+
+		await waitFor(() => {
+			expect(window.location.pathname).toBe("/settings");
+		});
+	});
+
+	it("stays on the sign-in route when the passkey ceremony is cancelled", async () => {
+		signInWithPasskey.mockRejectedValue(new Error("Passkey sign-in was cancelled."));
+		await renderSignIn();
+
+		fireEvent.click(await screen.findByRole("button", {name: "Sign in with a passkey"}));
+
+		expect((await screen.findByRole("alert")).textContent).toBe("Passkey sign-in was cancelled.");
+		expect(window.location.pathname).toBe("/sign-in");
+	});
+
+	it("hides passkey sign-in on a browser without WebAuthn", async () => {
+		Reflect.deleteProperty(window, "PublicKeyCredential");
+		await renderSignIn();
+
+		await screen.findByRole("button", {name: "Continue with GitHub"});
+		expect(screen.queryByRole("button", {name: "Sign in with a passkey"})).toBeNull();
+	});
+
+	it("explains a provider redirect that came back as an error", async () => {
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/sign-in?error=account_not_linked");
+		render(<App />);
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"Sign-in through that provider did not complete. Sign in another way, then connect it from Settings.",
+		);
+	});
+
+	it("keeps the sign-in page usable when method discovery fails", async () => {
+		fetchAuthenticationMethods.mockRejectedValue(new Error("offline"));
+		await renderSignIn();
+
+		expect(screen.getByRole("textbox", {name: "Email"})).toBeDefined();
+		expect(screen.getByRole("button", {name: "Sign in"})).toBeDefined();
+		expect(screen.queryByRole("button", {name: "Continue with GitHub"})).toBeNull();
+	});
+});
+
+describe("Sign-in method management", () => {
+	async function renderSettings(): Promise<void> {
+		window.history.replaceState({}, "", "/settings");
+		render(<App />);
+		await waitFor(() => {
+			expect(fetchPasskeys).toHaveBeenCalled();
+		});
+	}
+
+	it("lists connected providers and registered passkeys", async () => {
+		fetchLinkedAccounts.mockResolvedValue([
+			{id: "account-credential", provider: "credential"},
+			{id: "account-github", provider: "github"},
+		]);
+		fetchPasskeys.mockResolvedValue([{id: "passkey-phone", name: "Alice phone", createdAt: 946_684_800_000}]);
+		await renderSettings();
+
+		const section = await screen.findByRole("region", {name: "Sign-in methods"});
+		expect(within(section).getByRole("button", {name: "Disconnect GitHub"})).toBeDefined();
+		expect(within(section).getByRole("button", {name: "Connect Google"})).toBeDefined();
+		expect(within(section).getByText("Alice phone")).toBeDefined();
+	});
+
+	it("connects a provider through the same redirect the browser already trusts", async () => {
+		const assign = interceptNavigation();
+		linkSocialAccount.mockResolvedValue("https://accounts.google.com/o/oauth2/auth?state=abc");
+		await renderSettings();
+
+		fireEvent.click(await screen.findByRole("button", {name: "Connect Google"}));
+
+		await waitFor(() => {
+			expect(linkSocialAccount.mock.calls).toStrictEqual([["google", "/settings"]]);
+			expect(assign.mock.calls).toStrictEqual([["https://accounts.google.com/o/oauth2/auth?state=abc"]]);
+		});
+	});
+
+	it("registers a new passkey and reloads the list", async () => {
+		await renderSettings();
+
+		fireEvent.click(await screen.findByRole("button", {name: "Add a passkey"}));
+
+		await waitFor(() => {
+			expect(registerPasskey.mock.calls.length).toBe(1);
+			expect(fetchPasskeys.mock.calls.length).toBeGreaterThan(1);
+		});
+	});
+
+	it("removes a passkey", async () => {
+		fetchPasskeys.mockResolvedValue([{id: "passkey-phone", name: "Alice phone", createdAt: 946_684_800_000}]);
+		await renderSettings();
+
+		const passkeyRow = within(await screen.findByRole("region", {name: "Sign-in methods"})).getByRole("listitem");
+		fireEvent.click(within(passkeyRow).getByRole("button", {name: "Remove"}));
+
+		await waitFor(() => {
+			expect(deletePasskey.mock.calls).toStrictEqual([["passkey-phone"]]);
+		});
+	});
+
+	it("shows why the last remaining sign-in method cannot be disconnected", async () => {
+		fetchLinkedAccounts.mockResolvedValue([{id: "account-github", provider: "github"}]);
+		unlinkAccount.mockRejectedValue(new ApiResponseError("You can't unlink your last account", 400));
+		await renderSettings();
+
+		fireEvent.click(await screen.findByRole("button", {name: "Disconnect GitHub"}));
+
+		expect((await screen.findByRole("alert")).textContent).toBe("You can't unlink your last account");
 	});
 });

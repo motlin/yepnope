@@ -79,7 +79,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		});
 
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
-			authentication_url: "https://127.0.0.1:4173",
+			authentication_url: "https://localhost:4173",
 			machine_tokens: 0,
 			pairing_codes: 0,
 			users: 0,
@@ -100,7 +100,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 			copy: "Sign in to answer questions from your coding agents, or create an account to get started.",
 		});
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
-			authentication_url: "https://127.0.0.1:4173",
+			authentication_url: "https://localhost:4173",
 			machine_tokens: 0,
 			pairing_codes: 0,
 			users: 0,

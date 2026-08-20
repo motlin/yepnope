@@ -416,7 +416,8 @@ body {
 
 .account-panel > button,
 .account-form > button,
-.signed-out-actions > button {
+.signed-out-actions > button,
+.sign-in-alternatives > button {
 	width: 100%;
 	border: 0;
 	border-radius: 10px;
@@ -433,7 +434,8 @@ body {
 	gap: 10px;
 }
 
-.signed-out-actions > button.secondary {
+.signed-out-actions > button.secondary,
+.sign-in-alternatives > button.secondary {
 	border: 1px solid #626873;
 	background: transparent;
 	color: #eceef2;
@@ -492,6 +494,36 @@ body {
 	padding: 4px 0;
 	text-decoration: underline;
 	text-underline-offset: 3px;
+}
+
+.sign-in-alternatives {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 16px;
+}
+
+.sign-in-alternatives-divider {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	color: #8f96a1;
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.sign-in-alternatives-divider::before,
+.sign-in-alternatives-divider::after {
+	content: "";
+	flex: 1;
+	border-top: 1px solid #32353d;
+}
+
+.sign-in-methods > button {
+	width: 100%;
+	margin-top: 8px;
 }
 
 .form-error,
