@@ -834,7 +834,7 @@ describe("Better Auth account routes", () => {
 			emailInput: screen.queryByRole("textbox", {name: "Email"}),
 			headers: document.querySelectorAll(".app-header").length,
 			instruction: screen.getByText(
-				"If verification is available, use the emailed link to finish creating your account.",
+				"If verification is available for that address, the emailed link finishes creating your account. Delivery can take a few minutes, and the message can land in spam.",
 			).textContent,
 			status: screen.queryByRole("status"),
 		}).toStrictEqual({
@@ -845,7 +845,8 @@ describe("Better Auth account routes", () => {
 			],
 			emailInput: null,
 			headers: 0,
-			instruction: "If verification is available, use the emailed link to finish creating your account.",
+			instruction:
+				"If verification is available for that address, the emailed link finishes creating your account. Delivery can take a few minutes, and the message can land in spam.",
 			status: null,
 		});
 		let finishResend: () => void = () => undefined;
@@ -867,7 +868,7 @@ describe("Better Auth account routes", () => {
 				["alice@example.com"],
 			]);
 			expect(screen.getByRole("status").textContent).toBe(
-				"If verification is available, a new link will arrive by email.",
+				"Verification was requested. If a link is available for that address, it can take a few minutes to arrive, so check your spam folder too.",
 			);
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Back to sign in"}));

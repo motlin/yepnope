@@ -428,18 +428,18 @@ test("public authentication contracts do not reveal account state", async ({page
 			"If recovery is available for that address, check its inbox for next steps.",
 		],
 		registrationCopy: [
-			"If verification is available, use the emailed link to finish creating your account.",
-			"If verification is available, use the emailed link to finish creating your account.",
-			"If verification is available, use the emailed link to finish creating your account.",
+			"If verification is available for that address, the emailed link finishes creating your account. Delivery can take a few minutes, and the message can land in spam.",
+			"If verification is available for that address, the emailed link finishes creating your account. Delivery can take a few minutes, and the message can land in spam.",
+			"If verification is available for that address, the emailed link finishes creating your account. Delivery can take a few minutes, and the message can land in spam.",
 		],
 		signInCopy: [
 			"Sign-in failed. Check your email and password, or recover your account.",
 			"Sign-in failed. Check your email and password, or recover your account.",
 		],
 		verificationCopy: [
-			"If verification is available, a new link will arrive by email.",
-			"If verification is available, a new link will arrive by email.",
-			"If verification is available, a new link will arrive by email.",
+			"Verification was requested. If a link is available for that address, it can take a few minutes to arrive, so check your spam folder too.",
+			"Verification was requested. If a link is available for that address, it can take a few minutes to arrive, so check your spam folder too.",
+			"Verification was requested. If a link is available for that address, it can take a few minutes to arrive, so check your spam folder too.",
 		],
 	});
 });

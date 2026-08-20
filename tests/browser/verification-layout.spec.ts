@@ -64,7 +64,7 @@ async function assertVerificationSurface(page: Page): Promise<void> {
 		paragraphs: [
 			{
 				role: null,
-				text: "If verification is available, use the emailed link to finish creating your account.",
+				text: "If verification is available for that address, the emailed link finishes creating your account. Delivery can take a few minutes, and the message can land in spam.",
 			},
 		],
 	});
@@ -131,7 +131,7 @@ test("verification is a focused desktop account route with accessible keyboard a
 		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "verification-keyboard-focus.png")});
 		await page.keyboard.press("Enter");
 		await expect(page.getByRole("status")).toHaveText(
-			"If verification is available, a new link will arrive by email.",
+			"Verification was requested. If a link is available for that address, it can take a few minutes to arrive, so check your spam folder too.",
 		);
 		expect(requests.verificationEmails).toStrictEqual([
 			{callbackURL: "/verify-email", email: "alice@example.com"},

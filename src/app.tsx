@@ -690,7 +690,7 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 		<AccountPanel title="Verify your email">
 			<p>
 				{hasRegistrationEmail
-					? "If verification is available, use the emailed link to finish creating your account."
+					? "If verification is available for that address, the emailed link finishes creating your account. Delivery can take a few minutes, and the message can land in spam."
 					: "Enter your email to request another verification link."}
 			</p>
 			{delivery === "failed" && (
@@ -705,7 +705,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 			)}
 			{resendCompleted && (
 				<p className="form-success" role="status">
-					If verification is available, a new link will arrive by email.
+					Verification was requested. If a link is available for that address, it can take a few minutes to
+					arrive, so check your spam folder too.
 				</p>
 			)}
 			{hasRegistrationEmail ? (

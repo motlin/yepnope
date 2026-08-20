@@ -14,12 +14,23 @@ type ApplicationEnvironment = Parameters<typeof application.fetch>[1];
 
 const mailbox = new Map<string, CapturedEmail[]>();
 
+// 📮 Recipients Cloudflare Email Service would refuse. Any address in this shape stands in for the
+// production failure the browser cannot see: the request is accepted, the message never leaves.
+const UNDELIVERABLE_RECIPIENT_PREFIX = "undeliverable-";
+
 async function captureAuthenticationEmail(message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult> {
 	if (!("text" in message)) {
 		throw new Error("browser test authentication email is missing its text body");
 	}
 	if (!("to" in message) || typeof message.to !== "string") {
 		throw new Error("browser test authentication email must have one string recipient");
+	}
+	if (message.to.startsWith(UNDELIVERABLE_RECIPIENT_PREFIX)) {
+		return Promise.reject(
+			Object.assign(new Error(`${message.to} is not a verified destination address`), {
+				code: "E_RECIPIENT_NOT_ALLOWED",
+			}),
+		);
 	}
 	const url = /https:\/\/\S+/.exec(message.text)?.[0];
 	if (url === undefined) {

@@ -72,6 +72,27 @@ function emailCopy(html: string) {
 	};
 }
 
+// 🎟️ Better Auth's verification link is a stateless JWT; the single-use row this Worker mints
+// alongside it is what makes a link consumable exactly once, so it is the token state worth counting.
+async function verificationTokenCount(email: string): Promise<number> {
+	const row = await env.DB.prepare(
+		"SELECT count(*) AS tokens FROM verification " +
+			"WHERE identifier LIKE 'yepnope-email-verification:%' " +
+			"AND value = (SELECT id FROM user WHERE email = ?)",
+	)
+		.bind(email)
+		.first<{tokens: number}>();
+	if (row === null) {
+		throw new Error("missing verification token count");
+	}
+	return row.tokens;
+}
+
+// 📮 Cloudflare Email Service rejects with a plain Error carrying a documented string `code`.
+function emailServiceError(code: string, message: string): Error {
+	return Object.assign(new Error(message), {code});
+}
+
 function postAuthentication(path: string, body: Record<string, string>, cookie?: string): Request {
 	const headers = new Headers({"Content-Type": "application/json", Origin: API_ORIGIN});
 	if (cookie !== undefined) {
@@ -324,15 +345,23 @@ describe("Better Auth account recovery", () => {
 		const password = "correct-horse-battery-staple";
 		await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
 		const observations: AuthenticationObservation[] = [];
+		const attempts: number[] = [];
+		let deliveries = 0;
 		const authentication = createAuthentication(env, {
 			observe: (observation) => {
 				observations.push(observation);
 			},
 			runInBackground: undefined,
-			sendEmail: async () =>
-				Promise.reject(
-					new Error("delivery failed for delivery-failure-alice@example.com with token test-secret"),
-				),
+			sendEmail: async () => {
+				deliveries += 1;
+				return Promise.reject(
+					emailServiceError(
+						"E_RECIPIENT_NOT_ALLOWED",
+						"delivery-failure-alice@example.com is not a verified destination address for " +
+							"https://yepnope.app/api/auth/verify-email?token=test-secret",
+					),
+				);
+			},
 		});
 		const responses = [
 			await timedPublicContract(
@@ -346,6 +375,7 @@ describe("Better Auth account recovery", () => {
 				),
 			),
 		];
+		attempts.push(deliveries);
 		const acceptedContract = {
 			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
 			cacheControl: "no-store",
@@ -357,37 +387,318 @@ describe("Better Auth account recovery", () => {
 
 		expect(responses.map(({contract}) => contract)).toStrictEqual([acceptedContract, acceptedContract]);
 		expect({
+			// 🔁 A rejected recipient cannot become an accepted one, so neither request is retried.
+			attempts,
 			observations,
 			serializedContainsSensitiveMaterial:
 				JSON.stringify(observations).includes(email) || JSON.stringify(observations).includes("test-secret"),
 		}).toStrictEqual({
+			attempts: [2],
 			observations: [
 				{
+					event: "authentication_verification_state_classified",
+					failure: null,
+					level: "info",
+					reason: "unverified_account",
+					status: null,
+				},
+				{
 					event: "authentication_email_delivery_failed",
+					failure: "recipient_rejected",
 					level: "error",
 					reason: "request_verification",
 					status: null,
 				},
 				{
 					event: "public_authentication_response_normalized",
+					failure: null,
 					level: "info",
 					reason: "request_verification",
 					status: 200,
 				},
 				{
 					event: "authentication_email_delivery_failed",
+					failure: "recipient_rejected",
 					level: "error",
 					reason: "request_password_recovery",
 					status: null,
 				},
 				{
 					event: "public_authentication_response_normalized",
+					failure: null,
 					level: "info",
 					reason: "request_password_recovery",
 					status: 200,
 				},
 			],
 			serializedContainsSensitiveMaterial: false,
+		});
+	});
+
+	it("retries a transient delivery failure without minting a second verification token", async () => {
+		const email = "transient-delivery-alice@example.com";
+		const password = "correct-horse-battery-staple";
+		await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+		const observations: AuthenticationObservation[] = [];
+		const mailbox: DeliveredEmail[] = [];
+		let deliveries = 0;
+		const authentication = createAuthentication(env, {
+			observe: (observation) => {
+				observations.push(observation);
+			},
+			runInBackground: undefined,
+			sendEmail: async (message) => {
+				deliveries += 1;
+				if (deliveries === 1) {
+					return Promise.reject(emailServiceError("E_INTERNAL_SERVER_ERROR", "Email Service is unavailable"));
+				}
+				mailbox.push({
+					from: message.from,
+					html: required(message.html, "email HTML"),
+					subject: message.subject,
+					text: required(message.text, "email text"),
+					to: required(message.to, "email recipient"),
+				});
+				return Promise.resolve();
+			},
+		});
+
+		const request = await authentication.handler(
+			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+		);
+
+		expect({
+			body: await request.json(),
+			deliveries,
+			messages: mailbox.map(({subject, to}) => ({subject, to})),
+			observations,
+			tokens: await verificationTokenCount(email),
+		}).toStrictEqual({
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
+			deliveries: 2,
+			messages: [{subject: "Verify your YepNope email", to: email}],
+			observations: [
+				{
+					event: "authentication_verification_state_classified",
+					failure: null,
+					level: "info",
+					reason: "unverified_account",
+					status: null,
+				},
+				{
+					event: "authentication_email_delivery_retried",
+					failure: "transient",
+					level: "warn",
+					reason: "request_verification",
+					status: null,
+				},
+				{
+					event: "authentication_email_delivered",
+					failure: null,
+					level: "info",
+					reason: "request_verification",
+					status: null,
+				},
+				{
+					event: "public_authentication_response_normalized",
+					failure: null,
+					level: "info",
+					reason: "request_verification",
+					status: 200,
+				},
+			],
+			tokens: 1,
+		});
+	});
+
+	it("bounds retries when every delivery attempt keeps failing transiently", async () => {
+		const email = "transient-exhausted-alice@example.com";
+		const password = "correct-horse-battery-staple";
+		await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+		const observations: AuthenticationObservation[] = [];
+		let deliveries = 0;
+		const authentication = createAuthentication(env, {
+			observe: (observation) => {
+				observations.push(observation);
+			},
+			runInBackground: undefined,
+			sendEmail: async () => {
+				deliveries += 1;
+				return Promise.reject(emailServiceError("E_DELIVERY_FAILED", "recipient server rejected the message"));
+			},
+		});
+
+		await authentication.handler(
+			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+		);
+
+		const retried = {
+			event: "authentication_email_delivery_retried",
+			failure: "transient",
+			level: "warn",
+			reason: "request_verification",
+			status: null,
+		};
+		expect({
+			deliveries,
+			deliveryObservations: observations.filter(({event}) => event.startsWith("authentication_email_")),
+			// 🎟️ Every attempt reuses the one token minted before the first send.
+			tokens: await verificationTokenCount(email),
+		}).toStrictEqual({
+			deliveries: 3,
+			deliveryObservations: [
+				retried,
+				retried,
+				{
+					event: "authentication_email_delivery_failed",
+					failure: "transient",
+					level: "error",
+					reason: "request_verification",
+					status: null,
+				},
+			],
+			tokens: 1,
+		});
+	});
+
+	it("never retries a delivery another attempt cannot fix", async () => {
+		// 🚫 A domain that was never onboarded to Cloudflare Email Service, a suppressed or
+		// unverified recipient, and an exhausted quota all stay rejected however often they are tried.
+		const terminalRejections = [
+			{code: "E_SENDER_DOMAIN_NOT_AVAILABLE", failure: "sender_rejected"},
+			{code: "E_RECIPIENT_SUPPRESSED", failure: "recipient_rejected"},
+			{code: "E_DAILY_LIMIT_EXCEEDED", failure: "throttled"},
+			{code: "E_VALIDATION_ERROR", failure: "message_rejected"},
+		];
+		const password = "correct-horse-battery-staple";
+		const outcomes = [];
+		for (const [index, rejection] of terminalRejections.entries()) {
+			const email = `terminal-delivery-${index}-alice@example.com`;
+			await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+			const observations: AuthenticationObservation[] = [];
+			let deliveries = 0;
+			const authentication = createAuthentication(env, {
+				observe: (observation) => {
+					observations.push(observation);
+				},
+				runInBackground: undefined,
+				sendEmail: async () => {
+					deliveries += 1;
+					return Promise.reject(emailServiceError(rejection.code, "rejected by the email service"));
+				},
+			});
+
+			await authentication.handler(
+				postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+			);
+			outcomes.push({
+				deliveries,
+				deliveryObservations: observations.filter(({event}) => event.startsWith("authentication_email_")),
+			});
+		}
+
+		expect(outcomes).toStrictEqual(
+			terminalRejections.map(({failure}) => ({
+				deliveries: 1,
+				deliveryObservations: [
+					{
+						event: "authentication_email_delivery_failed",
+						failure,
+						level: "error",
+						reason: "request_verification",
+						status: null,
+					},
+				],
+			})),
+		);
+	});
+
+	it("classifies verification requests by account state behind one public response", async () => {
+		const password = "correct-horse-battery-staple";
+		const unverifiedEmail = "state-unverified-alice@example.com";
+		const verifiedEmail = "state-verified-alice@example.com";
+		const unknownEmail = "state-unknown-alice@example.com";
+		const mailbox: DeliveredEmail[] = [];
+		const observations: AuthenticationObservation[] = [];
+		const authentication = createMailboxAuthentication(mailbox, observations);
+		for (const email of [unverifiedEmail, verifiedEmail]) {
+			await authentication.handler(postAuthentication("sign-up/email", {email, password}));
+		}
+		await authentication.handler(
+			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email: verifiedEmail}),
+		);
+		await authentication.handler(new Request(emailLink(required(mailbox[0], "verification email"))));
+		mailbox.length = 0;
+		observations.length = 0;
+
+		const responses = [];
+		for (const email of [unverifiedEmail, verifiedEmail, unknownEmail]) {
+			const response = await authentication.handler(
+				postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+			);
+			responses.push({body: await response.json(), status: response.status});
+		}
+
+		const acceptedBody = {
+			message: "If the request can be completed, check your inbox for next steps.",
+			status: true,
+		};
+		expect({
+			messages: mailbox.map(({subject, to}) => ({subject, to})),
+			responses,
+			serializedContainsAddresses: [unverifiedEmail, verifiedEmail, unknownEmail].some((email) =>
+				JSON.stringify(observations).includes(email),
+			),
+			states: observations
+				.filter(({event}) => event === "authentication_verification_state_classified")
+				.map(({reason}) => reason),
+		}).toStrictEqual({
+			messages: [{subject: "Verify your YepNope email", to: unverifiedEmail}],
+			responses: [
+				{body: acceptedBody, status: 200},
+				{body: acceptedBody, status: 200},
+				{body: acceptedBody, status: 200},
+			],
+			serializedContainsAddresses: false,
+			states: ["unverified_account", "already_verified", "unknown_account"],
+		});
+	});
+
+	it("gives a genuinely new account exactly one branded message and one usable token", async () => {
+		const mailbox: DeliveredEmail[] = [];
+		const authentication = createMailboxAuthentication(mailbox);
+		const email = "single-token-alice@example.com";
+		const password = "correct-horse-battery-staple";
+
+		// The browser's registration sequence: create the account, then ask for the verification link.
+		await authentication.handler(
+			postAuthentication("sign-up/email", {callbackURL: "/verify-email", email, password}),
+		);
+		await authentication.handler(
+			postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
+		);
+
+		expect({
+			messages: mailbox.map(({subject, to}) => ({subject, to})),
+			tokens: await verificationTokenCount(email),
+		}).toStrictEqual({
+			messages: [{subject: "Verify your YepNope email", to: email}],
+			tokens: 1,
+		});
+
+		const verification = await authentication.handler(
+			new Request(emailLink(required(mailbox[0], "verification email"))),
+		);
+		expect({
+			location: verification.headers.get("location"),
+			status: verification.status,
+			tokens: await verificationTokenCount(email),
+			verified: await env.DB.prepare("SELECT email_verified FROM user WHERE email = ?").bind(email).first(),
+		}).toStrictEqual({
+			location: "/verify-email",
+			status: 302,
+			tokens: 0,
+			verified: {email_verified: 1},
 		});
 	});
 
@@ -408,36 +719,42 @@ describe("Better Auth account recovery", () => {
 		expect(observations).toStrictEqual([
 			{
 				event: "authentication_library_log",
+				failure: null,
 				level: "info",
 				reason: "existing_registration",
 				status: null,
 			},
 			{
 				event: "public_authentication_response_normalized",
+				failure: null,
 				level: "info",
 				reason: "register",
 				status: 200,
 			},
 			{
 				event: "authentication_library_log",
+				failure: null,
 				level: "warn",
 				reason: "user_not_found",
 				status: null,
 			},
 			{
 				event: "public_authentication_response_normalized",
+				failure: null,
 				level: "warn",
 				reason: "sign_in",
 				status: 401,
 			},
 			{
 				event: "authentication_library_log",
+				failure: null,
 				level: "warn",
 				reason: "invalid_password",
 				status: null,
 			},
 			{
 				event: "public_authentication_response_normalized",
+				failure: null,
 				level: "warn",
 				reason: "sign_in",
 				status: 401,

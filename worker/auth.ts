@@ -225,30 +225,124 @@ function composeAuthenticationMiddleware(
 
 export interface AuthenticationObservation {
 	event:
+		| "authentication_email_delivered"
 		| "authentication_email_delivery_failed"
+		| "authentication_email_delivery_retried"
 		| "authentication_library_log"
 		| "authentication_method_completed"
+		| "authentication_verification_state_classified"
 		| "public_authentication_response_normalized";
+	failure: AuthenticationEmailFailure | null;
 	level: "debug" | "error" | "info" | "warn";
 	reason: string;
 	status: number | null;
 }
 
+// 📮 Why a message did not leave the Worker, drawn from a closed vocabulary. Cloudflare Email
+// Service rejections carry the recipient address and the signed link in `message`, so only the
+// class derived from the documented `code` is ever recorded.
+enum AuthenticationEmailFailure {
+	// The message itself can never be accepted: malformed fields, oversized body, bad headers.
+	MessageRejected = "message_rejected",
+	// This recipient will keep being refused. Until a sending domain is onboarded to Email Service,
+	// Cloudflare accepts only addresses already verified in the account, which strands every
+	// genuinely new sign-up while the operator's own address keeps working.
+	RecipientRejected = "recipient_rejected",
+	SenderRejected = "sender_rejected",
+	Throttled = "throttled",
+	Transient = "transient",
+}
+
+const AUTHENTICATION_EMAIL_DELIVERY_ATTEMPTS = 3;
+
+/** Cloudflare Email Service error codes, triaged by whether another attempt could change anything. */
+const AUTHENTICATION_EMAIL_FAILURE_CODES: Readonly<Record<string, AuthenticationEmailFailure>> = {
+	E_CONTENT_TOO_LARGE: AuthenticationEmailFailure.MessageRejected,
+	E_DAILY_LIMIT_EXCEEDED: AuthenticationEmailFailure.Throttled,
+	E_DELIVERY_FAILED: AuthenticationEmailFailure.Transient,
+	E_FIELD_MISSING: AuthenticationEmailFailure.MessageRejected,
+	E_HEADERS_TOO_LARGE: AuthenticationEmailFailure.MessageRejected,
+	E_HEADERS_TOO_MANY: AuthenticationEmailFailure.MessageRejected,
+	E_HEADER_NAME_INVALID: AuthenticationEmailFailure.MessageRejected,
+	E_HEADER_NOT_ALLOWED: AuthenticationEmailFailure.MessageRejected,
+	E_HEADER_USE_API_FIELD: AuthenticationEmailFailure.MessageRejected,
+	E_HEADER_VALUE_INVALID: AuthenticationEmailFailure.MessageRejected,
+	E_HEADER_VALUE_TOO_LONG: AuthenticationEmailFailure.MessageRejected,
+	E_INTERNAL_SERVER_ERROR: AuthenticationEmailFailure.Transient,
+	E_RATE_LIMIT_EXCEEDED: AuthenticationEmailFailure.Throttled,
+	E_RECIPIENT_NOT_ALLOWED: AuthenticationEmailFailure.RecipientRejected,
+	E_RECIPIENT_SUPPRESSED: AuthenticationEmailFailure.RecipientRejected,
+	E_SENDER_DOMAIN_NOT_AVAILABLE: AuthenticationEmailFailure.SenderRejected,
+	E_SENDER_NOT_VERIFIED: AuthenticationEmailFailure.SenderRejected,
+	E_TOO_MANY_ATTACHMENTS: AuthenticationEmailFailure.MessageRejected,
+	E_TOO_MANY_RECIPIENTS: AuthenticationEmailFailure.MessageRejected,
+	E_VALIDATION_ERROR: AuthenticationEmailFailure.MessageRejected,
+};
+
+const authenticationEmailErrorSchema = z.object({code: z.string()});
+
+/** Anything without a documented code is treated as a blip worth one more attempt. */
+function classifyAuthenticationEmailFailure(caught: unknown): AuthenticationEmailFailure {
+	const parsed = authenticationEmailErrorSchema.safeParse(caught);
+	if (!parsed.success) {
+		return AuthenticationEmailFailure.Transient;
+	}
+	return AUTHENTICATION_EMAIL_FAILURE_CODES[parsed.data.code] ?? AuthenticationEmailFailure.Transient;
+}
+
+/**
+ * Hands one already-minted message to the email service, retrying only failures a retry could fix.
+ * Retries reuse the same message, so the account never gains a second usable token from one request.
+ */
+async function deliverAuthenticationEmail(
+	dependencies: AuthenticationDependencies,
+	message: AuthenticationEmail,
+	reason: PublicAuthenticationOperation,
+): Promise<void> {
+	for (let attempt = 1; attempt <= AUTHENTICATION_EMAIL_DELIVERY_ATTEMPTS; attempt += 1) {
+		try {
+			await dependencies.sendEmail(message);
+			dependencies.observe({
+				event: "authentication_email_delivered",
+				failure: null,
+				level: "info",
+				reason,
+				status: null,
+			});
+			return;
+		} catch (caught) {
+			const failure = classifyAuthenticationEmailFailure(caught);
+			const retrying =
+				failure === AuthenticationEmailFailure.Transient && attempt < AUTHENTICATION_EMAIL_DELIVERY_ATTEMPTS;
+			dependencies.observe({
+				event: retrying ? "authentication_email_delivery_retried" : "authentication_email_delivery_failed",
+				failure,
+				level: retrying ? "warn" : "error",
+				reason,
+				status: null,
+			});
+			if (!retrying) {
+				return;
+			}
+		}
+	}
+}
+
+/**
+ * Delivery never decides the response. Where the platform offers one, the send moves to a background
+ * task so a slow or retried delivery cannot turn response latency into an account-state oracle.
+ */
 async function sendAuthenticationEmail(
 	dependencies: AuthenticationDependencies,
 	message: AuthenticationEmail,
 	reason: PublicAuthenticationOperation,
 ): Promise<void> {
-	try {
-		await dependencies.sendEmail(message);
-	} catch {
-		dependencies.observe({
-			event: "authentication_email_delivery_failed",
-			level: "error",
-			reason,
-			status: null,
-		});
+	const delivery = deliverAuthenticationEmail(dependencies, message, reason);
+	if (dependencies.runInBackground === undefined) {
+		await delivery;
+		return;
 	}
+	dependencies.runInBackground(delivery);
 }
 
 enum PublicAuthenticationOperation {
@@ -345,6 +439,7 @@ function nonEnumeratingAuthenticationHandler(observe: AuthenticationDependencies
 		} catch {
 			observe({
 				event: "public_authentication_response_normalized",
+				failure: null,
 				level: "error",
 				reason: operation,
 				status: null,
@@ -358,6 +453,7 @@ function nonEnumeratingAuthenticationHandler(observe: AuthenticationDependencies
 		}
 		observe({
 			event: "public_authentication_response_normalized",
+			failure: null,
 			level: response.ok ? "info" : "warn",
 			reason: operation,
 			status: response.status,
@@ -388,11 +484,63 @@ function methodUsageAuthenticationHandler(observe: AuthenticationDependencies["o
 		const response = await next(request);
 		observe({
 			event: "authentication_method_completed",
+			failure: null,
 			level: response.status >= 400 ? "warn" : "info",
 			reason: method,
 			status: response.status,
 		});
 		return response;
+	};
+}
+
+// 🔎 Silence has three causes and only one of them is a delivery fault: a genuinely unverified
+// account gets a message, while an already-verified account and an unknown address deliberately get
+// none. The public response cannot say which, so the classification lives here, in diagnostics that
+// name the state without naming the address.
+enum VerificationAccountState {
+	AlreadyVerified = "already_verified",
+	Unknown = "unknown_account",
+	Unverified = "unverified_account",
+}
+
+async function verificationAccountState(database: D1Database, email: string): Promise<VerificationAccountState> {
+	const account = await database
+		.prepare("SELECT email_verified FROM user WHERE email = ?")
+		.bind(email.toLowerCase())
+		.first<{email_verified: number}>();
+	if (account === null) {
+		return VerificationAccountState.Unknown;
+	}
+	return account.email_verified === 1
+		? VerificationAccountState.AlreadyVerified
+		: VerificationAccountState.Unverified;
+}
+
+function verificationStateAuthenticationHandler(
+	database: D1Database,
+	observe: AuthenticationDependencies["observe"],
+): AuthenticationMiddleware {
+	return (next) => async (request) => {
+		if (request.method !== "POST" || new URL(request.url).pathname !== EMAIL_VERIFICATION_REQUEST_PATH) {
+			return next(request);
+		}
+		const parsed = emailVerificationRequestSchema.safeParse(
+			await request
+				.clone()
+				.json()
+				.catch(() => null),
+		);
+		if (!parsed.success) {
+			return next(request);
+		}
+		observe({
+			event: "authentication_verification_state_classified",
+			failure: null,
+			level: "info",
+			reason: await verificationAccountState(database, parsed.data.email),
+			status: null,
+		});
+		return next(request);
 	};
 }
 
@@ -593,6 +741,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 			log: (level, message) => {
 				dependencies.observe({
 					event: "authentication_library_log",
+					failure: null,
 					level,
 					reason: authenticationLibraryReason(message),
 					status: null,
@@ -755,6 +904,7 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 				restrictedDynamicClientRegistrationHandler(),
 				singleUseEmailVerificationHandler(environment.DB),
 				nonEnumeratingAuthenticationHandler(dependencies.observe),
+				verificationStateAuthenticationHandler(environment.DB, dependencies.observe),
 				methodUsageAuthenticationHandler(dependencies.observe),
 				nameFreeAuthenticationHandler(),
 			],

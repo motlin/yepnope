@@ -30,6 +30,7 @@
 		"test:worker": "node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts",
 		"smoke:skills-install": "node --experimental-strip-types scripts/skill-install-smoke.ts",
 		"smoke:codex-oauth": "node --experimental-strip-types scripts/codex-oauth-smoke.ts",
+		"smoke:verification-delivery": "node --experimental-strip-types scripts/verification-delivery-smoke.ts",
 		"build:shim": "esbuild shim/cli.ts --bundle --platform=node --target=node20 --format=cjs --outfile=shim/dist/yepnope-mcp.cjs --banner:js='#!/usr/bin/env node' --external:bufferutil --external:utf-8-validate --log-level=warning",
 		"admin:storage": "node scripts/admin-storage.ts",
 		"deploy:admin": "wrangler deploy --config wrangler.admin.jsonc --keep-vars",

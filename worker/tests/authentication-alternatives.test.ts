@@ -254,12 +254,29 @@ describe("Authentication telemetry", () => {
 		await authentication.handler(post("sign-in/magic-link", {callbackURL: "/", email}));
 		await authentication.handler(new Request(emailLink(required(mailbox[0], "magic link email"))));
 
-		expect(observations).toContainEqual({
-			event: "authentication_method_completed",
-			level: "info",
-			reason: "magic_link",
-			status: 302,
-		});
+		expect(observations).toStrictEqual([
+			{
+				event: "authentication_email_delivered",
+				failure: null,
+				level: "info",
+				reason: "request_magic_link",
+				status: null,
+			},
+			{
+				event: "public_authentication_response_normalized",
+				failure: null,
+				level: "info",
+				reason: "request_magic_link",
+				status: 200,
+			},
+			{
+				event: "authentication_method_completed",
+				failure: null,
+				level: "info",
+				reason: "magic_link",
+				status: 302,
+			},
+		]);
 		const serialized = JSON.stringify(observations);
 		expect(serialized).not.toContain(email);
 		expect(serialized).not.toContain(email.split("@")[0]);

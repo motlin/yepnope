@@ -296,6 +296,32 @@ invalidates every registered passkey. Emailed sign-in links expire in 15
 minutes, are stored only as a hash, and are delivered through the same
 Cloudflare `send_email` binding as verification and password-reset mail.
 
+### 📮 Email delivery to people who are not you
+
+Every authentication message leaves through the `send_email` binding, and
+Cloudflare gates who may receive one. **Until a sending domain is onboarded to
+Cloudflare Email Service, the binding can only reach addresses already verified
+as Email Routing destinations in the account.** Your own address is one of
+those, so registration looks healthy from your inbox while every genuinely new
+account is stranded: the Worker's non-enumerating reply says the request was
+accepted, the message is rejected, and nothing arrives.
+
+Onboard the domain in the dashboard under **Compute -> Email Service -> Email
+Sending -> Onboard Domain** (Workers Paid plan; the zone must use Cloudflare
+DNS). Cloudflare then publishes the `cf-bounce` MX, SPF, DKIM, and DMARC records
+that let arbitrary recipients accept the mail.
+
+Delivery failures never reach the browser, so the Worker classifies them into a
+redacted vocabulary instead — `recipient_rejected`, `sender_rejected`,
+`throttled`, `message_rejected`, `transient` — logged as
+`authentication_email_delivery_failed` with no address, link, or token. Only
+`transient` is retried, up to three attempts on the one already-minted message,
+so a retry never yields a second usable verification token. Alongside it,
+`authentication_verification_state_classified` records whether a verification
+request found an `unverified_account`, an `already_verified` account, or an
+`unknown_account`, which is the only place that distinction exists: the HTTP
+response is byte-identical for all three.
+
 ### Verifying a deployment
 
 After each deploy, exercise every advertised method against production once:
@@ -303,6 +329,22 @@ sign in with email and password, request an emailed link and follow it,
 register and then use a passkey, and complete each configured provider's
 round trip. `/api/v1/auth-methods` is the checklist — every `true` and every
 listed provider needs one pass.
+
+Then run the delivery smoke check, which reads the sending-domain onboarding
+state, Email Service activity for the last seven days, and D1's verification
+token counts. It reports counts and statuses only, never an address, link, or
+token, and exits non-zero when anything is degraded:
+
+```sh
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ZONE_ID=... \
+  YEPNOPE_D1_DATABASE_ID=... YEPNOPE_SENDING_DOMAIN=yepnope.app \
+  npm run smoke:verification-delivery
+```
+
+The API token needs Analytics Read for the zone plus D1 read for the account.
+Note that Worker sends show up in the Email **Routing** summary as dropped even
+when they were delivered; the Email **Sending** metrics this script reads are
+the authoritative record.
 
 ## Privacy and retention
 
