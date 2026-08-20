@@ -224,6 +224,11 @@ describe("Better Auth OAuth MCP provider", () => {
 				headers: {"Content-Type": "application/json"},
 				body: JSON.stringify(registrationBody({token_endpoint_auth_method: "client_secret_post"})),
 			}),
+			worker.fetch(`${ISSUER}/oauth2/register`, {
+				method: "POST",
+				headers: {"Content-Type": "application/json"},
+				body: JSON.stringify(registrationBody({application_type: "web"})),
+			}),
 		]);
 		expect({
 			invalid: await Promise.all(
@@ -245,7 +250,7 @@ describe("Better Auth OAuth MCP provider", () => {
 				token_endpoint_auth_method: registered.registrationResponse["token_endpoint_auth_method"],
 			},
 		}).toStrictEqual({
-			invalid: Array.from({length: 3}, () => ({
+			invalid: Array.from({length: 4}, () => ({
 				body: {
 					error: "invalid_client_metadata",
 					error_description: "Client registration metadata is not permitted",
@@ -267,6 +272,37 @@ describe("Better Auth OAuth MCP provider", () => {
 				response_types: ["code"],
 				token_endpoint_auth_method: "none",
 			},
+		});
+	});
+
+	it("registers native clients that omit the optional application type", async () => {
+		const response = await worker.fetch(`${ISSUER}/oauth2/register`, {
+			method: "POST",
+			headers: {"Content-Type": "application/json"},
+			body: JSON.stringify({
+				client_name: "Claude Code (yepnope)",
+				grant_types: ["authorization_code", "refresh_token"],
+				redirect_uris: [REDIRECT_URI],
+				response_types: ["code"],
+				scope: OAUTH_SCOPES.join(" "),
+				token_endpoint_auth_method: "none",
+			}),
+		});
+		const body = await response.json<Record<string, unknown>>();
+		expect({
+			application_type: body["application_type"],
+			client_id: body["client_id"],
+			client_secret: body["client_secret"],
+			redirect_uris: body["redirect_uris"],
+			status: response.status,
+			token_endpoint_auth_method: body["token_endpoint_auth_method"],
+		}).toStrictEqual({
+			application_type: "native",
+			client_id: expect.any(String),
+			client_secret: undefined,
+			redirect_uris: [REDIRECT_URI],
+			status: 201,
+			token_endpoint_auth_method: "none",
 		});
 	});
 

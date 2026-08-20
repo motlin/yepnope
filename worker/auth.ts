@@ -69,7 +69,7 @@ const passwordRecoveryRequestSchema = z
 	.strict();
 const dynamicClientRegistrationSchema = z
 	.object({
-		application_type: z.literal("native"),
+		application_type: z.literal("native").optional(),
 		client_name: z.string().trim().min(1).max(120).optional(),
 		client_uri: z.url().optional(),
 		contacts: z.array(z.email()).max(5).optional(),
@@ -344,7 +344,18 @@ async function restrictedDynamicClientRegistrationHandler(
 			{status: 400},
 		);
 	}
-	return handler(request);
+	if (parsed.data.application_type !== undefined) {
+		return handler(request);
+	}
+	// Better Auth defaults an absent application_type to "web" and then rejects the loopback
+	// redirect URIs these clients must use, so name the native client type the request implies.
+	return handler(
+		new Request(request, {
+			method: "POST",
+			headers: request.headers,
+			body: JSON.stringify({...parsed.data, application_type: "native"}),
+		}),
+	);
 }
 
 async function singleUseEmailVerificationHandler(
