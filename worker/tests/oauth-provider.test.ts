@@ -182,6 +182,7 @@ describe("Better Auth OAuth MCP provider", () => {
 		expect({
 			authorization_endpoint: issuerPathMetadata?.["authorization_endpoint"],
 			code_challenge_methods_supported: issuerPathMetadata?.["code_challenge_methods_supported"],
+			device_authorization_endpoint: issuerPathMetadata?.["device_authorization_endpoint"],
 			grant_types_supported: issuerPathMetadata?.["grant_types_supported"],
 			introspection_endpoint: issuerPathMetadata?.["introspection_endpoint"],
 			issuer: issuerPathMetadata?.["issuer"],
@@ -192,7 +193,12 @@ describe("Better Auth OAuth MCP provider", () => {
 		}).toStrictEqual({
 			authorization_endpoint: `${ISSUER}/oauth2/authorize`,
 			code_challenge_methods_supported: ["S256"],
-			grant_types_supported: ["authorization_code", "refresh_token"],
+			device_authorization_endpoint: `${ISSUER}/device/code`,
+			grant_types_supported: [
+				"authorization_code",
+				"refresh_token",
+				"urn:ietf:params:oauth:grant-type:device_code",
+			],
 			issuer: ISSUER,
 			introspection_endpoint: `${ISSUER}/oauth2/introspect`,
 			registration_endpoint: `${ISSUER}/oauth2/register`,

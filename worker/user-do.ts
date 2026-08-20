@@ -4,16 +4,7 @@ import {and, asc, count, eq, inArray, isNull, lte, min, sql} from "drizzle-orm";
 import {drizzle, type DrizzleSqliteDODatabase} from "drizzle-orm/durable-sqlite";
 import {migrate} from "drizzle-orm/durable-sqlite/migrator";
 import {z} from "zod";
-import {
-	answers,
-	batches,
-	devices,
-	identityMergeLock,
-	identityMerges,
-	questionActivity,
-	questions,
-	state,
-} from "./db/do-schema";
+import {answers, batches, devices, questionActivity, questions, state} from "./db/do-schema";
 import migrationBundle from "./migrations/do/migrations.js";
 import {hashToken} from "./auth";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
@@ -101,23 +92,6 @@ export interface RedactedStorageDiagnostics {
 	table_counts: Array<{name: string; rows: number}>;
 }
 
-export interface LegacyIdentitySnapshot {
-	devices: Array<typeof devices.$inferSelect>;
-	batches: Array<typeof batches.$inferSelect>;
-	questions: Array<typeof questions.$inferSelect>;
-	answers: Array<typeof answers.$inferSelect>;
-	questionActivity: Array<typeof questionActivity.$inferSelect>;
-}
-
-export type LegacyIdentityPreparation =
-	| {status: "ready"; snapshot: LegacyIdentitySnapshot}
-	| {status: "conflict"; reason: string};
-
-export type LegacyIdentityMergeResult =
-	| {status: "merged"}
-	| {status: "already_merged"}
-	| {status: "conflict"; reason: string};
-
 const STATE_ROW_ID = 1;
 const CURRENT_DECK_SOCKET_TAG = "current-deck";
 const MCP_REQUEST_STORAGE_PREFIX = "mcp-request:";
@@ -137,20 +111,6 @@ const connectedMcpClientAuthorizationStateSchema = z.object({
 const currentDeckSocketAttachmentSchema = z.object({
 	connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationStateSchema,
 });
-
-function findRowConflict<Row extends object>(
-	existingRows: Row[],
-	incomingRows: Row[],
-	key: (row: Row) => string,
-): string | null {
-	const existingById = new Map(existingRows.map((row) => [key(row), row]));
-	for (const incoming of incomingRows) {
-		if (existingById.has(key(incoming))) {
-			return `conflicting Durable Object row: ${key(incoming)}`;
-		}
-	}
-	return null;
-}
 
 export class UserDurableObject extends DurableObject<Env> {
 	private readonly database: DrizzleSqliteDODatabase;
@@ -199,7 +159,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async createBatch(request: CreateBatchRequest): Promise<CreatedBatch> {
 		await this.initialize();
-		this.assertWritable();
 		const now = Date.now();
 		const batchId = crypto.randomUUID();
 		// 🆔 Derived, not minted (spec appendix A.1): there is no reason for an id to be random.
@@ -242,7 +201,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async retractBatch(batchId: string): Promise<boolean> {
 		await this.initialize();
-		this.assertWritable();
 		if (!(await this.batchExists(batchId))) {
 			return false;
 		}
@@ -262,7 +220,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async registerMcpRequest(requestKey: string, batchId: string): Promise<void> {
 		await this.initialize();
-		this.assertWritable();
 		if (!(await this.batchExists(batchId))) {
 			throw new Error("cannot register an MCP request for an unknown batch");
 		}
@@ -271,7 +228,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async cancelMcpRequest(requestKey: string): Promise<boolean> {
 		await this.initialize();
-		this.assertWritable();
 		const storageKey = `${MCP_REQUEST_STORAGE_PREFIX}${requestKey}`;
 		const batchId = await this.ctx.storage.get<string>(storageKey);
 		if (batchId === undefined) {
@@ -300,7 +256,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async setAfk(afk: boolean, hasActiveConnectedMcpClient: boolean): Promise<AfkUpdateResult> {
 		await this.initialize();
-		this.assertWritable();
 		if (afk && !hasActiveConnectedMcpClient) {
 			return {
 				status: "connected_mcp_client_required",
@@ -316,7 +271,6 @@ export class UserDurableObject extends DurableObject<Env> {
 		connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState,
 	): Promise<void> {
 		await this.initialize();
-		this.assertWritable();
 		if (connectedMcpClientAuthorizationState.activeClientCount === 0) {
 			await this.database.update(state).set({afk: false}).where(eq(state.id, STATE_ROW_ID));
 		}
@@ -423,7 +377,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {
 		await this.initialize();
-		this.assertWritable();
 		const affectedBatchIds = this.database.transaction((transaction) => {
 			const questionIds = submitted.map((answer) => answer.question_id);
 			if (new Set(questionIds).size !== questionIds.length) {
@@ -485,7 +438,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async registerDevice(subscription: PushSubscription, label: string): Promise<void> {
 		await this.initialize();
-		this.assertWritable();
 		const serialized = JSON.stringify(subscription);
 		await this.database
 			.insert(devices)
@@ -508,7 +460,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async renamePushDevice(deviceId: string, label: string): Promise<boolean> {
 		await this.initialize();
-		this.assertWritable();
 		const renamed = await this.database
 			.update(devices)
 			.set({label})
@@ -519,7 +470,6 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async revokePushDevice(deviceId: string): Promise<boolean> {
 		await this.initialize();
-		this.assertWritable();
 		const revoked = await this.database.delete(devices).where(eq(devices.id, deviceId)).returning({id: devices.id});
 		return revoked.length === 1;
 	}
@@ -528,9 +478,6 @@ export class UserDurableObject extends DurableObject<Env> {
 	// so the encrypted push payload contains metadata only.
 	async sendBatchPush(batchId: string): Promise<number> {
 		await this.initialize();
-		if (this.isMergeLocked()) {
-			return 0;
-		}
 		const batchRows = await this.database
 			.select({project: batches.project})
 			.from(batches)
@@ -580,9 +527,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			}
 			if (status === 404 || status === 410) {
 				// 🧹 The push service says this subscription is gone for good.
-				if (!this.isMergeLocked()) {
-					await this.database.delete(devices).where(eq(devices.id, device.id));
-				}
+				await this.database.delete(devices).where(eq(devices.id, device.id));
 			} else if (status >= 200 && status < 300) {
 				delivered += 1;
 			}
@@ -645,7 +590,6 @@ export class UserDurableObject extends DurableObject<Env> {
 			socket.close(1008, "unknown batch");
 			return;
 		}
-		this.assertWritable();
 		await this.database.update(batches).set({lastHeartbeatAt: Date.now()}).where(eq(batches.id, batchId));
 		await this.sendCurrentState(socket, batchId);
 	}
@@ -654,9 +598,6 @@ export class UserDurableObject extends DurableObject<Env> {
 	// heartbeat-and-delete retraction (option C in .llm/decisions.md, spec §5).
 	override async alarm(): Promise<void> {
 		await this.initialize();
-		if (this.isMergeLocked()) {
-			return;
-		}
 		const now = Date.now();
 		const expired = await this.database
 			.select({id: batches.id})
@@ -688,113 +629,6 @@ export class UserDurableObject extends DurableObject<Env> {
 		await this.armNextDeadline();
 	}
 
-	async prepareLegacyIdentityClaim(destinationUserId: string): Promise<LegacyIdentityPreparation> {
-		await this.initialize();
-		return this.database.transaction((transaction) => {
-			const existingLock = transaction.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
-			if (existingLock !== undefined && existingLock.destinationUserId !== destinationUserId) {
-				return {status: "conflict", reason: "legacy identity is already being claimed by another account"};
-			}
-			transaction.insert(identityMergeLock).values({id: 1, destinationUserId}).onConflictDoNothing().run();
-			const sourceState = transaction.select().from(state).where(eq(state.id, STATE_ROW_ID)).get();
-			if (sourceState === undefined) {
-				throw new Error("legacy identity state is missing");
-			}
-			return {
-				status: "ready",
-				snapshot: {
-					devices: transaction.select().from(devices).all(),
-					batches: transaction.select().from(batches).all(),
-					questions: transaction.select().from(questions).all(),
-					answers: transaction.select().from(answers).all(),
-					questionActivity: transaction.select().from(questionActivity).all(),
-				},
-			};
-		});
-	}
-
-	async mergeLegacyIdentity(
-		sourceUserId: string,
-		snapshot: LegacyIdentitySnapshot,
-	): Promise<LegacyIdentityMergeResult> {
-		await this.initialize();
-		const result = this.database.transaction((transaction): LegacyIdentityMergeResult => {
-			const imported = transaction
-				.select({sourceUserId: identityMerges.sourceUserId})
-				.from(identityMerges)
-				.where(eq(identityMerges.sourceUserId, sourceUserId))
-				.get();
-			if (imported !== undefined) {
-				return {status: "already_merged"};
-			}
-			if (transaction.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get() !== undefined) {
-				return {status: "conflict", reason: "destination account is itself being merged"};
-			}
-
-			const conflicts = [
-				findRowConflict(transaction.select().from(devices).all(), snapshot.devices, (row) => row.id),
-				findRowConflict(transaction.select().from(batches).all(), snapshot.batches, (row) => row.id),
-				findRowConflict(transaction.select().from(questions).all(), snapshot.questions, (row) => row.id),
-				findRowConflict(transaction.select().from(answers).all(), snapshot.answers, (row) => row.questionId),
-				findRowConflict(
-					transaction.select().from(questionActivity).all(),
-					snapshot.questionActivity,
-					(row) => row.questionId,
-				),
-			].filter((conflict) => conflict !== null);
-			if (conflicts[0] !== undefined) {
-				return {status: "conflict", reason: conflicts[0]};
-			}
-
-			if (snapshot.devices.length > 0) {
-				transaction.insert(devices).values(snapshot.devices).onConflictDoNothing().run();
-			}
-			if (snapshot.batches.length > 0) {
-				transaction.insert(batches).values(snapshot.batches).onConflictDoNothing().run();
-			}
-			if (snapshot.questions.length > 0) {
-				transaction.insert(questions).values(snapshot.questions).onConflictDoNothing().run();
-			}
-			if (snapshot.answers.length > 0) {
-				transaction.insert(answers).values(snapshot.answers).onConflictDoNothing().run();
-			}
-			if (snapshot.questionActivity.length > 0) {
-				transaction.insert(questionActivity).values(snapshot.questionActivity).onConflictDoNothing().run();
-			}
-			transaction
-				.update(state)
-				.set({
-					afk: false,
-				})
-				.where(eq(state.id, STATE_ROW_ID))
-				.run();
-			transaction.insert(identityMerges).values({sourceUserId, importedAt: Date.now()}).run();
-			return {status: "merged"};
-		});
-		if (result.status !== "conflict") {
-			await this.armNextDeadline();
-		}
-		return result;
-	}
-
-	async clearClaimedLegacyIdentity(destinationUserId: string): Promise<void> {
-		await this.initialize();
-		const mergeLockTable = this.ctx.storage.sql
-			.exec<{name: string}>(
-				"SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'identity_merge_lock'",
-			)
-			.toArray()[0];
-		if (mergeLockTable === undefined) {
-			await this.deleteAll();
-			return;
-		}
-		const lock = this.database.select().from(identityMergeLock).where(eq(identityMergeLock.id, 1)).get();
-		if (lock !== undefined && lock.destinationUserId !== destinationUserId) {
-			throw new Error("legacy identity claim lock does not match the destination account");
-		}
-		await this.deleteAll();
-	}
-
 	async getRedactedStorageDiagnostics(): Promise<RedactedStorageDiagnostics> {
 		await this.initialize();
 		const tables = this.ctx.storage.sql
@@ -817,14 +651,6 @@ export class UserDurableObject extends DurableObject<Env> {
 		}
 		await this.ctx.storage.deleteAll();
 		return {deleted: true};
-	}
-
-	async releaseLegacyIdentityClaim(destinationUserId: string): Promise<void> {
-		await this.initialize();
-		this.database
-			.delete(identityMergeLock)
-			.where(and(eq(identityMergeLock.id, 1), eq(identityMergeLock.destinationUserId, destinationUserId)))
-			.run();
 	}
 
 	private async deleteBatches(
@@ -874,16 +700,6 @@ export class UserDurableObject extends DurableObject<Env> {
 			}
 		}
 		await this.broadcastCurrentDeckState();
-	}
-
-	private isMergeLocked(): boolean {
-		return this.database.select({id: identityMergeLock.id}).from(identityMergeLock).limit(1).get() !== undefined;
-	}
-
-	private assertWritable(): void {
-		if (this.isMergeLocked()) {
-			throw new Error("identity_merge_in_progress: this legacy identity is being moved to an account");
-		}
 	}
 
 	// ⏰ Re-arm for whichever deadline comes sooner: retention on any batch, or heartbeat

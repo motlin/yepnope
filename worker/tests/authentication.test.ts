@@ -111,9 +111,9 @@ describe("Better Auth account recovery", () => {
 				"SELECT (SELECT count(*) FROM user) AS users, " +
 					"(SELECT count(*) FROM account) AS accounts, " +
 					"(SELECT count(*) FROM identity_lifecycles) AS identities, " +
-					"(SELECT count(*) FROM machine_tokens) AS machine_tokens",
+					"(SELECT count(*) FROM oauth_client) AS oauth_clients",
 			).first(),
-		).toStrictEqual({accounts: 1, identities: 1, machine_tokens: 0, users: 1});
+		).toStrictEqual({accounts: 1, identities: 1, oauth_clients: 0, users: 1});
 	});
 
 	it("registers with only email and password and never stores or returns a display name", async () => {

@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {API_ORIGIN, postAnswers, registerLegacyMachineWithConnectedMcpClient, worker} from "./helpers";
+import {API_ORIGIN, postAnswers, authorizeAgentClient, worker} from "./helpers";
 
 async function postHook(token: string, payload: unknown): Promise<Response> {
 	return worker.fetch(`${API_ORIGIN}/api/v1/hook`, {
@@ -70,13 +70,13 @@ describe("POST /api/v1/hook", () => {
 	});
 
 	it("rejects a malformed payload", async () => {
-		const token = await registerLegacyMachineWithConnectedMcpClient("hook-bad-payload");
+		const token = await authorizeAgentClient("hook-bad-payload");
 		const response = await postHook(token, {nope: true});
 		expect(response.status).toBe(400);
 	});
 
 	it("abstains from unknown hook events", async () => {
-		const token = await registerLegacyMachineWithConnectedMcpClient("hook-unknown-event");
+		const token = await authorizeAgentClient("hook-unknown-event");
 		const response = await postHook(token, {hook_event_name: "SessionStart"});
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({});
@@ -84,7 +84,7 @@ describe("POST /api/v1/hook", () => {
 
 	describe("PreToolUse", () => {
 		it("denies AskUserQuestion with a redirect reason while AFK", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-pretooluse-deny");
+			const token = await authorizeAgentClient("hook-pretooluse-deny");
 			const response = await postHook(token, {
 				hook_event_name: "PreToolUse",
 				tool_name: "AskUserQuestion",
@@ -105,7 +105,7 @@ describe("POST /api/v1/hook", () => {
 		});
 
 		it("abstains for AskUserQuestion when AFK is off", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-pretooluse-off");
+			const token = await authorizeAgentClient("hook-pretooluse-off");
 			await setAfk(token, false);
 			const response = await postHook(token, {
 				hook_event_name: "PreToolUse",
@@ -117,7 +117,7 @@ describe("POST /api/v1/hook", () => {
 		});
 
 		it("abstains for other tools even while AFK", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-pretooluse-other");
+			const token = await authorizeAgentClient("hook-pretooluse-other");
 			const response = await postHook(token, {
 				hook_event_name: "PreToolUse",
 				tool_name: "Bash",
@@ -130,7 +130,7 @@ describe("POST /api/v1/hook", () => {
 
 	describe("PermissionRequest", () => {
 		it("returns no decision without creating a card when AFK is off", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-permission-off");
+			const token = await authorizeAgentClient("hook-permission-off");
 			await setAfk(token, false);
 			const response = await postHook(token, permissionRequestPayload({command: "npx wrangler deploy"}));
 			expect(response.status).toBe(200);
@@ -139,7 +139,7 @@ describe("POST /api/v1/hook", () => {
 		});
 
 		it("routes to a card and allows on yep", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-permission-yep");
+			const token = await authorizeAgentClient("hook-permission-yep");
 			const hookResponse = postHook(
 				token,
 				permissionRequestPayload({command: "npx wrangler deploy", description: "Deploy the worker"}),
@@ -157,7 +157,7 @@ describe("POST /api/v1/hook", () => {
 		});
 
 		it("denies on nope", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-permission-nope");
+			const token = await authorizeAgentClient("hook-permission-nope");
 			const hookResponse = postHook(token, permissionRequestPayload({command: "rm -rf /"}));
 			const question = await waitForQuestion(token);
 			await postAnswers(token, [{question_id: question.question_id, disposition: "nope"}]);
@@ -171,7 +171,7 @@ describe("POST /api/v1/hook", () => {
 		});
 
 		it("returns no decision on skip so the native prompt takes over", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-permission-skip");
+			const token = await authorizeAgentClient("hook-permission-skip");
 			const hookResponse = postHook(token, permissionRequestPayload({command: "ls"}));
 			const question = await waitForQuestion(token);
 			await postAnswers(token, [{question_id: question.question_id, disposition: "skip"}]);
@@ -181,7 +181,7 @@ describe("POST /api/v1/hook", () => {
 		});
 
 		it("accepts an oversized tool_input and truncates it into the card", async () => {
-			const token = await registerLegacyMachineWithConnectedMcpClient("hook-permission-huge");
+			const token = await authorizeAgentClient("hook-permission-huge");
 			const hookResponse = postHook(token, permissionRequestPayload({command: "x".repeat(400_000)}));
 			const question = await waitForQuestion(token);
 			expect(question.title.length).toBeLessThanOrEqual(100);

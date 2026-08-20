@@ -1,15 +1,15 @@
 import {mcp} from "@better-auth/mcp";
 import {drizzleAdapter} from "@better-auth/drizzle-adapter";
+import {oauthDeviceAuthorization} from "@better-auth/oauth-provider";
 import {betterAuth} from "better-auth";
 import {jwt, magicLink} from "better-auth/plugins";
-import {and, eq, isNull} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {AsyncLocalStorage} from "node:async_hooks";
 import {z} from "zod";
 import {
 	accounts,
+	deviceCodes,
 	jsonWebKeys,
-	machineTokens,
 	oauthAccessTokens,
 	oauthClientAssertions,
 	oauthClientResources,
@@ -50,6 +50,12 @@ export const MCP_RESOURCE_PATH = "/mcp";
 const OAUTH_CONSENT_PATH = "/oauth/consent";
 export const OAUTH_SCOPES = ["openid", "offline_access", "yepnope:questions"] as const;
 const OAUTH_SCOPE_SET: ReadonlySet<string> = new Set(OAUTH_SCOPES);
+export const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+const DEVICE_AUTHORIZATION_PATH = "/device";
+// 📟 A device code is approved by a human reading it off a terminal, so it is short-lived and its
+// polling floor is generous: the hook's login is a one-off, not a hot path.
+const DEVICE_CODE_EXPIRY = "10m";
+const DEVICE_CODE_POLLING_INTERVAL = "5s";
 const emailRegistrationSchema = z
 	.object({
 		callbackURL: z.string().optional(),
@@ -95,14 +101,14 @@ const dynamicClientRegistrationSchema = z
 		client_uri: z.url().optional(),
 		contacts: z.array(z.email()).max(5).optional(),
 		grant_types: z
-			.array(z.enum(["authorization_code", "refresh_token"]))
+			.array(z.enum(["authorization_code", "refresh_token", DEVICE_CODE_GRANT_TYPE]))
 			.min(1)
 			.max(2),
 		logo_uri: z.url().optional(),
 		policy_uri: z.url().optional(),
-		redirect_uris: z.array(z.url()).min(1).max(8),
+		redirect_uris: z.array(z.url()).min(1).max(8).optional(),
 		resources: z.array(z.string()).max(1).optional(),
-		response_types: z.tuple([z.literal("code")]),
+		response_types: z.tuple([z.literal("code")]).optional(),
 		scope: z.string().optional(),
 		software_id: z.string().trim().min(1).max(120).optional(),
 		software_version: z.string().trim().min(1).max(60).optional(),
@@ -111,8 +117,31 @@ const dynamicClientRegistrationSchema = z
 	})
 	.strict();
 
+type DynamicClientRegistration = z.infer<typeof dynamicClientRegistrationSchema>;
+
+/**
+ * Two client shapes are registrable and nothing else. A browser-redirect client keeps the loopback
+ * authorization-code flow it always had; a device client has no browser at all, so it must not carry
+ * a redirect URI or a response type it could never use.
+ */
+function isPermittedClientRegistration(registration: DynamicClientRegistration): boolean {
+	if (registration.grant_types.includes(DEVICE_CODE_GRANT_TYPE)) {
+		return (
+			!registration.grant_types.includes("authorization_code") &&
+			registration.redirect_uris === undefined &&
+			registration.response_types === undefined
+		);
+	}
+	return (
+		registration.grant_types.includes("authorization_code") &&
+		registration.response_types !== undefined &&
+		registration.redirect_uris?.every(isLoopbackRedirectUri) === true
+	);
+}
+
 const authenticationSchema = {
 	account: accounts,
+	deviceCode: deviceCodes,
 	jwks: jsonWebKeys,
 	oauthAccessToken: oauthAccessTokens,
 	oauthClient: oauthClients,
@@ -677,8 +706,7 @@ function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware 
 		);
 		if (
 			!parsed.success ||
-			!parsed.data.grant_types.includes("authorization_code") ||
-			!parsed.data.redirect_uris.every(isLoopbackRedirectUri) ||
+			!isPermittedClientRegistration(parsed.data) ||
 			!hasExactOAuthScopes(parsed.data.scope) ||
 			(parsed.data.resources !== undefined &&
 				(parsed.data.resources.length !== 1 ||
@@ -872,6 +900,14 @@ export function createAuthentication(
 				refreshTokenReuseInterval: 0,
 				resource,
 				scopes: [...OAUTH_SCOPES],
+			}),
+			// 📟 The device grant issues the same scoped, audience-bound, refreshable token set the
+			// browser flow does. It exists so the Claude Code hook — a local command with no browser
+			// and no callback port — stops needing a second authentication system of its own.
+			oauthDeviceAuthorization({
+				expiresIn: DEVICE_CODE_EXPIRY,
+				interval: DEVICE_CODE_POLLING_INTERVAL,
+				verificationUri: `${environment.BETTER_AUTH_URL}${DEVICE_AUTHORIZATION_PATH}`,
 			}),
 			...(passkeyPlugin === null ? [] : [passkeyPlugin]),
 		],
@@ -1121,47 +1157,6 @@ export async function hashToken(token: string): Promise<string> {
 	return Array.from(new Uint8Array(digest))
 		.map((byte) => byte.toString(16).padStart(2, "0"))
 		.join("");
-}
-
-// 🔑 Resolves the machine token to a user id, which names the per-user Durable Object.
-async function authenticateMachineToken(request: Request, database: D1Database): Promise<string | null> {
-	const header = request.headers.get("Authorization");
-	if (header === null || !header.startsWith("Bearer ")) {
-		return null;
-	}
-	const tokenHash = await hashToken(header.slice("Bearer ".length));
-	const connection = drizzle(database);
-	const rows = await connection
-		.select({userId: machineTokens.userId})
-		.from(machineTokens)
-		.where(
-			and(
-				eq(machineTokens.tokenHash, tokenHash),
-				eq(machineTokens.credentialType, "machine"),
-				isNull(machineTokens.revokedAt),
-			),
-		);
-	const authenticated = rows[0];
-	if (authenticated === undefined) {
-		return null;
-	}
-	await connection.update(machineTokens).set({lastUsedAt: Date.now()}).where(eq(machineTokens.tokenHash, tokenHash));
-	return authenticated.userId;
-}
-
-export async function authenticateRequest(
-	request: Request,
-	environment: Env,
-	executionContext: ExecutionContext,
-): Promise<string | null> {
-	const machineUserId = await authenticateMachineToken(request, environment.DB);
-	if (machineUserId !== null) {
-		return machineUserId;
-	}
-	const session = await withRequestBackgroundTasks(executionContext, async () =>
-		workerAuthentication(environment).api.getSession({headers: request.headers}),
-	);
-	return session?.user.emailVerified === true ? session.user.id : null;
 }
 
 export async function authenticateBrowserSession(

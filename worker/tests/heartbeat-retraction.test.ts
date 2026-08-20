@@ -8,7 +8,7 @@ import {
 	createBatchOverHttp,
 	nextMessage,
 	postAnswers,
-	registerLegacyMachineWithConnectedMcpClient,
+	authorizeAgentClient,
 	required,
 	worker,
 } from "./helpers";
@@ -40,7 +40,7 @@ async function goStale(stub: DurableObjectStub, batchId: string): Promise<void> 
 describe("heartbeat and delete (batch identifier option C)", () => {
 	it("arms the alarm at the heartbeat grace deadline on batch insert", async () => {
 		const userId = "heartbeat-arm";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const before = Date.now();
 		await createBatchOverHttp(token, "demo", [{title: "Keep?", body: ""}]);
 
@@ -54,7 +54,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 
 	it("retracts an unresolved batch whose heartbeats stopped and tells open sockets", async () => {
 		const userId = "heartbeat-retract";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Anyone there?", body: ""}]);
 
 		const socket = await openStream(token, created.batch_id);
@@ -87,7 +87,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 
 	it("publishes an empty card state to the open PWA stream when a batch is retracted", async () => {
 		const userId = "heartbeat-live-pwa";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Anyone there?", body: ""}]);
 		const socket = await openQuestionStream(token);
 		const initialMessage = nextMessage(socket);
@@ -128,7 +128,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 
 	it("keeps a resolved batch until retention even after heartbeats stop", async () => {
 		const userId = "heartbeat-resolved";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 		await postAnswers(token, [{question_id: questionId, disposition: "yep"}]);
@@ -150,7 +150,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 
 	it("keeps a batch alive when a heartbeat arrives inside the grace period", async () => {
 		const userId = "heartbeat-refresh";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Still here?", body: ""}]);
 
 		const stub = env.USER_DO.getByName(userId);
@@ -178,7 +178,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 
 	it("returns 404 for answers submitted after retraction", async () => {
 		const userId = "heartbeat-late-answer";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [{title: "Too late?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 
@@ -192,7 +192,7 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 
 	it("keeps partial answers and records the remaining questions as retracted activity", async () => {
 		const userId = "heartbeat-partial";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: ""},
 			{title: "Second?", body: ""},

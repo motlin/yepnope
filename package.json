@@ -2,9 +2,6 @@
 	"name": "yepnope",
 	"version": "0.0.0",
 	"description": "Swipe to answer your coding agent's yes/no questions.",
-	"bin": {
-		"yepnope-mcp": "shim/dist/yepnope-mcp.cjs"
-	},
 	"type": "module",
 	"scripts": {
 		"preinstall": "npx only-allow pnpm",
@@ -18,7 +15,7 @@
 		"fmt:ci": "vp fmt --check",
 		"fallow": "fallow fix --yes",
 		"fallow:ci": "fallow dead-code",
-		"typecheck": "wrangler types && tsc --noEmit && tsc -p worker/tsconfig.json && tsc -p shim/tsconfig.json",
+		"typecheck": "wrangler types && tsc --noEmit && tsc -p worker/tsconfig.json && tsc -p cli/tsconfig.json",
 		"test": "node node_modules/vitest/dist/cli.js",
 		"test:browser": "node node_modules/playwright/cli.js test --config playwright.config.ts",
 		"test:ui": "node node_modules/vitest/dist/cli.js --ui",
@@ -32,16 +29,16 @@
 		"smoke:skills-install": "node --experimental-strip-types scripts/skill-install-smoke.ts",
 		"smoke:codex-oauth": "node --experimental-strip-types scripts/codex-oauth-smoke.ts",
 		"smoke:verification-delivery": "node --experimental-strip-types scripts/verification-delivery-smoke.ts",
-		"build:shim": "esbuild shim/cli.ts --bundle --platform=node --target=node20 --format=cjs --outfile=shim/dist/yepnope-mcp.cjs --banner:js='#!/usr/bin/env node' --external:bufferutil --external:utf-8-validate --log-level=warning",
 		"admin:storage": "node scripts/admin-storage.ts",
 		"deploy:admin": "wrangler deploy --config wrangler.admin.jsonc --keep-vars",
-		"deploy": "vp build && wrangler deploy"
+		"deploy": "vp build && wrangler deploy",
+		"build:cli": "esbuild cli/main.ts --bundle --minify --platform=node --target=node20 --format=cjs --outfile=cli/dist/yepnope.cjs --banner:js='#!/usr/bin/env node' --log-level=warning"
 	},
 	"dependencies": {
 		"@better-auth/drizzle-adapter": "1.7.0",
 		"@better-auth/mcp": "1.7.0",
+		"@better-auth/oauth-provider": "1.7.0",
 		"@better-auth/passkey": "1.7.0",
-		"@modelcontextprotocol/sdk": "1.30.0",
 		"@simplewebauthn/browser": "^13.3.0",
 		"agentation": "^3.0.2",
 		"better-auth": "1.7.0",
@@ -49,13 +46,13 @@
 		"jose": "6.2.9",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
-		"ws": "^8.21.3",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@better-auth/memory-adapter": "1.7.0",
 		"@chromatic-com/storybook": "^5.3.0",
 		"@cloudflare/vitest-pool-workers": "^0.21.3",
+		"@modelcontextprotocol/sdk": "1.30.0",
 		"@modelcontextprotocol/server": "2.0.0",
 		"@storybook/addon-a11y": "^10.5.8",
 		"@storybook/addon-docs": "^10.5.8",
@@ -67,7 +64,6 @@
 		"@types/node": "^26.1.2",
 		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3",
-		"@types/ws": "^8.18.1",
 		"@vitejs/plugin-react": "^6.0.5",
 		"drizzle-kit": "^0.31.10",
 		"esbuild": "^0.28.2",

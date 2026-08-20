@@ -1,7 +1,6 @@
 import {env} from "cloudflare:workers";
 import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
-import {hashToken} from "../auth";
 import {API_ORIGIN, createVerifiedBrowserSession, nextMessage, required, worker} from "./helpers";
 import {seedOAuthMcpClient} from "./oauth-client-helpers";
 
@@ -43,10 +42,6 @@ describe("AFK mode", () => {
 
 	it("rejects AFK enablement until an OAuth MCP host or CLI client is authorized", async () => {
 		const session = await createVerifiedBrowserSession("afk-authorization-alice@example.com");
-		const legacyToken = "test-paired-legacy-token";
-		await env.DB.prepare("INSERT INTO machine_tokens (token_hash, user_id, label, created_at) VALUES (?, ?, ?, ?)")
-			.bind(await hashToken(legacyToken), session.userId, "Legacy paired CLI", Date.UTC(2000, 0, 1))
-			.run();
 		const denied = await putAfk(session.cookie, true);
 		expect({body: await denied.json(), status: denied.status}).toStrictEqual({
 			body: {

@@ -255,12 +255,10 @@ describe("abandoned OAuth client reclamation", () => {
 			{
 				abandonedOAuthClients: 1,
 				event: "scheduled_cleanup_completed",
-				expiredLegacyIdentities: 0,
-				expiredPairingCodes: 0,
+				expiredDeviceCodes: 0,
 				inactiveOAuthAccessTokens: 0,
 				inactiveOAuthRefreshTokens: 0,
 				reclaimedOAuthClientResources: 0,
-				revokedTokens: 0,
 			},
 		]);
 		expect(observations.join("").includes(client)).toBe(false);

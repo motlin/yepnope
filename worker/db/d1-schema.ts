@@ -293,32 +293,34 @@ export const oauthClientAssertions = sqliteTable("oauth_client_assertion", {
 	expiresAt: integer("expires_at", {mode: "timestamp_ms"}).notNull(),
 });
 
-export const machineTokens = sqliteTable(
-	"machine_tokens",
+// 📟 RFC 8628. The Claude Code hook is a local command with no browser and no redirect URI, so it
+// asks for a user code here and the account approves it in the app. `oauthClientId` and `resources`
+// are the OAuth provider's own additions: they are what turn an approved code into a scoped,
+// audience-bound, refreshable token set rather than a first-party session.
+export const deviceCodes = sqliteTable(
+	"device_code",
 	{
-		id: text("id")
-			.primaryKey()
-			.default(sql`(lower(hex(randomblob(16))))`),
-		tokenHash: text("token_hash").notNull().unique(),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, {onDelete: "cascade"}),
-		label: text("label").notNull(),
-		credentialType: text("credential_type", {enum: ["machine", "legacy_app"]})
-			.default("machine")
-			.notNull(),
-		createdAt: integer("created_at").notNull(),
-		lastUsedAt: integer("last_used_at"),
-		revokedAt: integer("revoked_at"),
+		id: text("id").primaryKey(),
+		deviceCode: text("device_code").notNull().unique(),
+		userCode: text("user_code").notNull().unique(),
+		userId: text("user_id").references(() => users.id, {onDelete: "cascade"}),
+		expiresAt: integer("expires_at", {mode: "timestamp_ms"}).notNull(),
+		status: text("status").notNull(),
+		lastPolledAt: integer("last_polled_at", {mode: "timestamp_ms"}),
+		pollingInterval: integer("polling_interval"),
+		clientId: text("client_id"),
+		scope: text("scope"),
+		resources: text("resources").$type<string[]>(),
+		oauthClientId: text("oauth_client_id"),
 	},
-	(table) => [index("machine_tokens_user_id_idx").on(table.userId)],
+	(table) => [index("device_code_user_id_idx").on(table.userId)],
 );
 
 export const identityLifecycles = sqliteTable(
 	"identity_lifecycles",
 	{
 		identityId: text("identity_id").primaryKey(),
-		identityType: text("identity_type", {enum: ["account", "legacy"]}).notNull(),
+		identityType: text("identity_type", {enum: ["account"]}).notNull(),
 		ownerUserId: text("owner_user_id"),
 		createdAt: integer("created_at").notNull(),
 		expiresAt: integer("expires_at"),
@@ -337,39 +339,9 @@ export const durableObjectCleanupJobs = sqliteTable(
 	{
 		objectName: text("object_name").primaryKey(),
 		ownerUserId: text("owner_user_id"),
-		reason: text("reason", {enum: ["account_deleted", "legacy_claimed", "legacy_expired"]}).notNull(),
+		reason: text("reason", {enum: ["account_deleted"]}).notNull(),
 		requestedAt: integer("requested_at").notNull(),
 		completedAt: integer("completed_at"),
 	},
 	(table) => [index("durable_object_cleanup_jobs_completed_at_idx").on(table.completedAt)],
-);
-
-export const legacyIdentityClaims = sqliteTable(
-	"legacy_identity_claims",
-	{
-		tokenHash: text("token_hash").primaryKey(),
-		legacyUserId: text("legacy_user_id").notNull().unique(),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, {onDelete: "cascade"}),
-		status: text("status", {enum: ["pending", "complete"]})
-			.default("pending")
-			.notNull(),
-		claimedAt: integer("claimed_at"),
-		createdAt: integer("created_at").notNull(),
-	},
-	(table) => [index("legacy_identity_claims_user_id_idx").on(table.userId)],
-);
-
-export const pairingCodes = sqliteTable(
-	"pairing_codes",
-	{
-		code: text("code").primaryKey(),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, {onDelete: "cascade"}),
-		createdAt: integer("created_at").notNull(),
-		expiresAt: integer("expires_at").notNull(),
-	},
-	(table) => [index("pairing_codes_user_id_idx").on(table.userId)],
 );

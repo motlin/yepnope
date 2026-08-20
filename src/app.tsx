@@ -1,10 +1,11 @@
 import {useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent} from "react";
 import {
-	claimLegacyIdentity,
 	consumePasswordResetToken,
+	decideDeviceAuthorization,
 	deletePasskey,
 	fetchAccountDevices,
 	fetchAfk,
+	fetchDeviceAuthorization,
 	fetchAuthenticationMethods,
 	fetchLinkedAccounts,
 	fetchOAuthClient,
@@ -36,14 +37,17 @@ import {
 	type AuthenticationUser,
 	type AccountDevices,
 	type CurrentDeckStream,
+	type DeviceAuthorizationDecision,
+	type DeviceAuthorizationLookup,
+	type DeviceAuthorizationResult,
 	type LinkedAccount,
 	type OAuthClientSummary,
+	type PendingDeviceAuthorization,
 	type RegisteredPasskey,
 	type SocialProvider,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {HumanVerificationField} from "./human-verification";
-import {migrateLegacyIdentity} from "./legacy-token";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
 import {THEME_CHOICES, useTheme, type ResolvedTheme, type Theme} from "./theme";
 import {humanVerificationBlocksSubmit, useHumanVerification, type HumanVerification} from "./turnstile";
@@ -147,7 +151,8 @@ type AppView =
 	| "verify-email"
 	| "forgot-password"
 	| "reset-password"
-	| "oauth-consent";
+	| "oauth-consent"
+	| "device";
 
 function viewFromPath(pathname: string): AppView {
 	switch (pathname) {
@@ -165,6 +170,8 @@ function viewFromPath(pathname: string): AppView {
 			return "reset-password";
 		case "/oauth/consent":
 			return "oauth-consent";
+		case "/device":
+			return "device";
 		default:
 			return "deck";
 	}
@@ -186,6 +193,8 @@ function pathForView(view: AppView): string {
 			return "/reset-password";
 		case "oauth-consent":
 			return "/oauth/consent";
+		case "device":
+			return "/device";
 		case "deck":
 			return "/";
 	}
@@ -202,6 +211,21 @@ function oauthQueryFromLocation(): string | null {
 		return null;
 	}
 	return parameters.has("client_id") && parameters.has("sig") ? parameters.toString() : null;
+}
+
+function deviceUserCodeFromLocation(): string {
+	return new URLSearchParams(window.location.search).get("user_code") ?? "";
+}
+
+// 📟 The user code is the only thing tying this browser to the terminal that is waiting on it, so a
+// sign-in detour has to carry it along and land back on /device rather than the deck.
+const DEVICE_HANDOFF_VIEWS: readonly AppView[] = ["device", "forgot-password", "register", "sign-in", "verify-email"];
+
+function deviceHandoffQuery(nextView: AppView): string {
+	const userCode = deviceUserCodeFromLocation();
+	return userCode === "" || !DEVICE_HANDOFF_VIEWS.includes(nextView)
+		? ""
+		: `?user_code=${encodeURIComponent(userCode)}`;
 }
 
 const PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY = "yepnope.password-reset-oauth-query";
@@ -1292,6 +1316,211 @@ function OAuthConsent(): ReactElement {
 	);
 }
 
+type DeviceAuthorizationOutcome = DeviceAuthorizationDecision | "decided" | "expired" | "not_found";
+
+const DEVICE_AUTHORIZATION_OUTCOMES: Record<
+	DeviceAuthorizationOutcome,
+	{detail: string; headline: string; title: string}
+> = {
+	approved: {
+		detail: "You can revoke it any time under Settings, Connected MCP clients.",
+		headline: "Approved. You can go back to your terminal.",
+		title: "Device approved",
+	},
+	denied: {
+		detail: "You can close this tab and go back to your terminal.",
+		headline: "Denied. Nothing was connected to your account.",
+		title: "Device denied",
+	},
+	decided: {
+		detail: "Run the command again if you still need to connect.",
+		headline: "This code was already approved or denied.",
+		title: "Code already used",
+	},
+	expired: {
+		detail: "Codes last ten minutes. Run the command again to get a fresh one.",
+		headline: "This code has expired.",
+		title: "Code expired",
+	},
+	not_found: {
+		detail: "Check the code your terminal printed, or run the command again to get a fresh one.",
+		headline: "No pending request matches that code.",
+		title: "Code not found",
+	},
+};
+
+// 🏁 Losing the write race and finding an answer already on file tell the reader the same thing:
+// this code has been answered, so stop waiting on this tab.
+function deviceOutcomeFromResult(result: DeviceAuthorizationResult): DeviceAuthorizationOutcome {
+	if (result.status === "decided") {
+		return result.decision;
+	}
+	return result.status === "expired" || result.status === "not_found" ? result.status : "decided";
+}
+
+/**
+ * Every way the device grant can end — including the two the account holder chose — is a dead end
+ * for this tab: the terminal, not the browser, carries the result forward.
+ */
+function DeviceAuthorizationOutcomePanel({outcome}: {outcome: DeviceAuthorizationOutcome}): ReactElement {
+	const copy = DEVICE_AUTHORIZATION_OUTCOMES[outcome];
+	return (
+		<AccountPanel title={copy.title}>
+			<div className="oauth-handoff" role="status">
+				<strong>{copy.headline}</strong>
+				<span>{copy.detail}</span>
+			</div>
+		</AccountPanel>
+	);
+}
+
+function DeviceAuthorization(): ReactElement {
+	const initialUserCode = deviceUserCodeFromLocation();
+	const [userCode, setUserCode] = useState(initialUserCode);
+	const [authorization, setAuthorization] = useState<PendingDeviceAuthorization | null>(null);
+	const [outcome, setOutcome] = useState<DeviceAuthorizationOutcome | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [busy, setBusy] = useState(initialUserCode !== "");
+
+	const applyLookup = useCallback((lookup: DeviceAuthorizationLookup) => {
+		if (lookup.status === "pending") {
+			setAuthorization(lookup.authorization);
+		} else {
+			setOutcome(lookup.status);
+		}
+		setBusy(false);
+	}, []);
+
+	useEffect(() => {
+		if (initialUserCode === "") {
+			return undefined;
+		}
+		let cancelled = false;
+		fetchDeviceAuthorization(initialUserCode).then(
+			(lookup) => {
+				if (!cancelled) {
+					applyLookup(lookup);
+				}
+			},
+			(caught: unknown) => {
+				if (!cancelled) {
+					setError(errorMessage(caught));
+					setBusy(false);
+				}
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [applyLookup, initialUserCode]);
+
+	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+		event.preventDefault();
+		setBusy(true);
+		setError(null);
+		try {
+			applyLookup(await fetchDeviceAuthorization(userCode));
+		} catch (caught) {
+			setError(errorMessage(caught));
+			setBusy(false);
+		}
+	}
+
+	async function decide(decision: DeviceAuthorizationDecision): Promise<void> {
+		if (authorization === null) {
+			return;
+		}
+		setBusy(true);
+		setError(null);
+		try {
+			setOutcome(deviceOutcomeFromResult(await decideDeviceAuthorization(authorization.userCode, decision)));
+		} catch (caught) {
+			setError(errorMessage(caught));
+			setBusy(false);
+		}
+	}
+
+	if (outcome !== null) {
+		return <DeviceAuthorizationOutcomePanel outcome={outcome} />;
+	}
+	if (authorization === null && busy && error === null) {
+		return (
+			<AccountPanel title="Approve a device">
+				<p>Checking the code from your terminal…</p>
+			</AccountPanel>
+		);
+	}
+	if (authorization === null) {
+		return (
+			<AccountPanel title="Approve a device">
+				<p>Enter the code your terminal printed. It stays valid for ten minutes.</p>
+				<form className="account-form" onSubmit={(event) => void submit(event)}>
+					<label>
+						Device code
+						<input
+							type="text"
+							name="user_code"
+							autoComplete="off"
+							autoCapitalize="characters"
+							required
+							value={userCode}
+							onChange={(event) => {
+								setUserCode(event.currentTarget.value);
+							}}
+						/>
+					</label>
+					{error !== null && (
+						<p className="form-error" role="alert">
+							{error}
+						</p>
+					)}
+					<button type="submit" disabled={busy}>
+						{busy ? "Checking…" : "Continue"}
+					</button>
+				</form>
+			</AccountPanel>
+		);
+	}
+
+	return (
+		<AccountPanel title="Approve a device">
+			<p>
+				<strong>{authorization.clientName}</strong> printed code <strong>{authorization.userCode}</strong> and
+				is waiting for this account to answer.
+			</p>
+			<ul className="oauth-capabilities">
+				{authorization.scopes.map((scope) => (
+					<li key={scope}>
+						<strong>{isOAuthCapability(scope) ? OAUTH_CAPABILITIES[scope].label : scope}</strong>
+						<span>
+							{isOAuthCapability(scope)
+								? OAUTH_CAPABILITIES[scope].description
+								: `Grants the ${scope} scope.`}
+						</span>
+					</li>
+				))}
+			</ul>
+			<p>
+				Approving issues a credential to that device. You can revoke it any time under Settings, Connected MCP
+				clients. This code now belongs to your account only, because this page read it first.
+			</p>
+			{error !== null && (
+				<p className="form-error" role="alert">
+					{error}
+				</p>
+			)}
+			<div className="oauth-actions">
+				<button type="button" disabled={busy} onClick={() => void decide("approved")}>
+					{busy ? "Responding…" : "Approve"}
+				</button>
+				<button type="button" className="secondary" disabled={busy} onClick={() => void decide("denied")}>
+					Deny
+				</button>
+			</div>
+		</AccountPanel>
+	);
+}
+
 interface ManagedDeviceRowProps {
 	label: string;
 	metadata: string;
@@ -1889,6 +2118,7 @@ export function App(): ReactElement {
 			"forgot-password": "Reset password · YepNope",
 			"reset-password": "Choose a password · YepNope",
 			"oauth-consent": "Authorize MCP client · YepNope",
+			device: "Approve a device · YepNope",
 		};
 		document.title = titles[view];
 	}, [view]);
@@ -1901,7 +2131,7 @@ export function App(): ReactElement {
 				nextView === "register" ||
 				nextView === "verify-email" ||
 				nextView === "forgot-password");
-		const target = `${pathForView(nextView)}${preserveOAuthQuery ? `?${oauthQuery}` : ""}`;
+		const target = `${pathForView(nextView)}${preserveOAuthQuery ? `?${oauthQuery}` : deviceHandoffQuery(nextView)}`;
 		if (`${window.location.pathname}${window.location.search}` !== target) {
 			window.history.pushState({}, "", target);
 		}
@@ -1949,6 +2179,19 @@ export function App(): ReactElement {
 						});
 						return;
 					}
+					const deviceUserCode = deviceUserCodeFromLocation();
+					if (user === null && window.location.pathname === "/device") {
+						window.history.replaceState({}, "", `/sign-in${deviceHandoffQuery("sign-in")}`);
+						setView("sign-in");
+					}
+					if (
+						user !== null &&
+						deviceUserCode !== "" &&
+						(window.location.pathname === "/sign-in" || window.location.pathname === "/verify-email")
+					) {
+						window.history.replaceState({}, "", `/device${deviceHandoffQuery("device")}`);
+						setView("device");
+					}
 					if (user === null && window.location.pathname === "/settings") {
 						showSignedOutLanding();
 						return;
@@ -1984,24 +2227,6 @@ export function App(): ReactElement {
 			setAfkState(null);
 		});
 	}, [session, showSignedOutLanding]);
-
-	useEffect(() => {
-		if (session === null) {
-			return;
-		}
-		migrateLegacyIdentity(claimLegacyIdentity).then(
-			(claimed) => {
-				if (!claimed) {
-					return;
-				}
-				refreshAfk();
-				currentDeckStream.current?.refresh();
-			},
-			() => {
-				// Keep the credential so the signed-in user can retry the explicit claim.
-			},
-		);
-	}, [refreshAfk, session]);
 
 	useEffect(() => {
 		if (session === null) {
@@ -2123,7 +2348,7 @@ export function App(): ReactElement {
 						onAuthenticated={(user) => {
 							setSession(user);
 							setSessionReady(true);
-							navigate("settings");
+							navigate(deviceUserCodeFromLocation() === "" ? "settings" : "device");
 						}}
 						onOAuthAuthenticated={(user, redirectUrl) => {
 							setSession(user);
@@ -2180,6 +2405,14 @@ export function App(): ReactElement {
 					return <div className="loading">Sign in is required to continue.</div>;
 				}
 				return <OAuthConsent />;
+			case "device":
+				if (!sessionReady) {
+					return <div className="loading">Checking your session…</div>;
+				}
+				if (session === null) {
+					return <div className="loading">Sign in is required to continue.</div>;
+				}
+				return <DeviceAuthorization />;
 			case "deck":
 				if (!sessionReady) {
 					return <div className="loading">Checking your session…</div>;

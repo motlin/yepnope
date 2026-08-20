@@ -4,7 +4,9 @@ import {
 	ApiResponseError,
 	consumePasswordResetToken,
 	CurrentDeckConnectionState,
+	decideDeviceAuthorization,
 	fetchAccountDevices,
+	fetchDeviceAuthorization,
 	fetchOAuthClient,
 	openCurrentDeckStream,
 	registerAccount,
@@ -408,6 +410,105 @@ describe("OAuth authorization", () => {
 		expect(fetchMock.mock.calls).toStrictEqual([
 			["/api/auth/oauth2/public-client?client_id=oauth%20client%2Fone", {credentials: "same-origin"}],
 		]);
+	});
+});
+
+describe("device authorization", () => {
+	it("maps the pending request and sends the code as a query parameter", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(
+				Response.json({
+					client_name: "Claude Code",
+					scopes: ["openid", "offline_access", "yepnope:questions"],
+					status: "pending",
+					user_code: "WDJBMJHT",
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect(await fetchDeviceAuthorization("wdjb-mjht")).toStrictEqual({
+			status: "pending",
+			authorization: {
+				clientName: "Claude Code",
+				scopes: ["openid", "offline_access", "yepnope:questions"],
+				userCode: "WDJBMJHT",
+			},
+		});
+		expect(fetchMock.mock.calls).toStrictEqual([
+			["/api/v1/device-authorization?user_code=wdjb-mjht", {credentials: "same-origin"}],
+		]);
+	});
+
+	it("returns each dead end as a value the page can name", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async (input) => {
+			await Promise.resolve();
+			const code = new URL(String(input), window.location.origin).searchParams.get("user_code");
+			if (code === "expired") {
+				return Response.json({status: "expired"}, {status: 410});
+			}
+			if (code === "decided") {
+				return Response.json({status: "decided"}, {status: 409});
+			}
+			return Response.json({status: "not_found"}, {status: 404});
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect({
+			decided: await fetchDeviceAuthorization("decided"),
+			expired: await fetchDeviceAuthorization("expired"),
+			unknown: await fetchDeviceAuthorization("unknown"),
+		}).toStrictEqual({
+			decided: {status: "decided"},
+			expired: {status: "expired"},
+			unknown: {status: "not_found"},
+		});
+	});
+
+	it("posts the decision in the query and the code in the body", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(Response.json({status: "decided", decision: "approved"})),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect(await decideDeviceAuthorization("WDJBMJHT", "approved")).toStrictEqual({
+			status: "decided",
+			decision: "approved",
+		});
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/v1/device-authorization?decision=approved",
+				{
+					body: JSON.stringify({user_code: "WDJBMJHT"}),
+					credentials: "same-origin",
+					headers: {"Content-Type": "application/json"},
+					method: "POST",
+				},
+			],
+		]);
+	});
+
+	it("separates an answer already on file from losing the race to record one", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+			await Promise.resolve();
+			return String(init?.body).includes("TAKEN")
+				? Response.json({status: "taken"}, {status: 409})
+				: Response.json({status: "decided"}, {status: 409});
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect({
+			decided: await decideDeviceAuthorization("DECIDED", "denied"),
+			taken: await decideDeviceAuthorization("TAKEN", "approved"),
+		}).toStrictEqual({decided: {status: "already_decided"}, taken: {status: "taken"}});
+	});
+
+	it("throws when the session is gone rather than inventing a dead end", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () => Promise.resolve(new Response(null, {status: 401})));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(fetchDeviceAuthorization("WDJBMJHT")).rejects.toBeInstanceOf(ApiResponseError);
+		await expect(decideDeviceAuthorization("WDJBMJHT", "approved")).rejects.toBeInstanceOf(ApiResponseError);
 	});
 });
 

@@ -1,6 +1,5 @@
-import {BODY_MAX_CHARACTERS, TITLE_MAX_CHARACTERS} from "../worker/validation";
 import {z} from "zod";
-import type {Disposition} from "../worker/validation";
+import {BODY_MAX_CHARACTERS, TITLE_MAX_CHARACTERS, type Disposition} from "./validation";
 
 export const TOOL_NAME = "ask_yep_nope";
 
@@ -9,14 +8,14 @@ export const NATIVE_QUESTION_FALLBACK_TEXT =
 
 export const NATIVE_QUESTION_FALLBACK = {reason: "afk_off", route: "native"} as const;
 
-export const ASK_YEP_NOPE_ARGUMENTS_SCHEMA = z.object({
+const ASK_YEP_NOPE_ARGUMENTS_SCHEMA = z.object({
 	project: z.string().min(1),
 	questions: z.array(z.object({title: z.string(), body: z.string()})).min(1),
 });
 
 export type AskYepNopeArguments = z.infer<typeof ASK_YEP_NOPE_ARGUMENTS_SCHEMA>;
 
-export const SKIP_INSTRUCTION =
+const SKIP_INSTRUCTION =
 	"SKIPPED. The user declined to decide. Leave this alone and report it; do not choose for them.";
 
 const DISPOSITION_SUFFIX: Record<Disposition, string> = {

@@ -17,7 +17,7 @@ export const devices = sqliteTable("devices", {
 export const batches = sqliteTable("batches", {
 	id: text("id").primaryKey(),
 	project: text("project").notNull(),
-	// 🧭 Card chips (variant 2 in .llm/decisions.md): shim-derived, null for
+	// 🧭 Card chips (variant 2 in .llm/decisions.md): caller-derived, null for
 	// hook-sourced and non-git batches.
 	repo: text("repo"),
 	branch: text("branch"),
@@ -53,12 +53,5 @@ export const questionActivity = sqliteTable("question_activity", {
 	outcomeAt: integer("outcome_at"),
 });
 
-export const identityMerges = sqliteTable("identity_merges", {
-	sourceUserId: text("source_user_id").primaryKey(),
-	importedAt: integer("imported_at").notNull(),
-});
-
-export const identityMergeLock = sqliteTable("identity_merge_lock", {
-	id: integer("id").primaryKey(),
-	destinationUserId: text("destination_user_id").notNull(),
-});
+// 🪦 `identity_merges` and `identity_merge_lock` survive in the immutable Durable Object
+// baseline, but the legacy-identity-claim flow is gone and no code reads them.

@@ -418,19 +418,6 @@ export async function signOut(): Promise<void> {
 	await requestJson("/api/auth/sign-out", jsonRequest({}), z.object({success: z.literal(true)}));
 }
 
-const legacyIdentityClaimResponseSchema = z.object({
-	status: z.literal("claimed"),
-	already_claimed: z.boolean(),
-});
-
-export async function claimLegacyIdentity(legacyToken: string): Promise<void> {
-	await requestJson(
-		"/api/v1/account/claim-legacy",
-		jsonRequest({legacy_token: legacyToken}),
-		legacyIdentityClaimResponseSchema,
-	);
-}
-
 const managedConnectedMcpClientSchema = z.object({
 	id: z.string(),
 	display_name: z.string(),
@@ -545,6 +532,109 @@ export async function renamePushDevice(deviceId: string, label: string): Promise
 
 export async function revokePushDevice(deviceId: string): Promise<void> {
 	await requestJson(`/api/v1/account/push-devices/${deviceId}`, {method: "DELETE"}, okResponseSchema);
+}
+
+const DEVICE_AUTHORIZATION_PATH = "/api/v1/device-authorization";
+
+const pendingDeviceAuthorizationSchema = z.object({
+	client_name: z.string(),
+	scopes: z.array(z.string()),
+	status: z.literal("pending"),
+	user_code: z.string(),
+});
+
+const deviceAuthorizationLookupFailureSchema = z.object({status: z.enum(["decided", "expired", "not_found"])});
+
+const deviceAuthorizationDecisionFailureSchema = z.object({
+	status: z.enum(["decided", "expired", "not_found", "taken"]),
+});
+
+const deviceAuthorizationDecisionSchema = z.object({
+	status: z.literal("decided"),
+	decision: z.enum(["approved", "denied"]),
+});
+
+export interface PendingDeviceAuthorization {
+	clientName: string;
+	scopes: string[];
+	userCode: string;
+}
+
+export type DeviceAuthorizationDecision = "approved" | "denied";
+
+export type DeviceAuthorizationLookup =
+	| {status: "pending"; authorization: PendingDeviceAuthorization}
+	| {status: "decided"}
+	| {status: "expired"}
+	| {status: "not_found"};
+
+export type DeviceAuthorizationResult =
+	| {status: "decided"; decision: DeviceAuthorizationDecision}
+	| {status: "already_decided"}
+	| {status: "expired"}
+	| {status: "not_found"}
+	| {status: "taken"};
+
+/**
+ * A dead code is the ordinary outcome of the device grant, not a fault: the terminal may have given
+ * up, another tab may have answered first, or ten minutes may have passed. Those come back as
+ * values so the page can name what happened; only an unreadable reply — a lost session included —
+ * still throws.
+ */
+async function deviceAuthorizationFailure<Schema extends z.ZodType>(
+	method: string,
+	response: Response,
+	schema: Schema,
+): Promise<z.infer<Schema>> {
+	const failure = schema.safeParse(
+		await response
+			.clone()
+			.json()
+			.catch(() => null),
+	);
+	if (!failure.success) {
+		throw new ApiResponseError(
+			`${method} ${DEVICE_AUTHORIZATION_PATH} failed with ${response.status}`,
+			response.status,
+		);
+	}
+	return failure.data;
+}
+
+export async function fetchDeviceAuthorization(userCode: string): Promise<DeviceAuthorizationLookup> {
+	const response = await fetch(`${DEVICE_AUTHORIZATION_PATH}?user_code=${encodeURIComponent(userCode)}`, {
+		credentials: "same-origin",
+	});
+	if (!response.ok) {
+		return deviceAuthorizationFailure("GET", response, deviceAuthorizationLookupFailureSchema);
+	}
+	const pending = pendingDeviceAuthorizationSchema.parse(await response.json());
+	return {
+		status: "pending",
+		authorization: {
+			clientName: pending.client_name,
+			scopes: pending.scopes,
+			userCode: pending.user_code,
+		},
+	};
+}
+
+export async function decideDeviceAuthorization(
+	userCode: string,
+	decision: DeviceAuthorizationDecision,
+): Promise<DeviceAuthorizationResult> {
+	const response = await fetch(`${DEVICE_AUTHORIZATION_PATH}?decision=${decision}`, {
+		credentials: "same-origin",
+		...jsonRequest({user_code: userCode}),
+	});
+	if (!response.ok) {
+		const failure = await deviceAuthorizationFailure("POST", response, deviceAuthorizationDecisionFailureSchema);
+		// A refused decision reports the same "decided" the accepted one does, so it is renamed here
+		// to keep the recorded answer distinguishable from someone else's.
+		return failure.status === "decided" ? {status: "already_decided"} : {status: failure.status};
+	}
+	const decided = deviceAuthorizationDecisionSchema.parse(await response.json());
+	return {status: "decided", decision: decided.decision};
 }
 
 const questionSchema = z.object({

@@ -1,6 +1,6 @@
 # Better Auth OAuth and remote MCP proof
 
-This fixture records the local compatibility contract proven on 2026-08-18. It does not alter the production Worker or the legacy pairing path.
+This fixture records the local compatibility contract proven on 2026-08-18. It does not alter the production Worker.
 
 ## Proven contract
 

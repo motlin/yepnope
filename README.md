@@ -65,79 +65,74 @@ question to the phone when AFK is on and tells the agent to use its native
 question flow when AFK is off. The remote MCP cannot change AFK state and does
 not make a separate status request before each question.
 
-## Pairing
+## MCP install (`ask_yep_nope`)
 
-Until the package is published, build and run the checked-out shim directly:
+There is one MCP path and it is remote: `https://yepnope.app/mcp`, authorized in
+a browser. The plugin install above already registers it, so `codex mcp login
+yepnope` or the equivalent Claude Code prompt is the whole setup. Nothing is
+copied between windows, no token is pasted into a config file, and the
+authorization appears under **Settings -> Connected MCP clients** where it can be
+revoked.
 
-```sh
-vp run build:shim
-node "$PWD/shim/dist/yepnope-mcp.cjs" pair ABC234 --label craig-mbp
-```
-
-Generate the six-character code in the app first; it expires after ten
-minutes. Once the package is published, the equivalent command will be:
-
-```sh
-npx yepnope-mcp pair ABC234 --label craig-mbp
-```
-
-The label names the machine's token in the app so it can be revoked later; it
-defaults to the hostname. New machine credentials have one canonical form:
-`ynp_live_` followed by 43 unpadded base64url characters encoding 32 random
-bytes (256 bits). Without another option, the command shows the credential once
-as an `export YEPNOPE_TOKEN=...` line.
-
-For an operator-safe MCP setup, capture the one-time credential in an exclusive
-owner-readable file instead of printing it to a terminal or shared command log:
+To register the connection by hand instead of through the plugin:
 
 ```sh
-npx yepnope-mcp pair ABC234 --label craig-mbp \
-  --token-file "$HOME/.config/yepnope/machine-token"
-claude mcp add yepnope --scope local \
-  --env YEPNOPE_TOKEN_FILE="$HOME/.config/yepnope/machine-token" -- \
-  npx yepnope-mcp
+codex mcp add yepnope --url https://yepnope.app/mcp
+codex mcp login yepnope
 ```
 
-The pairing command creates the token file with mode `0600` and refuses to
-overwrite an existing file. The MCP shim reads either `YEPNOPE_TOKEN` or
-`YEPNOPE_TOKEN_FILE`, never both. An existing machine credential remains valid;
-the server stores only its SHA-256 hash and does not need a plaintext migration.
-If a successful claim leaves an unusable or orphaned machine, open `/settings`
-in the app and revoke its machine entry before pairing again.
+The call may block for hours by design. The server emits an MCP progress
+notification every 15 seconds, and harnesses that implement progress
+notifications reset their tool timeout on each one, so the wait survives. For
+harnesses that time the call out anyway, raise the timeout explicitly — in
+Claude Code set `MCP_TOOL_TIMEOUT` (milliseconds, e.g. `MCP_TOOL_TIMEOUT=43200000`
+for 12 hours) in the environment; other harnesses have equivalents.
+
+While the call blocks, the server heartbeats the answer stream. If the agent
+process dies the heartbeats stop, the batch is retracted, and the cards
+disappear from the phone; a resumed agent simply asks again. While AFK mode is
+off, `ask_yep_nope` returns a structured native-fallback result instead of a
+card.
 
 ## Hook install (Claude Code)
 
-The Worker itself is the permission hook: no npm package, no local process.
-Pair a machine to get a token, export it as `YEPNOPE_TOKEN`, and add this to
-`settings.json`. The HTTP hook requires an environment value; do not put the
-credential in the hook URL or commit it to the settings file:
+The permission hook is a local shell command, so it cannot speak MCP and needs a
+credential of its own. That credential is an ordinary OAuth grant obtained by
+[RFC 8628 device authorization](https://datatracker.ietf.org/doc/html/rfc8628):
+short-lived, refreshable, scoped exactly like the remote MCP connection, and
+revocable from the same **Settings -> Connected MCP clients** list. It is stored
+in the operating system keychain — never in an environment variable, never in a
+file, never in `settings.json`.
+
+Nothing is published to a registry yet, so build the CLI from this checkout:
+
+```sh
+vp run build:cli
+node "$PWD/cli/dist/yepnope.cjs" login
+```
+
+`login` prints an eight-character code and a URL. Open the URL in a browser
+signed in to your account, check which client is asking and what it will be able
+to do, and approve. The command stores the resulting credential in the keychain
+and exits; the code itself authorizes nothing and is useless once approved or
+expired (ten minutes).
+
+Then point the hooks at the same command. It takes the hook JSON on stdin and
+writes the decision on stdout, so no credential appears in `settings.json`, in
+the process arguments, or in a shell history:
 
 ```json
 {
 	"hooks": {
 		"PermissionRequest": [
 			{
-				"hooks": [
-					{
-						"type": "http",
-						"url": "https://yepnope.app/api/v1/hook",
-						"headers": {"Authorization": "Bearer $YEPNOPE_TOKEN"},
-						"allowedEnvVars": ["YEPNOPE_TOKEN"]
-					}
-				]
+				"hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" hook"}]
 			}
 		],
 		"PreToolUse": [
 			{
 				"matcher": "AskUserQuestion",
-				"hooks": [
-					{
-						"type": "http",
-						"url": "https://yepnope.app/api/v1/hook",
-						"headers": {"Authorization": "Bearer $YEPNOPE_TOKEN"},
-						"allowedEnvVars": ["YEPNOPE_TOKEN"]
-					}
-				]
+				"hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" hook"}]
 			}
 		]
 	}
@@ -150,49 +145,15 @@ it is off, both hooks abstain and everything runs natively. Hook decisions do
 not bypass permission rules, and the default ten-minute hook timeout means an
 abandoned card falls through to the terminal prompt.
 
-## MCP install (`ask_yep_nope`)
+The hook abstains rather than failing whenever it cannot get an answer — no
+credential, a revoked credential, an unreachable service — and says why on
+stderr. A laptop that is offline falls back to the native prompt instead of
+stranding the agent.
 
-The stdio MCP shim gives any harness the `ask_yep_nope` tool: stack any number
-of yes/no questions, they land on the phone as one notification, and the call
-blocks until every card is swiped. Pair a machine to get a token, then register
-the shim. The token-file pairing path above is preferred because neither command
-prints or embeds the credential. For an environment-based Claude Code setup:
-
-```sh
-claude mcp add yepnope --scope local --env YEPNOPE_TOKEN=ynp_live_... -- \
-  node "$PWD/shim/dist/yepnope-mcp.cjs"
-```
-
-Codex supports the same local stdio server. Use an absolute path so the shim
-continues to start when the harness changes directories:
-
-```toml
-# .codex/config.toml (trusted projects only; keep the token out of version control)
-[mcp_servers.yepnope]
-command = "node"
-args = ["/absolute/path/to/yepnope/shim/dist/yepnope-mcp.cjs"]
-tool_timeout_sec = 43200
-
-[mcp_servers.yepnope.env]
-YEPNOPE_TOKEN_FILE = "/absolute/path/to/.config/yepnope/machine-token"
-```
-
-The call may block for hours by design. The shim emits an MCP progress
-notification every 15 seconds, and harnesses that implement progress
-notifications reset their tool timeout on each one, so the wait survives. For
-harnesses that time the call out anyway, raise the timeout explicitly — in
-Claude Code set `MCP_TOOL_TIMEOUT` (milliseconds, e.g. `MCP_TOOL_TIMEOUT=43200000`
-for 12 hours) in the environment; other harnesses have equivalents.
-
-While the call blocks, the shim heartbeats the server over the answer stream.
-If the agent process dies, the heartbeats stop, the server retracts the batch,
-and the cards disappear from the phone; a resumed agent simply asks again.
-
-While AFK mode is off, the remote OAuth MCP returns a structured native-fallback
-result. The legacy shim returns a tool error with the same instruction. The shim
-also keeps a local yes-rate count on disk (`~/.yepnope/telemetry.json`): when the
-user answers yep to more than 95% of recent questions, the tool response starts
-coaching the model to ask less.
+`yepnope logout` revokes the credential and removes it from the keychain.
+Revoking the client under **Settings -> Connected MCP clients** does the same
+thing from the other end and takes effect on the hook's very next call, even
+though its access token has not expired yet.
 
 ## AFK mode and optional status output
 
@@ -201,18 +162,17 @@ you leave your computer. The CLI provides the same global per-user control for
 when you are leaving deliberately:
 
 ```sh
-npx yepnope-mcp afk          # show the current state
-npx yepnope-mcp afk on       # route new questions to YepNope
-npx yepnope-mcp afk off      # use native prompts for new questions
+node "$PWD/cli/dist/yepnope.cjs" afk          # show the current state
+node "$PWD/cli/dist/yepnope.cjs" afk on       # route new questions to YepNope
+node "$PWD/cli/dist/yepnope.cjs" afk off      # use native prompts for new questions
 ```
 
 Changes apply to the next question only. Turning AFK mode off does not retract
 cards already on the phone or strand agents waiting for those answers.
 
-`npx yepnope-mcp afk statusline` is a one-shot command that prints `📱 YepNope:
-ON` or `💻 YepNope: OFF`; configuration and server failures produce a warning
-without printing the token. It does not start the MCP server or install a
-timer.
+`yepnope afk statusline` is a one-shot command that prints `📱 YepNope: ON` or
+`💻 YepNope: OFF`; a missing authorization or a server failure produces a warning
+within a 1.5-second deadline. It does not start a server or install a timer.
 
 YepNope must not create or replace a project or user `statusLine`. To make
 composition discoverable while leaving the status line under its owner's
@@ -222,7 +182,7 @@ repository does that without defining `statusLine`:
 ```json
 {
 	"env": {
-		"YEPNOPE_STATUSLINE_COMMAND": "npx yepnope-mcp afk statusline"
+		"YEPNOPE_STATUSLINE_COMMAND": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" afk statusline"
 	}
 }
 ```

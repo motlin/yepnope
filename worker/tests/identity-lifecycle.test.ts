@@ -1,15 +1,10 @@
 import {env} from "cloudflare:workers";
 import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
-import {hashToken} from "../auth";
-import {
-	cleanupExpiredIdentityRecords,
-	recordLegacyIdentity,
-	REVOKED_TOKEN_RETENTION_MILLISECONDS,
-	UNCLAIMED_LEGACY_IDENTITY_RETENTION_MILLISECONDS,
-} from "../identity-lifecycle";
+import {cleanupExpiredIdentityRecords, REVOKED_TOKEN_RETENTION_MILLISECONDS} from "../identity-lifecycle";
 import type {UserDurableObject} from "../user-do";
 import {API_ORIGIN, createVerifiedBrowserSession, worker} from "./helpers";
+import {authorizeDeviceClient} from "./oauth-client-helpers";
 
 const ACCOUNT_PASSWORD = "correct-horse-battery-staple";
 
@@ -42,7 +37,7 @@ describe("identity lifecycle", () => {
 		});
 	});
 
-	it("records account ownership and creates no machine credential during onboarding", async () => {
+	it("records account ownership and no agent credential during onboarding", async () => {
 		const session = await createVerifiedBrowserSession("alice@example.com");
 
 		expect(
@@ -59,30 +54,33 @@ describe("identity lifecycle", () => {
 			identity_type: "account",
 			owner_user_id: session.userId,
 		});
-		expect(await env.DB.prepare("SELECT count(*) AS value FROM machine_tokens").first()).toStrictEqual({value: 0});
+		expect(await env.DB.prepare("SELECT count(*) AS value FROM oauth_client").first()).toStrictEqual({value: 0});
 	});
 
 	it("makes repeated unsigned initialization read-only under concurrency", async () => {
 		const before = await env.DB.prepare(
 			"SELECT (SELECT count(*) FROM user) AS users, " +
-				"(SELECT count(*) FROM machine_tokens) AS tokens, " +
+				"(SELECT count(*) FROM device_code) AS device_codes, " +
 				"(SELECT count(*) FROM identity_lifecycles) AS identities",
 		).first();
 		const responses = await Promise.all(
 			Array.from({length: 20}, async () =>
 				Promise.all([
 					worker.fetch(`${API_ORIGIN}/api/auth/get-session`),
-					worker.fetch(`${API_ORIGIN}/api/v1/pair/new`, {method: "POST"}),
+					worker.fetch(`${API_ORIGIN}/api/v1/device-authorization?decision=approved`, {
+						method: "POST",
+						body: JSON.stringify({user_code: "ABC23456"}),
+					}),
 				]),
 			),
 		);
 
 		expect(
-			responses.map(([session, pairing]) => ({pairing: pairing.status, session: session.status})),
-		).toStrictEqual(Array.from({length: 20}, () => ({pairing: 401, session: 200})));
+			responses.map(([session, approval]) => ({approval: approval.status, session: session.status})),
+		).toStrictEqual(Array.from({length: 20}, () => ({approval: 401, session: 200})));
 		const after = await env.DB.prepare(
 			"SELECT (SELECT count(*) FROM user) AS users, " +
-				"(SELECT count(*) FROM machine_tokens) AS tokens, " +
+				"(SELECT count(*) FROM device_code) AS device_codes, " +
 				"(SELECT count(*) FROM identity_lifecycles) AS identities",
 		).first();
 		expect({after, before}).toStrictEqual({after: before, before});
@@ -139,14 +137,11 @@ describe("identity lifecycle", () => {
 		});
 	});
 
-	it("expires abandoned legacy identities, pairing codes, and revoked credentials without deleting accounts", async () => {
+	it("expires spent device codes and inactive OAuth credentials without deleting accounts", async () => {
 		const now = Date.UTC(2000, 0, 1);
-		const legacyCreatedAt = now - UNCLAIMED_LEGACY_IDENTITY_RETENTION_MILLISECONDS - 1;
 		const accountCreatedAt = Date.UTC(1999, 0, 1);
+		const longExpired = now - REVOKED_TOKEN_RETENTION_MILLISECONDS - 1;
 		await env.DB.batch([
-			env.DB.prepare(
-				"INSERT INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 0, ?, ?)",
-			).bind("legacy-alice", "legacy-alice@example.com", legacyCreatedAt, legacyCreatedAt),
 			env.DB.prepare(
 				"INSERT INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
 			).bind("account-bob", "bob@example.com", accountCreatedAt, accountCreatedAt),
@@ -155,65 +150,43 @@ describe("identity lifecycle", () => {
 					"(identity_id, identity_type, owner_user_id, created_at) VALUES (?, 'account', ?, ?)",
 			).bind("account-bob", "account-bob", accountCreatedAt),
 		]);
-		await recordLegacyIdentity(env.DB, "legacy-alice", legacyCreatedAt);
+		const authorized = await authorizeDeviceClient("account-bob");
 		await env.DB.batch([
 			env.DB.prepare(
 				"INSERT INTO durable_object_cleanup_jobs " +
 					"(object_name, owner_user_id, reason, requested_at) VALUES (?, ?, 'account_deleted', ?)",
 			).bind("account-bob", "account-bob", now),
 			env.DB.prepare(
-				"INSERT INTO machine_tokens " +
-					"(token_hash, user_id, label, credential_type, created_at) VALUES (?, ?, 'app', 'legacy_app', ?)",
-			).bind(await hashToken("legacy-alice-browser-token"), "legacy-alice", legacyCreatedAt),
-			env.DB.prepare(
-				"INSERT INTO machine_tokens " +
-					"(token_hash, user_id, label, credential_type, created_at, revoked_at) " +
-					"VALUES (?, ?, 'old machine', 'machine', ?, ?)",
-			).bind(
-				await hashToken("bob-old-revoked-machine-token"),
+				"INSERT INTO device_code (id, device_code, user_code, user_id, expires_at, status) " +
+					"VALUES (?, 'abandoned-device-code', 'ABC23456', ?, ?, 'pending')",
+			).bind(crypto.randomUUID(), "account-bob", now),
+			env.DB.prepare("UPDATE oauth_refresh_token SET revoked = ? WHERE user_id = ?").bind(
+				longExpired,
 				"account-bob",
-				accountCreatedAt,
-				now - REVOKED_TOKEN_RETENTION_MILLISECONDS,
 			),
-			env.DB.prepare(
-				"INSERT INTO pairing_codes (code, user_id, created_at, expires_at) VALUES ('ABC234', ?, ?, ?)",
-			).bind("account-bob", accountCreatedAt, now),
 		]);
-		await env.USER_DO.getByName("legacy-alice").setAfk(true, true);
 
 		expect(await cleanupExpiredIdentityRecords(env.DB, env.USER_DO, now)).toStrictEqual({
 			abandonedOAuthClients: 0,
-			expiredLegacyIdentities: 1,
-			expiredPairingCodes: 1,
+			// The redeemed code was consumed by the exchange itself; only the abandoned one is swept.
+			expiredDeviceCodes: 1,
+			// 🎟️ A device grant's access token is a signed JWT with no row of its own, which is why
+			// revocation has to be enforced against the refresh token behind it on every call.
 			inactiveOAuthAccessTokens: 0,
-			inactiveOAuthRefreshTokens: 0,
+			inactiveOAuthRefreshTokens: 1,
 			reclaimedOAuthClientResources: 0,
-			revokedTokens: 1,
 		});
+		expect(await env.DB.prepare("SELECT id FROM user WHERE id = 'account-bob'").first()).toStrictEqual({
+			id: "account-bob",
+		});
+		expect(await env.DB.prepare("SELECT count(*) AS value FROM device_code").first()).toStrictEqual({value: 0});
+		// 🧹 A revoked grant's consent outlives its tokens, which is what keeps its client off the
+		// abandoned-registration sweep until the account itself is gone.
 		expect(
-			(await env.DB.prepare("SELECT id FROM user WHERE id IN ('account-bob', 'legacy-alice') ORDER BY id").all())
-				.results,
-		).toStrictEqual([{id: "account-bob"}]);
-		expect(await env.DB.prepare("SELECT count(*) AS value FROM machine_tokens").first()).toStrictEqual({value: 0});
-		expect(await env.DB.prepare("SELECT count(*) AS value FROM pairing_codes").first()).toStrictEqual({value: 0});
-		expect(
-			(
-				await env.DB.prepare(
-					"SELECT identity_id, identity_type, owner_user_id, deleted_at IS NOT NULL AS deleted " +
-						"FROM identity_lifecycles WHERE identity_id IN ('account-bob', 'legacy-alice') " +
-						"ORDER BY identity_id",
-				).all()
-			).results,
-		).toStrictEqual([
-			{deleted: 0, identity_id: "account-bob", identity_type: "account", owner_user_id: "account-bob"},
-			{deleted: 1, identity_id: "legacy-alice", identity_type: "legacy", owner_user_id: null},
-		]);
-		expect(
-			await env.DB.prepare(
-				"SELECT object_name, reason, completed_at IS NOT NULL AS completed " +
-					"FROM durable_object_cleanup_jobs WHERE object_name = 'legacy-alice'",
-			).first(),
-		).toStrictEqual({completed: 1, object_name: "legacy-alice", reason: "legacy_expired"});
+			await env.DB.prepare("SELECT count(*) AS value FROM oauth_consent WHERE client_id = ?")
+				.bind(authorized.clientId)
+				.first(),
+		).toStrictEqual({value: 1});
 		expect(
 			await env.DB.prepare(
 				"SELECT completed_at FROM durable_object_cleanup_jobs WHERE object_name = 'account-bob'",
@@ -221,12 +194,10 @@ describe("identity lifecycle", () => {
 		).toStrictEqual({completed_at: null});
 		expect(await cleanupExpiredIdentityRecords(env.DB, env.USER_DO, now)).toStrictEqual({
 			abandonedOAuthClients: 0,
-			expiredLegacyIdentities: 0,
-			expiredPairingCodes: 0,
+			expiredDeviceCodes: 0,
 			inactiveOAuthAccessTokens: 0,
 			inactiveOAuthRefreshTokens: 0,
 			reclaimedOAuthClientResources: 0,
-			revokedTokens: 0,
 		});
 	});
 });

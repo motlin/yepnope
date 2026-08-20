@@ -1,17 +1,11 @@
 import {runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
-import {
-	createBatchOverHttp,
-	postAnswers,
-	registerLegacyMachineWithConnectedMcpClient,
-	required,
-	worker,
-} from "./helpers";
+import {createBatchOverHttp, postAnswers, authorizeAgentClient, required, worker} from "./helpers";
 
 describe("POST /api/v1/answers", () => {
 	it("records answers and removes them from the outstanding list", async () => {
-		const token = await registerLegacyMachineWithConnectedMcpClient("user-answers");
+		const token = await authorizeAgentClient("user-answers");
 		const created = await createBatchOverHttp(token, "demo", [
 			{title: "First?", body: ""},
 			{title: "Second?", body: ""},
@@ -34,7 +28,7 @@ describe("POST /api/v1/answers", () => {
 
 	it("rolls back answers when activity bookkeeping fails", async () => {
 		const userId = "user-atomic-answers";
-		const token = await registerLegacyMachineWithConnectedMcpClient(userId);
+		const token = await authorizeAgentClient(userId);
 		const created = await createBatchOverHttp(token, "atomic-test", [{title: "Ship it?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 		const stub = env.USER_DO.getByName(userId);
@@ -60,13 +54,13 @@ describe("POST /api/v1/answers", () => {
 	});
 
 	it("rejects an unknown question id with 404", async () => {
-		const token = await registerLegacyMachineWithConnectedMcpClient("user-unknown-question");
+		const token = await authorizeAgentClient("user-unknown-question");
 		const response = await postAnswers(token, [{question_id: crypto.randomUUID(), disposition: "yep"}]);
 		expect(response.status).toBe(404);
 	});
 
 	it("rejects answering the same question twice with 409", async () => {
-		const token = await registerLegacyMachineWithConnectedMcpClient("user-double-answer");
+		const token = await authorizeAgentClient("user-double-answer");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Once?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 
@@ -75,7 +69,7 @@ describe("POST /api/v1/answers", () => {
 	});
 
 	it("rejects a disposition outside yep/nope/skip", async () => {
-		const token = await registerLegacyMachineWithConnectedMcpClient("user-bad-disposition");
+		const token = await authorizeAgentClient("user-bad-disposition");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Maybe?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 		const response = await postAnswers(token, [{question_id: questionId, disposition: "maybe"}]);
@@ -83,8 +77,8 @@ describe("POST /api/v1/answers", () => {
 	});
 
 	it("cannot answer another user's questions", async () => {
-		const tokenA = await registerLegacyMachineWithConnectedMcpClient("answer-user-a");
-		const tokenB = await registerLegacyMachineWithConnectedMcpClient("answer-user-b");
+		const tokenA = await authorizeAgentClient("answer-user-a");
+		const tokenB = await authorizeAgentClient("answer-user-b");
 		const created = await createBatchOverHttp(tokenA, "demo", [{title: "Mine?", body: ""}]);
 		const questionId = required(created.question_ids[0], "question id");
 

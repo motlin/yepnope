@@ -116,8 +116,8 @@ function mailboxResponse(url: URL): Response {
 async function countResponse(environment: ApplicationEnvironment): Promise<Response> {
 	const counts = await environment.DB.prepare(
 		"SELECT (SELECT count(*) FROM user) AS users, " +
-			"(SELECT count(*) FROM machine_tokens) AS machine_tokens, " +
-			"(SELECT count(*) FROM pairing_codes) AS pairing_codes",
+			"(SELECT count(*) FROM device_code) AS device_codes, " +
+			"(SELECT count(*) FROM oauth_client) AS oauth_clients",
 	).first();
 	return Response.json({authentication_url: environment.BETTER_AUTH_URL, ...counts});
 }
@@ -130,7 +130,7 @@ async function deletedAccountResponse(request: Request, environment: Application
 	const state = await environment.DB.prepare(
 		"SELECT " +
 			"(SELECT count(*) FROM user WHERE id = ?) AS users, " +
-			"(SELECT count(*) FROM machine_tokens WHERE user_id = ?) AS machine_tokens, " +
+			"(SELECT count(*) FROM device_code WHERE user_id = ?) AS device_codes, " +
 			"(SELECT count(*) FROM oauth_client WHERE user_id = ?) AS oauth_clients, " +
 			"(SELECT deleted_at IS NOT NULL FROM identity_lifecycles WHERE identity_id = ?) AS identity_deleted, " +
 			"(SELECT completed_at IS NOT NULL FROM durable_object_cleanup_jobs WHERE object_name = ?) AS cleanup_completed",

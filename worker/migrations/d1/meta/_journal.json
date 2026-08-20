@@ -29,6 +29,20 @@
 			"when": 1787193682850,
 			"tag": "004_passkeys",
 			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1787265053313,
+			"tag": "005_device_authorization",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "6",
+			"when": 1787265073065,
+			"tag": "006_retire_machine_credentials",
+			"breakpoints": true
 		}
 	]
 }

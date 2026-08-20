@@ -3,7 +3,6 @@ import {runInDurableObject} from "cloudflare:test";
 import {createLocalJWKSet, exportJWK, generateKeyPair, SignJWT} from "jose";
 import {describe, expect, it} from "vitest";
 import {authenticateAccessRequest, createAdminHandler, type AdminEnvironment} from "../admin";
-import {hashToken} from "../auth";
 import type {UserDurableObject} from "../user-do";
 import {createVerifiedBrowserSession} from "./helpers";
 import {createPushReceiver} from "./push-helpers";
@@ -93,15 +92,13 @@ describe("admin Access authentication", () => {
 describe("admin storage diagnostics and cleanup", () => {
 	it("returns counts without returning stored credentials, question text, email tokens, or push capabilities", async () => {
 		const session = await createVerifiedBrowserSession("alice-admin@example.com");
-		const secretMachineHash = await hashToken("machine-secret-that-must-not-leak");
-		await env.DB.batch([
-			env.DB.prepare(
-				"INSERT INTO machine_tokens (token_hash, user_id, label, created_at) VALUES (?, ?, ?, ?)",
-			).bind(secretMachineHash, session.userId, "Alice machine", Date.UTC(2000, 0, 1)),
-			env.DB.prepare(
-				"INSERT INTO pairing_codes (code, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-			).bind("ABC234", session.userId, Date.UTC(2000, 0, 1), Date.UTC(2000, 0, 2)),
-		]);
+		const secretDeviceCode = "device-code-secret-that-must-not-leak";
+		await env.DB.prepare(
+			"INSERT INTO device_code (id, device_code, user_code, user_id, expires_at, status) " +
+				"VALUES (?, ?, ?, ?, ?, 'pending')",
+		)
+			.bind(crypto.randomUUID(), secretDeviceCode, "ABC23456", session.userId, Date.UTC(2000, 0, 2))
+			.run();
 		const object = env.USER_DO.getByName(session.userId);
 		const receiver = await createPushReceiver("https://push.example.com/secret-capability");
 		await object.registerDevice(receiver.subscription, "Alice browser");
@@ -154,8 +151,8 @@ describe("admin storage diagnostics and cleanup", () => {
 			diagnosticsStatus: 200,
 		});
 		expect([
-			serialized.includes(secretMachineHash),
-			serialized.includes("ABC234"),
+			serialized.includes(secretDeviceCode),
+			serialized.includes("ABC23456"),
 			serialized.includes("alice-admin@example.com"),
 			serialized.includes("Private title"),
 			serialized.includes("Private body"),

@@ -9,7 +9,7 @@ export const MAX_REQUEST_BYTES = 256 * 1024;
 export const RETENTION_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
 // 💓 Heartbeat-and-delete grace (option C in .llm/decisions.md, spec §5): long enough that a
 // closing laptop lid does not yank a deck mid-swipe, short enough that dead-agent cards do
-// not linger. The shim beats every 30 s, so this is ten missed beats.
+// not linger. A waiting caller beats every 30 s, so this is ten missed beats.
 export const HEARTBEAT_GRACE_MILLISECONDS = 5 * 60 * 1000;
 
 export const dispositionSchema = z.enum(["yep", "nope", "skip"]);
@@ -21,9 +21,9 @@ const questionInputSchema = z.object({
 });
 export type QuestionInput = z.infer<typeof questionInputSchema>;
 
-// 🧭 Card chips (variant 2 in .llm/decisions.md): derived by the shim, absent for
+// 🧭 Card chips (variant 2 in .llm/decisions.md): derived by the calling agent, absent for
 // hook-sourced and non-git batches, so every field is optional. Malformed values are
-// dropped, never rejected: chips are cosmetic and the model cannot fix a shim-derived
+// dropped, never rejected: chips are cosmetic and the model cannot fix a caller-derived
 // path, so a 400 here would block the question over data nobody chose.
 const CONTEXT_MAX_CHARACTERS = 256;
 const contextFieldSchema = z.string().min(1).max(CONTEXT_MAX_CHARACTERS).optional().catch(undefined);
@@ -49,7 +49,7 @@ export const submitAnswersRequestSchema = z.object({
 		.min(1),
 });
 
-// 🧑‍🏫 Shim-layer check (spec §7.2): instruction, not a stack trace. The Worker's
+// 🧑‍🏫 Tool-layer check (spec §7.2): instruction, not a stack trace. The Worker's
 // 413/400 stays rude; this message is the prompt-engineering surface the model sees.
 export interface LengthViolation {
 	ordinal: number;
@@ -92,20 +92,10 @@ export function teachingRejection(violations: LengthViolation[]): string {
 // 🧍 AFK mode (spec §11): a single server-side boolean, read per request, never cached.
 export const afkRequestSchema = z.object({afk: z.boolean()});
 
-// 🤝 Pairing codes expire ten minutes after issue (spec §12).
-export const PAIRING_CODE_TTL_MILLISECONDS = 10 * 60 * 1000;
-
-export const pairClaimRequestSchema = z.object({
-	code: z
-		.string()
-		.min(1)
-		.max(12)
-		.transform((raw) => raw.trim().toUpperCase()),
-	label: z.string().min(1).max(100),
-});
-
-export const legacyIdentityClaimRequestSchema = z.object({
-	legacy_token: z.string().min(32).max(256),
+// 📟 A device code is read off a terminal and typed into a phone, so the dashes and lower case a
+// person adds are theirs to add; the server normalizes before it looks anything up.
+export const deviceAuthorizationRequestSchema = z.object({
+	user_code: z.string().min(1).max(24),
 });
 
 export const deviceLabelRequestSchema = z.object({

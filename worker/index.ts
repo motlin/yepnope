@@ -1,10 +1,8 @@
 import {
 	authenticateBrowserAccount,
 	authenticateBrowserSession,
-	authenticateRequest,
 	authenticationMethods,
 	hashToken,
-	MCP_RESOURCE_PATH,
 	withRequestBackgroundTasks,
 	workerAuthenticationFor,
 } from "./auth";
@@ -13,27 +11,24 @@ import {
 	listConnectedMcpClients,
 	revokeConnectedMcpClient,
 } from "./connected-mcp-clients";
+import {
+	decideDeviceAuthorization,
+	lookupDeviceAuthorization,
+	type DeviceAuthorizationLookup,
+	type DeviceAuthorizationResult,
+} from "./device-authorization";
 import {handleHookEvent, MAX_HOOK_REQUEST_BYTES} from "./hook-bridge";
-import {claimLegacyIdentity} from "./identity-linking";
 import {cleanupExpiredIdentityRecords} from "./identity-lifecycle";
 import {handleRemoteMcpRequest} from "./mcp";
-import {
-	claimPairingCode,
-	createPairingCode,
-	getPairingStatus,
-	renameMachine,
-	revokeMachineToken,
-	type PairingStatus,
-} from "./pairing";
+import {authenticateRequest, mcpResource} from "./oauth-token";
 import {turnstileSiteKey} from "./turnstile";
 import type {UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
 	createBatchRequestSchema,
+	deviceAuthorizationRequestSchema,
 	deviceLabelRequestSchema,
-	legacyIdentityClaimRequestSchema,
 	MAX_REQUEST_BYTES,
-	pairClaimRequestSchema,
 	pushSubscriptionSchema,
 	submitAnswersRequestSchema,
 } from "./validation";
@@ -43,7 +38,6 @@ export {UserDurableObject} from "./user-do";
 
 const STREAM_PATH = /^\/api\/v1\/questions\/[^/]+\/stream$/;
 const CURRENT_DECK_STREAM_PATH = "/api/v1/current-deck/stream";
-const MACHINE_MANAGEMENT_PATH = /^\/api\/v1\/account\/machines\/([0-9a-f]{32})$/;
 const CONNECTED_MCP_CLIENT_MANAGEMENT_PATH = /^\/api\/v1\/account\/connected-mcp-clients\/([0-9a-f]{64})$/;
 const PUSH_DEVICE_MANAGEMENT_PATH = /^\/api\/v1\/account\/push-devices\/([0-9a-f]{64})$/;
 const ROOT_AUTHENTICATION_METADATA_PATHS = new Set([
@@ -76,10 +70,6 @@ export default {
 			);
 		}
 
-		// 🤝 Machine claims and the VAPID key are the only unauthenticated application routes.
-		if (url.pathname === "/api/v1/pair/claim" && request.method === "POST") {
-			return claimPairing(request, env);
-		}
 		// 🚪 The sign-in screen renders from this before anyone has a session, so it stays public.
 		if (url.pathname === "/api/v1/auth-methods" && request.method === "GET") {
 			const methods = authenticationMethods(env);
@@ -101,44 +91,25 @@ export default {
 		if (url.pathname === "/api/v1/push/public-key" && request.method === "GET") {
 			return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});
 		}
-		if (url.pathname === "/api/v1/pair/code" && request.method === "POST") {
+		// 📟 The browser half of the device grant. It is the only place a code printed by a local
+		// command becomes an authorization, so it demands the account's own session, never a token.
+		if (
+			url.pathname === "/api/v1/device-authorization" &&
+			(request.method === "GET" || request.method === "POST")
+		) {
 			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
 			if (accountUserId === null) {
 				return new Response(null, {status: 401});
 			}
-			const issued = await createPairingCode(env.DB, accountUserId);
-			const pairingStatus = await getPairingStatus(env.DB, accountUserId);
-			return Response.json(
-				{code: issued.code, expires_at: issued.expiresAt, pairing: pairingStatusResponse(pairingStatus)},
-				{status: 201},
-			);
+			return request.method === "GET"
+				? describeDeviceAuthorization(url, env, accountUserId)
+				: decideBrowserDeviceAuthorization(request, env, accountUserId);
 		}
-		if (url.pathname === "/api/v1/pair/new" && request.method === "POST") {
-			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-			return accountUserId === null ? new Response(null, {status: 401}) : Response.json({status: "ready"});
-		}
-		if (url.pathname === "/api/v1/pair/status" && request.method === "GET") {
-			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-			if (accountUserId === null) {
-				return new Response(null, {status: 401});
-			}
-			const pairingStatus = await getPairingStatus(env.DB, accountUserId);
-			return Response.json(pairingStatusResponse(pairingStatus));
-		}
-		if (url.pathname === "/api/v1/account/claim-legacy" && request.method === "POST") {
-			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-			if (accountUserId === null) {
-				return new Response(null, {status: 401});
-			}
-			return claimLegacyBrowserIdentity(request, env, accountUserId);
-		}
-		const machineManagementMatch = MACHINE_MANAGEMENT_PATH.exec(url.pathname);
 		const connectedMcpClientManagementMatch = CONNECTED_MCP_CLIENT_MANAGEMENT_PATH.exec(url.pathname);
 		const pushDeviceManagementMatch = PUSH_DEVICE_MANAGEMENT_PATH.exec(url.pathname);
 		if (
 			(url.pathname === "/api/v1/account/devices" && request.method === "GET") ||
 			(connectedMcpClientManagementMatch !== null && request.method === "DELETE") ||
-			(machineManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE")) ||
 			(pushDeviceManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE"))
 		) {
 			const browserAccount = await authenticateBrowserAccount(request, env, executionContext);
@@ -158,9 +129,6 @@ export default {
 			}
 			if (connectedMcpClientManagementMatch !== null) {
 				return manageConnectedMcpClient(env, accountUserId, connectedMcpClientManagementMatch[1]);
-			}
-			if (machineManagementMatch !== null) {
-				return manageMachine(request, env, accountUserId, machineManagementMatch[1]);
 			}
 			return managePushDevice(request, accountStub, pushDeviceManagementMatch?.[1]);
 		}
@@ -222,20 +190,64 @@ async function runScheduledCleanup(environment: Env, scheduledTime: number): Pro
 	console.warn(JSON.stringify({event: "scheduled_cleanup_completed", ...cleanup}));
 }
 
-function pairingStatusResponse(pairingStatus: PairingStatus): {
-	paired: boolean;
-	machine_count: number;
-	pending_pairing_expires_at: number | null;
-} {
-	return {
-		paired: pairingStatus.machineCount > 0,
-		machine_count: pairingStatus.machineCount,
-		pending_pairing_expires_at: pairingStatus.pendingPairingExpiresAt,
-	};
+type UnavailableDeviceAuthorization = Exclude<
+	(DeviceAuthorizationLookup | DeviceAuthorizationResult)["status"],
+	"pending"
+>;
+
+// 📟 Gone, spent, and already answered are three different things to the command that is polling.
+const DEVICE_AUTHORIZATION_STATUS_CODES: Readonly<Record<UnavailableDeviceAuthorization, number>> = {
+	decided: 409,
+	expired: 410,
+	not_found: 404,
+	taken: 409,
+};
+
+async function describeDeviceAuthorization(url: URL, environment: Env, userId: string): Promise<Response> {
+	const userCode = url.searchParams.get("user_code");
+	if (userCode === null) {
+		return new Response(null, {status: 400});
+	}
+	const lookup = await lookupDeviceAuthorization(
+		environment.DB,
+		userId,
+		userCode,
+		mcpResource(environment),
+		Date.now(),
+	);
+	if (lookup.status !== "pending") {
+		return Response.json({status: lookup.status}, {status: DEVICE_AUTHORIZATION_STATUS_CODES[lookup.status]});
+	}
+	return Response.json({
+		client_name: lookup.authorization.clientName,
+		scopes: lookup.authorization.scopes,
+		status: "pending",
+		user_code: lookup.authorization.userCode,
+	});
 }
 
-function mcpResource(environment: Env): string {
-	return `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
+async function decideBrowserDeviceAuthorization(request: Request, environment: Env, userId: string): Promise<Response> {
+	const url = new URL(request.url);
+	const decision = url.searchParams.get("decision");
+	if (decision !== "approved" && decision !== "denied") {
+		return new Response(null, {status: 400});
+	}
+	const parsed = deviceAuthorizationRequestSchema.safeParse(await request.json().catch(() => null));
+	if (!parsed.success) {
+		return new Response(null, {status: 400});
+	}
+	const result = await decideDeviceAuthorization(
+		environment.DB,
+		userId,
+		parsed.data.user_code,
+		decision,
+		mcpResource(environment),
+		Date.now(),
+	);
+	if (result.status !== "decided" || result.decision !== decision) {
+		return Response.json({status: result.status}, {status: DEVICE_AUTHORIZATION_STATUS_CODES[result.status]});
+	}
+	return Response.json({status: "decided", decision});
 }
 
 async function connectedMcpClientAuthorizationState(
@@ -254,7 +266,7 @@ function withConnectedMcpClientAuthorizationState(
 	return new Request(request, {headers});
 }
 
-// 🧍 An active OAuth MCP or CLI grant gates AFK; legacy machine pairing never authorizes routing.
+// 🧍 An active OAuth grant — browser-authorized MCP client or device-authorized hook — gates AFK.
 async function setAfk(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
@@ -269,33 +281,6 @@ async function setAfk(
 		return Response.json({error: result.status, message: result.message}, {status: 409});
 	}
 	return Response.json({afk: result.afk});
-}
-
-async function claimPairing(request: Request, environment: Env): Promise<Response> {
-	const parsed = pairClaimRequestSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
-	}
-	const claimed = await claimPairingCode(environment.DB, parsed.data.code, parsed.data.label);
-	if (claimed === null) {
-		return new Response(null, {status: 404});
-	}
-	return Response.json({token: claimed.token, credential_type: "machine"}, {status: 201});
-}
-
-async function claimLegacyBrowserIdentity(request: Request, environment: Env, userId: string): Promise<Response> {
-	const parsed = legacyIdentityClaimRequestSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
-	}
-	const result = await claimLegacyIdentity(environment.DB, environment.USER_DO, userId, parsed.data.legacy_token);
-	if (result.status === "not_found") {
-		return new Response(null, {status: 404});
-	}
-	if (result.status === "conflict") {
-		return Response.json({message: result.message}, {status: 409});
-	}
-	return Response.json({status: "claimed", already_claimed: result.alreadyClaimed});
 }
 
 async function subscribePush(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
@@ -429,32 +414,6 @@ async function manageConnectedMcpClient(
 	}
 	const authorizationState = await connectedMcpClientAuthorizationState(environment, userId);
 	return Response.json({status: "ok", connected_mcp_client_count: authorizationState.activeClientCount});
-}
-
-async function manageMachine(
-	request: Request,
-	environment: Env,
-	userId: string,
-	machineId: string | undefined,
-): Promise<Response> {
-	if (machineId === undefined) {
-		return new Response(null, {status: 404});
-	}
-	if (request.method === "PUT") {
-		const parsed = deviceLabelRequestSchema.safeParse(await request.json().catch(() => null));
-		if (!parsed.success) {
-			return new Response(null, {status: 400});
-		}
-		return (await renameMachine(environment.DB, userId, machineId, parsed.data.label))
-			? Response.json({status: "ok"})
-			: new Response(null, {status: 404});
-	}
-	const revoked = await revokeMachineToken(environment.DB, userId, machineId, Date.now());
-	if (!revoked) {
-		return new Response(null, {status: 404});
-	}
-	const pairingStatus = await getPairingStatus(environment.DB, userId);
-	return Response.json({status: "ok", pairing: pairingStatusResponse(pairingStatus)});
 }
 
 async function managePushDevice(

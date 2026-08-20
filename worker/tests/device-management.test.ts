@@ -12,7 +12,7 @@ import {
 	required,
 	worker,
 } from "./helpers";
-import {seedOAuthMcpClient} from "./oauth-client-helpers";
+import {authorizeDeviceClient, seedOAuthMcpClient} from "./oauth-client-helpers";
 
 const AUTHORIZED_AT = Date.UTC(2000, 0, 1);
 
@@ -38,19 +38,17 @@ async function accountRequest(cookie: string, path: string, method = "GET", labe
 }
 
 describe("connected MCP client and browser notification management", () => {
-	it("requires a verified browser session and never treats a legacy machine token as account authorization", async () => {
-		const session = await createVerifiedBrowserSession("account-api-alice@example.com");
-		const legacyToken = "test-legacy-machine-token";
-		await env.DB.prepare("INSERT INTO machine_tokens (token_hash, user_id, label, created_at) VALUES (?, ?, ?, ?)")
-			.bind(await hashToken(legacyToken), session.userId, "Legacy test machine", AUTHORIZED_AT)
-			.run();
+	it("requires the account's own browser session, and refuses even a valid agent token", async () => {
+		const authorized = await authorizeDeviceClient("account-api-alice");
 
 		const unauthenticated = await worker.fetch(`${API_ORIGIN}/api/v1/account/devices`);
-		const legacyMachineAuthenticated = await worker.fetch(`${API_ORIGIN}/api/v1/account/devices`, {
-			headers: {Authorization: `Bearer ${legacyToken}`},
+		// 🔒 Managing what a client may do is the account holder's job, not a client's. A token that
+		// can ask questions still cannot read, rename, or revoke the authorizations behind it.
+		const agentAuthenticated = await worker.fetch(`${API_ORIGIN}/api/v1/account/devices`, {
+			headers: {Authorization: `Bearer ${authorized.accessToken}`},
 		});
 
-		expect([unauthenticated.status, legacyMachineAuthenticated.status]).toStrictEqual([401, 401]);
+		expect([unauthenticated.status, agentAuthenticated.status]).toStrictEqual([401, 401]);
 	});
 
 	it("lists one redacted entry per OAuth installation while keeping browser sessions and push separate", async () => {

@@ -9,7 +9,7 @@ import {
 	NATIVE_QUESTION_FALLBACK_TEXT,
 	TOOL_DESCRIPTION,
 	TOOL_INPUT_SCHEMA,
-} from "../../shim/tool";
+} from "../../worker/ask-tool";
 import {mailboxLink, sessionUser} from "./helpers";
 
 const serverOrigin = "https://localhost:4173";
@@ -659,7 +659,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			data: {user_id: verifiedUser.id},
 		});
 		expect({body: await deletedState.json(), status: deletedState.status()}).toStrictEqual({
-			body: {cleanup_completed: 1, identity_deleted: 1, machine_tokens: 0, oauth_clients: 0, users: 0},
+			body: {cleanup_completed: 1, device_codes: 0, identity_deleted: 1, oauth_clients: 0, users: 0},
 			status: 200,
 		});
 	} finally {

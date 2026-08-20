@@ -56,8 +56,8 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		// run before any spec that creates an account. Playwright orders specs by file name.
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
 			authentication_url: "https://localhost:4173",
-			machine_tokens: 0,
-			pairing_codes: 0,
+			device_codes: 0,
+			oauth_clients: 0,
 			users: 0,
 		});
 		await firstPage.goto("/");
@@ -77,8 +77,8 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		});
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
 			authentication_url: "https://localhost:4173",
-			machine_tokens: 0,
-			pairing_codes: 0,
+			device_codes: 0,
+			oauth_clients: 0,
 			users: 0,
 		});
 
@@ -306,7 +306,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 
 		const deletedState = await request.post("/api/__e2e__/deleted-account", {data: {user_id: userId}});
 		expect({body: await deletedState.json(), status: deletedState.status()}).toStrictEqual({
-			body: {cleanup_completed: 1, identity_deleted: 1, machine_tokens: 0, oauth_clients: 0, users: 0},
+			body: {cleanup_completed: 1, device_codes: 0, identity_deleted: 1, oauth_clients: 0, users: 0},
 			status: 200,
 		});
 	} finally {

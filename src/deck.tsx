@@ -16,7 +16,7 @@ export interface DeckQuestion {
 	questionId: string;
 	batchId: string;
 	project: string;
-	// 🧭 Card chips (variant 2 in .llm/decisions.md): shim-derived, null for
+	// 🧭 Card chips (variant 2 in .llm/decisions.md): caller-derived, null for
 	// hook-sourced and non-git batches.
 	repo: string | null;
 	branch: string | null;

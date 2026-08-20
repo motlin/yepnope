@@ -1,6 +1,6 @@
 import {and, eq, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
-import {durableObjectCleanupJobs, identityLifecycles, machineTokens, pairingCodes} from "./db/d1-schema";
+import {deviceCodes, durableObjectCleanupJobs, identityLifecycles} from "./db/d1-schema";
 import {
 	ABANDONED_OAUTH_CLIENT_COUNT_SQL,
 	ABANDONED_OAUTH_CLIENT_DELETE_SQL,
@@ -14,9 +14,8 @@ import type {UserDurableObject} from "./user-do";
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1_000;
 
 export const REVOKED_TOKEN_RETENTION_MILLISECONDS = 30 * DAY_MILLISECONDS;
-export const UNCLAIMED_LEGACY_IDENTITY_RETENTION_MILLISECONDS = 30 * DAY_MILLISECONDS;
 
-type CleanupReason = "account_deleted" | "legacy_claimed" | "legacy_expired";
+type CleanupReason = "account_deleted";
 
 export interface OAuthClientReclamationResult {
 	abandonedOAuthClients: number;
@@ -24,39 +23,15 @@ export interface OAuthClientReclamationResult {
 }
 
 export interface IdentityCleanupResult extends OAuthClientReclamationResult {
-	expiredLegacyIdentities: number;
+	expiredDeviceCodes: number;
 	inactiveOAuthAccessTokens: number;
 	inactiveOAuthRefreshTokens: number;
-	expiredPairingCodes: number;
-	revokedTokens: number;
-}
-
-interface PendingCleanupJob {
-	objectName: string;
-	reason: CleanupReason;
 }
 
 export async function recordAccountIdentity(database: D1Database, userId: string, createdAt: number): Promise<void> {
 	await drizzle(database)
 		.insert(identityLifecycles)
 		.values({identityId: userId, identityType: "account", ownerUserId: userId, createdAt})
-		.onConflictDoNothing();
-}
-
-export async function recordLegacyIdentity(
-	database: D1Database,
-	legacyUserId: string,
-	createdAt: number,
-): Promise<void> {
-	await drizzle(database)
-		.insert(identityLifecycles)
-		.values({
-			identityId: legacyUserId,
-			identityType: "legacy",
-			ownerUserId: null,
-			createdAt,
-			expiresAt: createdAt + UNCLAIMED_LEGACY_IDENTITY_RETENTION_MILLISECONDS,
-		})
 		.onConflictDoNothing();
 }
 
@@ -89,17 +64,6 @@ export async function deleteAccountDurableObject(
 		.update(durableObjectCleanupJobs)
 		.set({completedAt: deletedAt})
 		.where(eq(durableObjectCleanupJobs.objectName, userId));
-}
-
-export async function completeDurableObjectCleanup(
-	database: D1Database,
-	objectName: string,
-	completedAt: number,
-): Promise<void> {
-	await drizzle(database)
-		.update(durableObjectCleanupJobs)
-		.set({completedAt})
-		.where(eq(durableObjectCleanupJobs.objectName, objectName));
 }
 
 async function countedRows(database: D1Database, sql: string, bindings: readonly number[]): Promise<number> {
@@ -166,21 +130,9 @@ export async function cleanupExpiredIdentityRecords(
 	now: number,
 ): Promise<IdentityCleanupResult> {
 	const connection = drizzle(database);
-	const expiredLegacyIdentities = await connection
-		.select({identityId: identityLifecycles.identityId})
-		.from(identityLifecycles)
-		.where(
-			and(
-				eq(identityLifecycles.identityType, "legacy"),
-				isNull(identityLifecycles.ownerUserId),
-				isNull(identityLifecycles.deletedAt),
-				lte(identityLifecycles.expiresAt, now),
-			),
-		);
-	const expiredPairingCodes = await connection.delete(pairingCodes).where(lte(pairingCodes.expiresAt, now));
-	const revokedTokens = await connection
-		.delete(machineTokens)
-		.where(lte(machineTokens.revokedAt, now - REVOKED_TOKEN_RETENTION_MILLISECONDS));
+	// 📟 A device code is a ten-minute artefact whether it was approved, denied, or ignored. The
+	// grant it produced lives in the OAuth tables; the code itself has nothing left to say.
+	const expiredDeviceCodes = await connection.delete(deviceCodes).where(lte(deviceCodes.expiresAt, new Date(now)));
 	const [inactiveOAuthAccessTokens, inactiveOAuthRefreshTokens] = await database.batch([
 		database
 			.prepare("DELETE FROM oauth_access_token WHERE expires_at <= ? OR (revoked IS NOT NULL AND revoked <= ?)")
@@ -193,20 +145,6 @@ export async function cleanupExpiredIdentityRecords(
 		throw new Error("OAuth credential cleanup batch returned an incomplete result");
 	}
 
-	for (const {identityId} of expiredLegacyIdentities) {
-		await requestDurableObjectCleanup(database, identityId, null, "legacy_expired", now);
-		await database.batch([
-			database
-				.prepare(
-					"UPDATE identity_lifecycles SET deletion_requested_at = ?, deleted_at = ? " +
-						"WHERE identity_id = ? AND owner_user_id IS NULL AND deleted_at IS NULL",
-				)
-				.bind(now, now, identityId),
-			database
-				.prepare("DELETE FROM user WHERE id = ? AND NOT EXISTS (SELECT 1 FROM account WHERE user_id = ?)")
-				.bind(identityId, identityId),
-		]);
-	}
 	await processPendingDurableObjectCleanups(database, namespace, now);
 	// 🧹 Last, so a client whose final token was purged above still keeps its consent, and a consent
 	// is enough to spare it.
@@ -214,11 +152,9 @@ export async function cleanupExpiredIdentityRecords(
 
 	return {
 		...reclaimedOAuthClients,
-		expiredLegacyIdentities: expiredLegacyIdentities.length,
+		expiredDeviceCodes: expiredDeviceCodes.meta.changes,
 		inactiveOAuthAccessTokens: inactiveOAuthAccessTokens.meta.changes,
 		inactiveOAuthRefreshTokens: inactiveOAuthRefreshTokens.meta.changes,
-		expiredPairingCodes: expiredPairingCodes.meta.changes,
-		revokedTokens: revokedTokens.meta.changes,
 	};
 }
 
@@ -228,16 +164,15 @@ async function processPendingDurableObjectCleanups(
 	completedAt: number,
 ): Promise<number> {
 	const pending = await drizzle(database)
-		.select({objectName: durableObjectCleanupJobs.objectName, reason: durableObjectCleanupJobs.reason})
+		.select({objectName: durableObjectCleanupJobs.objectName})
 		.from(durableObjectCleanupJobs)
 		.where(isNull(durableObjectCleanupJobs.completedAt));
 	let completed = 0;
-	for (const job of pending satisfies PendingCleanupJob[]) {
-		if (job.reason === "account_deleted") {
-			const liveOwner = await database.prepare("SELECT id FROM user WHERE id = ?").bind(job.objectName).first();
-			if (liveOwner !== null) {
-				continue;
-			}
+	for (const job of pending) {
+		// A deletion that the account cancelled by still existing is not a deletion.
+		const liveOwner = await database.prepare("SELECT id FROM user WHERE id = ?").bind(job.objectName).first();
+		if (liveOwner !== null) {
+			continue;
 		}
 		await namespace.getByName(job.objectName).deleteAll();
 		await database.batch([

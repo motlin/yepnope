@@ -53,7 +53,7 @@ describe("rejection, never truncation", () => {
 	});
 });
 
-describe("shim teaching errors", () => {
+describe("teaching errors", () => {
 	it("finds every violation with its ordinal, field, and actual count", () => {
 		const violations = findLengthViolations([
 			{title: "Fine?", body: ""},

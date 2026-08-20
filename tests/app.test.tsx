@@ -8,6 +8,9 @@ import type {
 	CurrentDeckConnectionState,
 	CurrentDeckStream,
 	CurrentDeckStreamOptions,
+	DeviceAuthorizationDecision,
+	DeviceAuthorizationLookup,
+	DeviceAuthorizationResult,
 	LinkedAccount,
 	LiveApplicationState,
 	OAuthClientSummary,
@@ -65,7 +68,10 @@ const fetchAccountDevices = vi.hoisted(() =>
 		Promise.resolve({browserSessions: [], connectedMcpClients: [], pushDevices: []}),
 	),
 );
-const claimLegacyIdentity = vi.hoisted(() => vi.fn<(_token: string) => Promise<void>>(async () => Promise.resolve()));
+const fetchDeviceAuthorization = vi.hoisted(() => vi.fn<(_userCode: string) => Promise<DeviceAuthorizationLookup>>());
+const decideDeviceAuthorization = vi.hoisted(() =>
+	vi.fn<(_userCode: string, _decision: DeviceAuthorizationDecision) => Promise<DeviceAuthorizationResult>>(),
+);
 const renamePushDevice = vi.hoisted(() => vi.fn<(_id: string, _label: string) => Promise<void>>());
 const revokeConnectedMcpClient = vi.hoisted(() =>
 	vi.fn<(_id: string) => Promise<number>>(async () => await Promise.resolve(0)),
@@ -145,8 +151,9 @@ const refreshStream = vi.fn<() => void>();
 vi.mock("../src/api", () => ({
 	ApiResponseError,
 	SOCIAL_PROVIDER_LABELS: {github: "GitHub", google: "Google"},
-	claimLegacyIdentity,
+	decideDeviceAuthorization,
 	deletePasskey,
+	fetchDeviceAuthorization,
 	fetchAuthenticationMethods,
 	fetchLinkedAccounts,
 	fetchPasskeys,
@@ -280,6 +287,15 @@ beforeEach(() => {
 	renamePushDevice.mockResolvedValue(undefined);
 	revokeConnectedMcpClient.mockResolvedValue(0);
 	revokePushDevice.mockResolvedValue(undefined);
+	fetchDeviceAuthorization.mockResolvedValue({
+		status: "pending",
+		authorization: {
+			clientName: "Claude Code",
+			scopes: ["openid", "offline_access", "yepnope:questions"],
+			userCode: "WDJB-MJHT",
+		},
+	});
+	decideDeviceAuthorization.mockResolvedValue({status: "decided", decision: "approved"});
 	resumeOAuthAuthorization.mockReturnValue(new Promise<string>(() => {}));
 	signInForOAuth.mockReturnValue(new Promise<string>(() => {}));
 	submitOAuthConsent.mockReturnValue(new Promise<string>(() => {}));
@@ -502,6 +518,138 @@ describe("OAuth consent continuity", () => {
 			cancel: screen.queryByRole("button", {name: "Cancel"}),
 			clientCalls: fetchOAuthClient.mock.calls,
 		}).toStrictEqual({allow: null, cancel: null, clientCalls: []});
+	});
+});
+
+describe("Device authorization", () => {
+	it("looks up the code from the link and names the client and what it may do", async () => {
+		window.history.replaceState({}, "", "/device?user_code=WDJB-MJHT");
+
+		render(<App />);
+
+		expect(await screen.findByText("Claude Code")).toBeDefined();
+		expect({
+			capabilities: [...document.querySelectorAll(".oauth-capabilities strong")].map(
+				(capability) => capability.textContent,
+			),
+			lookupCalls: fetchDeviceAuthorization.mock.calls,
+			userCode: screen.getByText("WDJB-MJHT").textContent,
+		}).toStrictEqual({
+			capabilities: ["Use your YepNope identity", "Stay connected", "Ask questions"],
+			lookupCalls: [["WDJB-MJHT"]],
+			userCode: "WDJB-MJHT",
+		});
+	});
+
+	it("approves the waiting terminal and sends the visitor back to it", async () => {
+		window.history.replaceState({}, "", "/device?user_code=WDJB-MJHT");
+
+		render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Approve"}));
+
+		const outcome = await screen.findByRole("status");
+		expect({
+			decideCalls: decideDeviceAuthorization.mock.calls,
+			heading: screen.getByRole("heading", {level: 1}).textContent,
+			outcome: outcome.textContent,
+			remainingActions: [
+				screen.queryByRole("button", {name: "Approve"}),
+				screen.queryByRole("button", {name: "Deny"}),
+			],
+		}).toStrictEqual({
+			decideCalls: [["WDJB-MJHT", "approved"]],
+			heading: "Device approved",
+			outcome:
+				"Approved. You can go back to your terminal." +
+				"You can revoke it any time under Settings, Connected MCP clients.",
+			remainingActions: [null, null],
+		});
+	});
+
+	it("states the denied outcome instead of a success handoff", async () => {
+		window.history.replaceState({}, "", "/device?user_code=WDJB-MJHT");
+		decideDeviceAuthorization.mockResolvedValue({status: "decided", decision: "denied"});
+
+		render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Deny"}));
+
+		const outcome = await screen.findByRole("status");
+		expect({
+			decideCalls: decideDeviceAuthorization.mock.calls,
+			heading: screen.getByRole("heading", {level: 1}).textContent,
+			outcome: outcome.textContent,
+		}).toStrictEqual({
+			decideCalls: [["WDJB-MJHT", "denied"]],
+			heading: "Device denied",
+			outcome:
+				"Denied. Nothing was connected to your account." +
+				"You can close this tab and go back to your terminal.",
+		});
+	});
+
+	it("names each dead end the code can already be in", async () => {
+		for (const {heading, lookup, outcome} of [
+			{
+				heading: "Code expired",
+				lookup: {status: "expired"} as const,
+				outcome: "This code has expired.Codes last ten minutes. Run the command again to get a fresh one.",
+			},
+			{
+				heading: "Code not found",
+				lookup: {status: "not_found"} as const,
+				outcome:
+					"No pending request matches that code." +
+					"Check the code your terminal printed, or run the command again to get a fresh one.",
+			},
+			{
+				heading: "Code already used",
+				lookup: {status: "decided"} as const,
+				outcome:
+					"This code was already approved or denied." + "Run the command again if you still need to connect.",
+			},
+		]) {
+			window.history.replaceState({}, "", "/device?user_code=WDJB-MJHT");
+			fetchDeviceAuthorization.mockResolvedValue(lookup);
+
+			render(<App />);
+
+			expect((await screen.findByRole("status")).textContent).toBe(outcome);
+			expect(screen.getByRole("heading", {level: 1}).textContent).toBe(heading);
+			expect(screen.queryByRole("button", {name: "Approve"})).toBeNull();
+			cleanup();
+		}
+	});
+
+	it("asks for the code when the visitor arrives without one", async () => {
+		window.history.replaceState({}, "", "/device");
+
+		render(<App />);
+
+		fireEvent.change(await screen.findByRole("textbox", {name: "Device code"}), {target: {value: "wdjb mjht"}});
+		fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+
+		expect(await screen.findByText("Claude Code")).toBeDefined();
+		// The server owns case and dash normalization, so the page forwards what was typed.
+		expect(fetchDeviceAuthorization.mock.calls).toStrictEqual([["wdjb mjht"]]);
+	});
+
+	it("routes a signed-out visitor through sign-in and back with the code intact", async () => {
+		fetchSession.mockResolvedValueOnce(null).mockResolvedValue(alice);
+		window.history.replaceState({}, "", "/device?user_code=WDJB-MJHT");
+
+		render(<App />);
+
+		expect(await screen.findByRole("heading", {name: "Sign in"})).toBeDefined();
+		expect(`${window.location.pathname}${window.location.search}`).toBe("/sign-in?user_code=WDJB-MJHT");
+		expect(fetchDeviceAuthorization.mock.calls).toStrictEqual([]);
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
+		await submitAccountForm("Sign in");
+
+		expect(await screen.findByText("Claude Code")).toBeDefined();
+		expect(`${window.location.pathname}${window.location.search}`).toBe("/device?user_code=WDJB-MJHT");
 	});
 });
 
@@ -814,17 +962,6 @@ describe("App live question synchronization", () => {
 });
 
 describe("Better Auth account routes", () => {
-	it("claims and removes a legacy browser token after restoring a verified session", async () => {
-		window.localStorage.setItem("yepnope.token", "legacy-app-token-for-alice");
-
-		render(<App />);
-
-		await waitFor(() => {
-			expect(claimLegacyIdentity.mock.calls).toStrictEqual([["legacy-app-token-for-alice"]]);
-			expect(window.localStorage.getItem("yepnope.token")).toBeNull();
-		});
-	});
-
 	it("shows only a clear account choice after direct signed-out navigation", async () => {
 		fetchSession.mockResolvedValue(null);
 		const storeCredential = vi.spyOn(window.localStorage, "setItem");

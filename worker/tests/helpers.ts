@@ -1,9 +1,9 @@
 import {env, exports} from "cloudflare:workers";
-import {createAuthentication, createPasskeyAuthentication, hashToken, type AuthenticationObservation} from "../auth";
+import {createAuthentication, createPasskeyAuthentication, type AuthenticationObservation} from "../auth";
 import {HUMAN_VERIFICATION_HEADER, HumanVerificationOutcome, type HumanVerificationVerifier} from "../turnstile";
 import {testTurnstileToken} from "../turnstile-test-siteverify";
 import type {CreateBatchRequest} from "../validation";
-import {seedOAuthMcpClient} from "./oauth-client-helpers";
+import {authorizeDeviceClient} from "./oauth-client-helpers";
 
 export const API_ORIGIN = "https://yepnope.app";
 
@@ -152,23 +152,18 @@ export function required<T>(value: T | undefined, label: string): T {
 	return value;
 }
 
-export async function registerLegacyMachineWithConnectedMcpClient(userId: string): Promise<string> {
-	const token = `machine-token-${userId}`;
-	const now = Date.now();
-	await env.DB.prepare(
-		"INSERT OR IGNORE INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
-	)
-		.bind(userId, `${userId}@example.com`, now, now)
-		.run();
-	await env.DB.prepare("INSERT INTO machine_tokens (token_hash, user_id, label, created_at) VALUES (?, ?, ?, ?)")
-		.bind(await hashToken(token), userId, "test machine", now)
-		.run();
-	await seedOAuthMcpClient(userId, userId, {authorizedAt: now});
+/**
+ * An account whose agent-side caller holds a real device-authorized OAuth access token, with AFK
+ * already on. Every suite that exercises the agent-facing routes starts here, so none of them can
+ * pass with a credential the deployment would not actually issue.
+ */
+export async function authorizeAgentClient(userId: string): Promise<string> {
+	const {accessToken} = await authorizeDeviceClient(userId);
 	const result = await env.USER_DO.getByName(userId).setAfk(true, true);
 	if (result.status !== "updated") {
-		throw new Error("test machine could not enable AFK");
+		throw new Error("the authorized agent client could not enable AFK");
 	}
-	return token;
+	return accessToken;
 }
 
 export interface CreatedBatchResponse {

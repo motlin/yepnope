@@ -1,5 +1,4 @@
 import {createMcpHandler, McpServer} from "@modelcontextprotocol/server";
-import {createLocalJWKSet, jwtVerify} from "jose";
 import {z} from "zod";
 import {
 	ASK_YEP_NOPE_STANDARD_SCHEMA,
@@ -8,34 +7,26 @@ import {
 	NATIVE_QUESTION_FALLBACK_TEXT,
 	TOOL_DESCRIPTION,
 	TOOL_NAME,
-} from "../shim/tool";
-import {MCP_RESOURCE_PATH, OAUTH_SCOPES, withRequestBackgroundTasks, workerAuthentication} from "./auth";
+} from "./ask-tool";
+import {OAUTH_SCOPES} from "./auth";
+import {
+	bearerToken,
+	grantSessionId,
+	hasActiveGrant,
+	mcpResource,
+	QUESTION_SCOPE,
+	verifyAccessToken,
+} from "./oauth-token";
 import {parseFrame, type DispositionMap} from "./protocol";
 import type {UserDurableObject} from "./user-do";
 import {findLengthViolations, RETENTION_MILLISECONDS, teachingRejection, type Disposition} from "./validation";
 
-const QUESTION_SCOPE = "yepnope:questions";
 const DEFAULT_HEARTBEAT_MILLISECONDS = 30_000;
 const DEFAULT_PROGRESS_MILLISECONDS = 15_000;
 const DEFAULT_RECONNECT_DELAY_MILLISECONDS = 2_000;
 const DEFAULT_MAXIMUM_RECONNECT_DELAY_MILLISECONDS = 30_000;
 const DEFAULT_MAXIMUM_CONSECUTIVE_FAILURES = 5;
 
-const accessTokenClaimsSchema = z
-	.object({
-		azp: z.string().min(1),
-		client_id: z.string().min(1),
-		exp: z.number().int(),
-		iat: z.number().int(),
-		jti: z.string().min(1),
-		scope: z.string().min(1),
-		sid: z.string().min(1),
-		sub: z.string().min(1),
-	})
-	.loose();
-
-const stringArraySchema = z.array(z.string());
-const jsonWebKeySetSchema = z.object({keys: z.array(z.record(z.string(), z.unknown()))});
 const mcpRequestIdSchema = z.union([z.string(), z.number()]);
 const mcpMessageSchema = z
 	.object({
@@ -64,13 +55,6 @@ const DEFAULT_TIMING: RemoteMcpTiming = {
 	reconnectDelayMilliseconds: DEFAULT_RECONNECT_DELAY_MILLISECONDS,
 };
 
-interface ActiveGrantRow {
-	consent_resources: string | null;
-	consent_scopes: string;
-	refresh_resources: string | null;
-	refresh_scopes: string;
-}
-
 type StreamResult =
 	| {kind: "resolved"; dispositions: DispositionMap}
 	| {kind: "error"; code: string; message: string}
@@ -85,49 +69,6 @@ function nativeQuestionFallbackResult() {
 		content: [{type: "text" as const, text: NATIVE_QUESTION_FALLBACK_TEXT}],
 		structuredContent: NATIVE_QUESTION_FALLBACK,
 	};
-}
-
-function parseStoredStringArray(value: string | null): string[] {
-	return value === null ? [] : stringArraySchema.parse(JSON.parse(value) as unknown);
-}
-
-async function hasActiveGrant(
-	database: D1Database,
-	claims: z.infer<typeof accessTokenClaimsSchema>,
-	resource: string,
-): Promise<boolean> {
-	if (claims.azp !== claims.client_id) {
-		return false;
-	}
-	const now = Date.now();
-	const rows = await database
-		.prepare(
-			"SELECT refresh.resources AS refresh_resources, refresh.scopes AS refresh_scopes, " +
-				"consent.resources AS consent_resources, consent.scopes AS consent_scopes " +
-				"FROM oauth_refresh_token AS refresh " +
-				"JOIN oauth_client AS client ON client.client_id = refresh.client_id " +
-				"JOIN session ON session.id = refresh.session_id " +
-				"JOIN user ON user.id = refresh.user_id " +
-				"JOIN oauth_consent AS consent ON consent.client_id = refresh.client_id AND consent.user_id = refresh.user_id " +
-				"WHERE refresh.user_id = ? AND refresh.client_id = ? AND refresh.session_id = ? " +
-				"AND refresh.revoked IS NULL AND refresh.expires_at > ? " +
-				"AND COALESCE(client.disabled, 0) = 0 AND session.user_id = ? AND session.expires_at > ? " +
-				"AND user.email_verified = 1",
-		)
-		.bind(claims.sub, claims.client_id, claims.sid, now, claims.sub, now)
-		.all<ActiveGrantRow>();
-	const tokenScopes = new Set(claims.scope.split(" "));
-	return rows.results.some((row) => {
-		const refreshScopes = new Set(parseStoredStringArray(row.refresh_scopes));
-		const consentScopes = new Set(parseStoredStringArray(row.consent_scopes));
-		return (
-			parseStoredStringArray(row.refresh_resources).includes(resource) &&
-			parseStoredStringArray(row.consent_resources).includes(resource) &&
-			tokenScopes.has(QUESTION_SCOPE) &&
-			refreshScopes.has(QUESTION_SCOPE) &&
-			consentScopes.has(QUESTION_SCOPE)
-		);
-	});
 }
 
 function invalidGrantResponse(resource: string): Response {
@@ -159,15 +100,6 @@ function authorizationChallenge(resource: string, insufficientScope: boolean): R
 		},
 		{status: insufficientScope ? 403 : 401, headers: {"WWW-Authenticate": challenge}},
 	);
-}
-
-function bearerToken(request: Request): string | null {
-	const authorization = request.headers.get("Authorization");
-	if (authorization === null || !authorization.startsWith("Bearer ")) {
-		return null;
-	}
-	const token = authorization.slice("Bearer ".length);
-	return token.length === 0 || token.includes(" ") ? null : token;
 }
 
 function reconnectDelay(failures: number, timing: RemoteMcpTiming): number {
@@ -396,36 +328,20 @@ export async function handleRemoteMcpRequest(
 	executionContext: ExecutionContext,
 	timing: RemoteMcpTiming = DEFAULT_TIMING,
 ): Promise<Response> {
-	const resource = `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
-	const issuer = `${environment.BETTER_AUTH_URL}/api/auth`;
-	const authentication = workerAuthentication(environment);
+	const resource = mcpResource(environment);
 	const token = bearerToken(request);
 	if (token === null) {
 		return authorizationChallenge(resource, false);
 	}
-	let untrustedClaims: unknown;
-	try {
-		const jwksResponse = await withRequestBackgroundTasks(executionContext, async () =>
-			authentication.handler(new Request(`${issuer}/jwks`)),
-		);
-		if (!jwksResponse.ok) {
-			throw new Error("Better Auth JWKS endpoint failed");
-		}
-		const jwks = jsonWebKeySetSchema.parse(await jwksResponse.json());
-		const verified = await jwtVerify(token, createLocalJWKSet(jwks), {audience: resource, issuer});
-		untrustedClaims = verified.payload;
-	} catch {
+	const claims = await verifyAccessToken(token, environment, executionContext);
+	if (claims === null) {
 		return authorizationChallenge(resource, false);
 	}
-	const parsed = accessTokenClaimsSchema.safeParse(untrustedClaims);
-	if (!parsed.success) {
-		return authorizationChallenge(resource, false);
-	}
-	const grantedScopes = new Set(parsed.data.scope.split(" "));
+	const grantedScopes = new Set(claims.scope.split(" "));
 	if (!grantedScopes.has(QUESTION_SCOPE)) {
 		return authorizationChallenge(resource, true);
 	}
-	if (!(await hasActiveGrant(environment.DB, parsed.data, resource))) {
+	if (!(await hasActiveGrant(environment.DB, claims, resource))) {
 		return invalidGrantResponse(resource);
 	}
 	const message = mcpMessageSchema.safeParse(
@@ -434,22 +350,23 @@ export async function handleRemoteMcpRequest(
 			.json()
 			.catch(() => null),
 	);
+	// 🧵 A cancellation arrives as its own request, so the key it looks up has to outlive a token
+	// refresh: the client, the session the grant came from, and the JSON-RPC id. A device grant has no
+	// session, so the account it was approved for stands in — one such client per install.
+	const grantKey = `${claims.client_id}:${grantSessionId(claims) ?? claims.sub}`;
 	const requestKey =
-		message.success && message.data.id !== undefined
-			? `${parsed.data.client_id}:${parsed.data.sid}:${String(message.data.id)}`
-			: null;
+		message.success && message.data.id !== undefined ? `${grantKey}:${String(message.data.id)}` : null;
 	const cancellation =
 		message.success && message.data.method === "notifications/cancelled"
 			? mcpCancellationParamsSchema.safeParse(message.data.params)
 			: null;
 	if (cancellation?.success === true) {
-		await environment.USER_DO.getByName(parsed.data.sub).cancelMcpRequest(
-			`${parsed.data.client_id}:${parsed.data.sid}:${String(cancellation.data.requestId)}`,
+		await environment.USER_DO.getByName(claims.sub).cancelMcpRequest(
+			`${grantKey}:${String(cancellation.data.requestId)}`,
 		);
 	}
 	const handler = createMcpHandler(
-		() =>
-			createRemoteMcpServer(environment.USER_DO.getByName(parsed.data.sub), executionContext, timing, requestKey),
+		() => createRemoteMcpServer(environment.USER_DO.getByName(claims.sub), executionContext, timing, requestKey),
 		{responseMode: "sse"},
 	);
 	return handler.fetch(request);

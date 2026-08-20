@@ -10,7 +10,7 @@ import {
 	NATIVE_QUESTION_FALLBACK_TEXT,
 	TOOL_DESCRIPTION,
 	TOOL_INPUT_SCHEMA,
-} from "../../shim/tool";
+} from "../ask-tool";
 import {API_ORIGIN, createVerifiedBrowserSession, required, worker} from "./helpers";
 
 const ISSUER = `${API_ORIGIN}/api/auth`;

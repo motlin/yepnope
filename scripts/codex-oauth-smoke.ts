@@ -41,11 +41,12 @@ function candidateUrl(arguments_: string[]): URL {
 	return candidate;
 }
 
+// 🚫 The point of the smoke run is that browser OAuth carries it end to end. An inherited bearer
+// token would let a broken authorization pass, so the child gets an environment with none.
 function childEnvironment(): NodeJS.ProcessEnv {
-	const environment = {...process.env};
-	delete environment["YEPNOPE_TOKEN"];
-	delete environment["YEPNOPE_TOKEN_FILE"];
-	return environment;
+	return Object.fromEntries(
+		Object.entries(process.env).filter(([name]) => !name.startsWith("YEPNOPE_") || name === "YEPNOPE_URL"),
+	);
 }
 
 async function runCodex(arguments_: string[], environment: NodeJS.ProcessEnv, silent = false): Promise<number> {
