@@ -179,7 +179,7 @@ describe("account registration", () => {
 		);
 		vi.stubGlobal("fetch", fetchMock);
 
-		await registerAccount("alice@example.com", "example-password");
+		await registerAccount("alice@example.com", "example-password", null);
 		expect(fetchMock.mock.calls).toStrictEqual([
 			[
 				"/api/auth/sign-up/email",
@@ -208,7 +208,7 @@ describe("account registration", () => {
 		);
 		vi.stubGlobal("fetch", fetchMock);
 
-		await sendVerificationEmail("alice@example.com");
+		await sendVerificationEmail("alice@example.com", null);
 		expect(fetchMock.mock.calls).toStrictEqual([
 			[
 				"/api/auth/send-verification-email",
@@ -243,9 +243,9 @@ describe("account registration", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		await requestPasswordReset("alice@example.com");
+		await requestPasswordReset("alice@example.com", null);
 		await consumePasswordResetToken("one-time-reset-token", "replacement-password");
-		expect(await signIn("alice@example.com", "replacement-password")).toStrictEqual(sessionUser);
+		expect(await signIn("alice@example.com", "replacement-password", null)).toStrictEqual(sessionUser);
 		expect(fetchMock.mock.calls).toStrictEqual([
 			[
 				"/api/auth/request-password-reset",
@@ -294,9 +294,10 @@ describe("account registration", () => {
 
 		const failures = [];
 		for (const attempt of [
-			async () => signIn("missing-alice@example.com", "example-password"),
-			async () => signIn("alice@example.com", "wrong-password"),
-			async () => signInForOAuth("unverified-alice@example.com", "example-password", "client_id=oauth-client"),
+			async () => signIn("missing-alice@example.com", "example-password", null),
+			async () => signIn("alice@example.com", "wrong-password", null),
+			async () =>
+				signInForOAuth("unverified-alice@example.com", "example-password", "client_id=oauth-client", null),
 		]) {
 			try {
 				await attempt();
@@ -350,7 +351,7 @@ describe("OAuth authorization", () => {
 		expect({
 			consent: await submitOAuthConsent(oauthQuery, true),
 			resume: await resumeOAuthAuthorization(oauthQuery),
-			signIn: await signInForOAuth("alice@example.com", "example-password", oauthQuery),
+			signIn: await signInForOAuth("alice@example.com", "example-password", oauthQuery, null),
 		}).toStrictEqual({
 			consent: "http://127.0.0.1:45678/callback?result=approved",
 			resume: "http://localhost:3000/oauth/consent?resumed=true",

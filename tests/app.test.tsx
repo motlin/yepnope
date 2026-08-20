@@ -74,7 +74,13 @@ const revokePushDevice = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>(
 
 const fetchAuthenticationMethods = vi.hoisted(() =>
 	vi.fn<() => Promise<AuthenticationMethods>>(async () =>
-		Promise.resolve({emailPassword: true, magicLink: true, passkey: true, social: ["github", "google"]}),
+		Promise.resolve({
+			emailPassword: true,
+			magicLink: true,
+			passkey: true,
+			social: ["github", "google"],
+			turnstileSiteKey: null,
+		}),
 	),
 );
 const sendMagicLink = vi.hoisted(() => vi.fn<(_email: string) => Promise<void>>(async () => Promise.resolve()));
@@ -169,6 +175,16 @@ import {
 } from "../src/api";
 import {isIos, isStandalone} from "../src/push";
 
+// 🤖 A signed-out form keeps its submit disabled until the Worker has said whether this deployment
+// demands a human-verification check, so a test has to let that answer arrive before it clicks.
+async function submitAccountForm(name: string): Promise<void> {
+	const button = await screen.findByRole<HTMLButtonElement>("button", {name});
+	await waitFor(() => {
+		expect(button.disabled).toBe(false);
+	});
+	fireEvent.click(button);
+}
+
 beforeEach(() => {
 	const storedValues = new Map<string, string>();
 	const storage = {
@@ -203,6 +219,7 @@ beforeEach(() => {
 		magicLink: true,
 		passkey: true,
 		social: ["github", "google"],
+		turnstileSiteKey: null,
 	});
 	fetchLinkedAccounts.mockResolvedValue([]);
 	fetchPasskeys.mockResolvedValue([]);
@@ -244,11 +261,11 @@ describe("OAuth consent continuity", () => {
 		expect(`${window.location.pathname}${window.location.search}`).toBe(`/sign-in?${oauthQuery}`);
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Sign in"}));
+		await submitAccountForm("Sign in");
 
 		await waitFor(() => {
 			expect(vi.mocked(signInForOAuthApi).mock.calls).toStrictEqual([
-				["alice@example.com", "example-password", oauthQuery],
+				["alice@example.com", "example-password", oauthQuery, null],
 			]);
 			expect(screen.getByRole("heading", {name: "Authorize MCP client"})).toBeDefined();
 		});
@@ -270,16 +287,16 @@ describe("OAuth consent continuity", () => {
 		fireEvent.click(await screen.findByRole("button", {name: "Forgot password?"}));
 		expect(`${window.location.pathname}${window.location.search}`).toBe(`/forgot-password?${oauthQuery}`);
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
-		fireEvent.click(screen.getByRole("button", {name: "Send recovery email"}));
+		await submitAccountForm("Send recovery email");
 		await waitFor(() => {
-			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com"]]);
+			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com", null]]);
 		});
 
 		window.history.pushState({}, "", "/reset-password?token=oauth-reset-token");
 		fireEvent.popState(window);
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+		await submitAccountForm("Save new password");
 
 		expect(await screen.findByRole("heading", {name: "Authorize MCP client"})).toBeDefined();
 		expect({
@@ -296,7 +313,7 @@ describe("OAuth consent continuity", () => {
 			path: `/oauth/consent?${oauthQuery}`,
 			resetCalls: [["oauth-reset-token", "replacement-password"]],
 			resumeCalls: [[oauthQuery]],
-			signInCalls: [["alice@example.com", "replacement-password"]],
+			signInCalls: [["alice@example.com", "replacement-password", null]],
 			storedContinuation: null,
 		});
 	});
@@ -883,7 +900,7 @@ describe("Better Auth account routes", () => {
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "wrong-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Sign in"}));
+		await submitAccountForm("Sign in");
 		expect((await screen.findByRole("alert")).textContent).toBe(
 			"Sign-in failed. Check your email and password, or recover your account.",
 		);
@@ -894,7 +911,7 @@ describe("Better Auth account routes", () => {
 			pathname: window.location.pathname,
 		}).toStrictEqual({actions: ["Sign in", "Create account"], authenticatedShell: 0, pathname: "/"});
 
-		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
+		await submitAccountForm("Create account");
 		window.history.pushState({}, "", "/");
 		fireEvent.popState(window);
 		expect({
@@ -911,11 +928,22 @@ describe("Better Auth account routes", () => {
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
+		await submitAccountForm("Create account");
 
 		expect(await screen.findByRole("heading", {name: "Verify your email"})).toBeDefined();
-		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
-		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
+		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
+			["alice@example.com", "example-password", null, "/verify-email"],
+		]);
+		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([
+			["alice@example.com", null, "/verify-email"],
+		]);
+		// The resend is held back until the Worker has answered whether a human-verification check
+		// is required, so the settled page is what this snapshot is of.
+		await waitFor(() => {
+			expect(screen.getByRole<HTMLButtonElement>("button", {name: "Resend verification email"}).disabled).toBe(
+				false,
+			);
+		});
 		expect({
 			buttons: screen.getAllByRole("button").map((button) => ({
 				ariaBusy: button.getAttribute("aria-busy"),
@@ -947,7 +975,7 @@ describe("Better Auth account routes", () => {
 				finishResend = resolve;
 			}),
 		);
-		fireEvent.click(screen.getByRole("button", {name: "Resend verification email"}));
+		await submitAccountForm("Resend verification email");
 		const sendingButton = screen.getByRole("button", {name: "Sending…"});
 		expect({
 			ariaBusy: sendingButton.getAttribute("aria-busy"),
@@ -956,8 +984,8 @@ describe("Better Auth account routes", () => {
 		finishResend();
 		await waitFor(() => {
 			expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([
-				["alice@example.com"],
-				["alice@example.com"],
+				["alice@example.com", null, "/verify-email"],
+				["alice@example.com", null, "/verify-email"],
 			]);
 			expect(screen.getByRole("status").textContent).toBe(
 				"Verification was requested. If a link is available for that address, it can take a few minutes to arrive, so check your spam folder too.",
@@ -979,12 +1007,16 @@ describe("Better Auth account routes", () => {
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Create account"}));
+		await submitAccountForm("Create account");
 
 		expect(await screen.findByRole("heading", {name: "Verify your email"})).toBeDefined();
 		expect(screen.getByRole("alert").textContent).toBe("We couldn't submit that request. Try again.");
-		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
-		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([["alice@example.com"]]);
+		expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
+			["alice@example.com", "example-password", null, "/verify-email"],
+		]);
+		expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([
+			["alice@example.com", null, "/verify-email"],
+		]);
 		expect(screen.queryByRole("textbox", {name: "Email"})).toBeNull();
 	});
 
@@ -1026,9 +1058,9 @@ describe("Better Auth account routes", () => {
 		const rendered = render(<App />);
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
-		fireEvent.click(screen.getByRole("button", {name: "Send recovery email"}));
+		await submitAccountForm("Send recovery email");
 		await waitFor(() => {
-			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com"]]);
+			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com", null]]);
 			expect(screen.getByRole("status").textContent).toBe(
 				"If recovery is available for that address, check its inbox for next steps.",
 			);
@@ -1039,13 +1071,13 @@ describe("Better Auth account routes", () => {
 		render(<App />);
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+		await submitAccountForm("Save new password");
 
 		await waitFor(() => {
 			expect(vi.mocked(consumePasswordResetToken).mock.calls).toStrictEqual([
 				["test-recovery-token", "replacement-password"],
 			]);
-			expect(vi.mocked(signIn).mock.calls).toStrictEqual([["alice@example.com", "replacement-password"]]);
+			expect(vi.mocked(signIn).mock.calls).toStrictEqual([["alice@example.com", "replacement-password", null]]);
 			expect(window.location.pathname).toBe("/settings");
 		});
 	});
@@ -1058,7 +1090,7 @@ describe("Better Auth account routes", () => {
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alic@example.com"}});
 		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+		await submitAccountForm("Save new password");
 
 		expect((await screen.findByRole("alert")).textContent).toBe("Sign-in temporarily unavailable");
 		expect({
@@ -1069,12 +1101,12 @@ describe("Better Auth account routes", () => {
 		}).toStrictEqual({
 			path: "/reset-password",
 			resetCalls: [["single-use-reset-token", "replacement-password"]],
-			signInCalls: [["alic@example.com", "replacement-password"]],
+			signInCalls: [["alic@example.com", "replacement-password", null]],
 			status: "Your password has been changed.",
 		});
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
-		fireEvent.click(screen.getByRole("button", {name: "Try signing in again"}));
+		await submitAccountForm("Try signing in again");
 		await waitFor(() => {
 			expect(window.location.pathname).toBe("/settings");
 		});
@@ -1084,8 +1116,8 @@ describe("Better Auth account routes", () => {
 		}).toStrictEqual({
 			resetCalls: [["single-use-reset-token", "replacement-password"]],
 			signInCalls: [
-				["alic@example.com", "replacement-password"],
-				["alice@example.com", "replacement-password"],
+				["alic@example.com", "replacement-password", null],
+				["alice@example.com", "replacement-password", null],
 			],
 		});
 	});
@@ -1098,7 +1130,7 @@ describe("Better Auth account routes", () => {
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("New password"), {target: {value: "replacement-password"}});
-		fireEvent.click(screen.getByRole("button", {name: "Save new password"}));
+		await submitAccountForm("Save new password");
 
 		expect((await screen.findByRole("alert")).textContent).toBe("Invalid token");
 		expect({
@@ -1245,9 +1277,9 @@ describe("Better Auth account routes", () => {
 		expect(document.querySelector(".app-header .afk-toggle")).toBeNull();
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
 		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
-		fireEvent.click(screen.getByRole("button", {name: /^Sign in$/}));
+		await submitAccountForm("Sign in");
 		await waitFor(() => {
-			expect(vi.mocked(signIn).mock.calls).toStrictEqual([["alice@example.com", "example-password"]]);
+			expect(vi.mocked(signIn).mock.calls).toStrictEqual([["alice@example.com", "example-password", null]]);
 			expect(publishQuestions).toBeTypeOf("function");
 		});
 		act(() => {
@@ -1321,6 +1353,7 @@ describe("Alternative sign-in methods", () => {
 			magicLink: true,
 			passkey: true,
 			social: ["github"],
+			turnstileSiteKey: null,
 		});
 		await renderSignIn();
 
@@ -1345,10 +1378,10 @@ describe("Alternative sign-in methods", () => {
 		await renderSignIn();
 
 		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
-		fireEvent.click(await screen.findByRole("button", {name: "Email me a sign-in link"}));
+		await submitAccountForm("Email me a sign-in link");
 
 		await waitFor(() => {
-			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com"]]);
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", null]]);
 		});
 		expect((await screen.findByRole("status")).textContent).toBe(
 			"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.",
@@ -1358,7 +1391,7 @@ describe("Alternative sign-in methods", () => {
 	it("asks for an address before requesting a sign-in link", async () => {
 		await renderSignIn();
 
-		fireEvent.click(await screen.findByRole("button", {name: "Email me a sign-in link"}));
+		await submitAccountForm("Email me a sign-in link");
 
 		expect((await screen.findByRole("alert")).textContent).toBe("Enter your email address first.");
 		expect(sendMagicLink).not.toHaveBeenCalled();
@@ -1480,5 +1513,154 @@ describe("Sign-in method management", () => {
 		fireEvent.click(await screen.findByRole("button", {name: "Disconnect GitHub"}));
 
 		expect((await screen.findByRole("alert")).textContent).toBe("You can't unlink your last account");
+	});
+});
+
+// 🤖 The same forms on a deployment that does demand a human-verification check. The widget script
+// is stubbed, so what is under test is the wiring: which token reaches which request, and what the
+// page does before it has one.
+describe("Gated public authentication", () => {
+	const TEST_SITE_KEY = "1x00000000000000000000AA";
+
+	interface RenderedWidget {
+		action: string;
+		callback: (token: string) => void;
+		"error-callback": () => void;
+	}
+
+	function installTurnstileStub(): {solve: (token: string) => void; widgets: RenderedWidget[]} {
+		const widgets: RenderedWidget[] = [];
+		let counter = 0;
+		window.turnstile = {
+			remove: () => undefined,
+			render: (container, options) => {
+				counter += 1;
+				container.append(document.createElement("div"));
+				widgets.push(options);
+				return `widget-${counter}`;
+			},
+			reset: () => undefined,
+		};
+		return {
+			solve: (token) => {
+				const widget = widgets.at(-1);
+				if (widget === undefined) {
+					throw new Error("the widget was never rendered");
+				}
+				act(() => {
+					widget.callback(token);
+				});
+			},
+			widgets,
+		};
+	}
+
+	async function renderGated(path: string): Promise<{solve: (token: string) => void; widgets: RenderedWidget[]}> {
+		fetchSession.mockResolvedValue(null);
+		fetchAuthenticationMethods.mockResolvedValue({
+			emailPassword: true,
+			magicLink: true,
+			passkey: false,
+			social: [],
+			turnstileSiteKey: TEST_SITE_KEY,
+		});
+		const turnstile = installTurnstileStub();
+		window.history.replaceState({}, "", path);
+		render(<App />);
+		await waitFor(() => {
+			expect(turnstile.widgets.length).toBeGreaterThan(0);
+		});
+		return turnstile;
+	}
+
+	afterEach(() => {
+		delete window.turnstile;
+	});
+
+	it("sends the sign-in surface's own token with the credentials", async () => {
+		const turnstile = await renderGated("/sign-in");
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
+		turnstile.solve("sign-in-token");
+
+		await submitAccountForm("Sign in");
+
+		await waitFor(() => {
+			expect(vi.mocked(signIn).mock.calls).toStrictEqual([
+				["alice@example.com", "example-password", "sign-in-token"],
+			]);
+		});
+		expect(turnstile.widgets.map((widget) => widget.action)).toStrictEqual(["sign_in"]);
+	});
+
+	it("sends the sign-in page's token with an emailed sign-in link too", async () => {
+		const turnstile = await renderGated("/sign-in");
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		turnstile.solve("magic-link-token");
+
+		await submitAccountForm("Email me a sign-in link");
+
+		await waitFor(() => {
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", "magic-link-token"]]);
+		});
+	});
+
+	// 🎟️ Creating an account is two requests, and one token cannot pay for both.
+	it("spends a fresh token on each of the two requests creating an account makes", async () => {
+		const turnstile = await renderGated("/register");
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.change(screen.getByLabelText("Password"), {target: {value: "example-password"}});
+		turnstile.solve("register-token");
+
+		await submitAccountForm("Create account");
+
+		await waitFor(() => {
+			expect(vi.mocked(registerAccount).mock.calls).toStrictEqual([
+				["alice@example.com", "example-password", "register-token", "/verify-email"],
+			]);
+		});
+		turnstile.solve("verification-token");
+		await waitFor(() => {
+			expect(vi.mocked(sendVerificationEmail).mock.calls).toStrictEqual([
+				["alice@example.com", "verification-token", "/verify-email"],
+			]);
+		});
+	});
+
+	it("names the password-recovery surface in the token that requests it", async () => {
+		const turnstile = await renderGated("/forgot-password");
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		turnstile.solve("recovery-token");
+
+		await submitAccountForm("Send recovery email");
+
+		await waitFor(() => {
+			expect(vi.mocked(requestPasswordReset).mock.calls).toStrictEqual([["alice@example.com", "recovery-token"]]);
+		});
+		expect(turnstile.widgets.map((widget) => widget.action)).toStrictEqual(["reset_password"]);
+	});
+
+	it("holds every submission back while the check is still running", async () => {
+		await renderGated("/sign-in");
+
+		expect({
+			signIn: screen.getByRole<HTMLButtonElement>("button", {name: "Sign in"}).disabled,
+			magicLink: screen.getByRole<HTMLButtonElement>("button", {name: "Email me a sign-in link"}).disabled,
+			signInCalls: vi.mocked(signIn).mock.calls.length,
+		}).toStrictEqual({signIn: true, magicLink: true, signInCalls: 0});
+	});
+
+	// A page that cannot learn whether a check is required cannot submit anything either, so it
+	// says why instead of letting the Worker answer with a refusal the visitor cannot act on.
+	it("explains itself when the deployment's requirements cannot be read", async () => {
+		fetchSession.mockResolvedValue(null);
+		fetchAuthenticationMethods.mockRejectedValue(new Error("offline"));
+		window.history.replaceState({}, "", "/sign-in");
+		render(<App />);
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"We could not reach YepNope to set this page up. Check your connection and reload.",
+		);
+		expect(screen.getByRole<HTMLButtonElement>("button", {name: "Sign in"}).disabled).toBe(true);
 	});
 });

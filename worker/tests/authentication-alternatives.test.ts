@@ -1,7 +1,7 @@
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import {createAuthentication, type AuthenticationObservation} from "../auth";
-import {API_ORIGIN, cookieFrom, createVerifiedBrowserSession, emailLink, required} from "./helpers";
+import {API_ORIGIN, cookieFrom, createVerifiedBrowserSession, emailLink, humanVerified, required} from "./helpers";
 
 interface DeliveredEmail {
 	subject: string;
@@ -26,6 +26,7 @@ function harness(overrides: Partial<Env> = {}): Harness {
 		{
 			observe: (observation) => observations.push(observation),
 			runInBackground: undefined,
+			verifyHuman: humanVerified,
 			sendEmail: async (message) => {
 				await Promise.resolve(
 					mailbox.push({

@@ -3,7 +3,15 @@ import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
 import {hashToken} from "../auth";
 import type {UserDurableObject} from "../user-do";
-import {API_ORIGIN, cookieFrom, createVerifiedBrowserSession, nextMessage, required, worker} from "./helpers";
+import {
+	API_ORIGIN,
+	cookieFrom,
+	createVerifiedBrowserSession,
+	humanVerificationHeader,
+	nextMessage,
+	required,
+	worker,
+} from "./helpers";
 import {seedOAuthMcpClient} from "./oauth-client-helpers";
 
 const AUTHORIZED_AT = Date.UTC(2000, 0, 1);
@@ -67,6 +75,7 @@ describe("connected MCP client and browser notification management", () => {
 		const secondBrowserSession = await worker.fetch(`${API_ORIGIN}/api/auth/sign-in/email`, {
 			method: "POST",
 			headers: {
+				...humanVerificationHeader("sign_in"),
 				"Content-Type": "application/json",
 				Origin: API_ORIGIN,
 				"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0",

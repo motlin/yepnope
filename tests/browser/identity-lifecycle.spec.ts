@@ -78,6 +78,8 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 			socket.connectToServer();
 		});
 
+		// 🗒️ These zeroes are the whole database, not this test's slice of it, so this spec has to
+		// run before any spec that creates an account. Playwright orders specs by file name.
 		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
 			authentication_url: "https://localhost:4173",
 			machine_tokens: 0,

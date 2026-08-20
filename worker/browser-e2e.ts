@@ -1,6 +1,8 @@
 import application, {UserDurableObject} from "./index";
 import {OAUTH_SCOPES} from "./auth";
 import {getConnectedMcpClientAuthorizationState} from "./connected-mcp-clients";
+import {createTestSiteverify} from "./turnstile-test-siteverify";
+import type {TurnstileSiteverify} from "./turnstile";
 import {z} from "zod";
 
 export {UserDurableObject};
@@ -44,6 +46,42 @@ async function captureAuthenticationEmail(message: EmailMessage | EmailMessageBu
 
 const email: SendEmail = {send: captureAuthenticationEmail};
 
+// 🤖 The origin here is loopback, where a deployment without Turnstile keys runs unchallenged. The
+// suite that does want the gate turns it on for itself through `/api/__e2e__/turnstile`, so every
+// other browser test keeps meeting the pages it always met. Siteverify is answered in process by
+// the same stand-in the Worker suite uses: the documented test keys, the real single-use ledger,
+// and no call out to Cloudflare.
+interface HumanVerificationConfiguration {
+	secretKey: string;
+	siteKey: string;
+	siteverify: TurnstileSiteverify;
+}
+
+let humanVerification: HumanVerificationConfiguration | null = null;
+
+const humanVerificationRequestSchema = z.union([
+	z.object({enabled: z.literal(false)}).strict(),
+	z.object({secret_key: z.string().min(1), site_key: z.string().min(1)}).strict(),
+]);
+
+async function configureHumanVerificationResponse(request: Request): Promise<Response> {
+	const parsed = humanVerificationRequestSchema.safeParse(await request.json());
+	if (!parsed.success) {
+		return new Response(null, {status: 400});
+	}
+	humanVerification =
+		"enabled" in parsed.data
+			? null
+			: {
+					secretKey: parsed.data.secret_key,
+					siteKey: parsed.data.site_key,
+					// A fresh ledger per configuration, so one test's spent tokens never explain
+					// another test's refusal.
+					siteverify: createTestSiteverify(),
+				};
+	return Response.json({human_verification: humanVerification === null ? "waived" : "enforced"});
+}
+
 function withCapturedEmail(environment: ApplicationEnvironment): ApplicationEnvironment {
 	return {
 		AUTH_EMAIL_FROM: environment.AUTH_EMAIL_FROM,
@@ -53,6 +91,9 @@ function withCapturedEmail(environment: ApplicationEnvironment): ApplicationEnvi
 		EMAIL: email,
 		GITHUB_CLIENT_ID: environment.GITHUB_CLIENT_ID,
 		GITHUB_CLIENT_SECRET: environment.GITHUB_CLIENT_SECRET,
+		TURNSTILE_SECRET_KEY: humanVerification?.secretKey,
+		TURNSTILE_SITEVERIFY: humanVerification?.siteverify,
+		TURNSTILE_SITE_KEY: humanVerification?.siteKey,
 		USER_DO: environment.USER_DO,
 		VAPID_PRIVATE_JWK: environment.VAPID_PRIVATE_JWK,
 		VAPID_SUBJECT: environment.VAPID_SUBJECT,
@@ -173,6 +214,9 @@ export default {
 		}
 		if (url.pathname === "/api/__e2e__/authorize-mcp-client" && request.method === "POST") {
 			return authorizeMcpClientResponse(request, environment);
+		}
+		if (url.pathname === "/api/__e2e__/turnstile" && request.method === "POST") {
+			return configureHumanVerificationResponse(request);
 		}
 		return application.fetch(request, withCapturedEmail(environment), executionContext);
 	},

@@ -37,6 +37,7 @@ describe("authentication method discovery", () => {
 			magic_link: true,
 			passkey: true,
 			social: ["github", "google"],
+			turnstile_site_key: "1x00000000000000000000AA",
 		}));
 
 		expect(await fetchAuthenticationMethods()).toStrictEqual({
@@ -44,12 +45,19 @@ describe("authentication method discovery", () => {
 			magicLink: true,
 			passkey: true,
 			social: ["github", "google"],
+			turnstileSiteKey: "1x00000000000000000000AA",
 		});
 		expect(fetchMock.mock.calls).toStrictEqual([["/api/v1/auth-methods", {credentials: "same-origin"}]]);
 	});
 
 	it("ignores a provider the client does not know how to render", async () => {
-		respondWith(() => ({email_password: true, magic_link: false, passkey: true, social: ["github", "myspace"]}));
+		respondWith(() => ({
+			email_password: true,
+			magic_link: false,
+			passkey: true,
+			social: ["github", "myspace"],
+			turnstile_site_key: null,
+		}));
 
 		expect((await fetchAuthenticationMethods()).social).toStrictEqual(["github"]);
 	});
@@ -62,7 +70,7 @@ describe("passwordless email sign-in", () => {
 			status: true,
 		}));
 
-		await sendMagicLink("alice@example.com");
+		await sendMagicLink("alice@example.com", null);
 
 		expect(fetchMock.mock.calls).toStrictEqual([
 			[

@@ -288,6 +288,85 @@ production application's secrets locally.
 (`wrangler secret put BETTER_AUTH_SECRET`, generated with
 `openssl rand -base64 32`), as is `VAPID_PRIVATE_JWK`.
 
+### Human verification on the signed-out pages
+
+Cloudflare Turnstile gates the four surfaces an anonymous visitor can use to
+make the Worker look up an account, check a password, or send mail: sign-in
+(password and emailed link), create-account, password-reset request, and
+verification resend. Nothing else is gated — the OAuth token exchange, the MCP
+endpoint, authenticated settings, and every emailed link that already carries a
+single-use credential are untouched.
+
+The widget is only the visible half. `worker/turnstile.ts` redeems every token
+with Cloudflare Siteverify **before** Better Auth sees the request, and requires
+`success`, the action of the surface that minted it, and this deployment's own
+hostname — taken from `BETTER_AUTH_URL`, so a production Worker can never accept
+a token minted against `localhost`. Tokens are single-use, so a replayed one is
+refused. A missing, forged, expired, oversized, or unredeemable token, an
+unreachable Siteverify, and a half-configured deployment all produce the same
+403 and the same message, which says nothing about whether the address exists.
+Turnstile supplements the existing per-requester and per-destination limits; it
+replaces none of them.
+
+1. Create a widget for `yepnope.app` in
+   [the Turnstile dashboard](https://dash.cloudflare.com/?to=/:account/turnstile)
+   in **Managed** mode.
+2. Store both halves as Wrangler secrets. The site key is public, but keeping the
+   pair together means `npm run deploy` cannot drop one of them:
+
+    ```sh
+    wrangler secret put TURNSTILE_SITE_KEY
+    wrangler secret put TURNSTILE_SECRET_KEY
+    ```
+
+3. Redeploy with `npm run deploy`, then confirm the browser is being told to draw
+   the widget:
+
+    ```sh
+    curl -s https://yepnope.app/api/v1/auth-methods
+    ```
+
+    A `turnstile_site_key` of `null` on a production origin means the pair is not
+    set, and every public authentication request is being refused.
+
+**Both keys, or neither.** Setting exactly one is a configuration mistake and
+fails closed. Setting neither is allowed only when `BETTER_AUTH_URL` is
+loopback, which is how `vp dev` runs without a widget; see `.dev.vars.example`.
+
+**Rolling back.** Deleting both secrets
+(`wrangler secret delete TURNSTILE_SITE_KEY` and
+`wrangler secret delete TURNSTILE_SECRET_KEY`) on a production origin does _not_
+disable the check — it locks the sign-in pages. To remove the gate from a
+deployed Worker, redeploy the previous release; to remove it from the codebase,
+revert the change. There is no runtime kill switch, deliberately: a silent
+bypass is worth more to an attacker than to an operator.
+
+**Rotating the secret.** The secret key can be rotated without a code change or
+downtime, because the site key does not change and Cloudflare keeps redeeming
+tokens minted before the rotation for their normal lifetime:
+
+1. Rotate the secret in the widget's dashboard settings.
+2. `wrangler secret put TURNSTILE_SECRET_KEY` with the new value. The next
+   request picks it up; no redeploy is needed.
+3. Watch for `human_verification_evaluated` observations with
+   `reason: "misconfigured"`, which is what a wrong secret looks like.
+
+Rotating the **site key** means creating a new widget, so set both secrets in the
+same window and expect the visitors mid-solve to retry once. `/api/v1/auth-methods`
+carries the site key under `Cache-Control: public, max-age=300`, so a browser
+holding the previous response keeps drawing the old widget for up to five
+minutes and its tokens are refused until it refetches. Keep the old widget alive
+until that window has passed.
+
+**What is recorded.** A cleared check leaves no log line at all; solve volume is
+Cloudflare's own analytics to report, under Turnstile → your widget, which shows
+challenge and solve rates without identifying anyone. A refusal logs one
+`human_verification_evaluated` observation whose `reason` is a member of a closed
+set (`missing_token`, `spent_token`, `action_mismatch`, `hostname_mismatch`,
+`rejected_challenge`, `malformed_token`, `misconfigured`, `unavailable`). No
+token, address, password, cookie, IP address, or Siteverify body is ever
+recorded.
+
 ### Passkeys and emailed sign-in links
 
 Both are enabled unconditionally and need no secrets. Passkeys are bound to the

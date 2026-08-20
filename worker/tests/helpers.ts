@@ -1,9 +1,28 @@
 import {env, exports} from "cloudflare:workers";
 import {createAuthentication, hashToken} from "../auth";
+import {HUMAN_VERIFICATION_HEADER, HumanVerificationOutcome, type HumanVerificationVerifier} from "../turnstile";
+import {testTurnstileToken} from "../turnstile-test-siteverify";
 import type {CreateBatchRequest} from "../validation";
 import {seedOAuthMcpClient} from "./oauth-client-helpers";
 
 export const API_ORIGIN = "https://yepnope.app";
+
+/**
+ * A visitor who has already cleared the human-verification check. The gate itself is exercised in
+ * worker/tests/turnstile.test.ts; every other suite states plainly that it was passed, so the
+ * behavior actually under test stays the only variable.
+ */
+export const humanVerified: HumanVerificationVerifier = async () => Promise.resolve(HumanVerificationOutcome.Accepted);
+
+/**
+ * A token the Worker's own test Siteverify will redeem, for the suites that drive `worker.fetch`
+ * rather than injecting a verifier.
+ */
+export function humanVerificationHeader(action: string): Record<string, string> {
+	return {
+		[HUMAN_VERIFICATION_HEADER]: testTurnstileToken({action, hostname: new URL(API_ORIGIN).hostname}),
+	};
+}
 
 export const worker = exports.default;
 
@@ -24,6 +43,7 @@ function authenticationWithMailbox(mailbox: DeliveredAuthenticationEmail[]) {
 			}
 			await Promise.resolve(mailbox.push({subject: message.subject, text: message.text}));
 		},
+		verifyHuman: humanVerified,
 	});
 }
 

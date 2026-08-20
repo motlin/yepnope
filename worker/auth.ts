@@ -23,6 +23,12 @@ import {
 	verifications,
 } from "./db/d1-schema";
 import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountIdentity} from "./identity-lifecycle";
+import {
+	createTurnstileVerifier,
+	HUMAN_VERIFICATION_HEADER,
+	HumanVerificationOutcome,
+	type HumanVerificationVerifier,
+} from "./turnstile";
 
 const AUTHENTICATION_PATH = "/api/auth";
 const EMAIL_REGISTRATION_PATH = `${AUTHENTICATION_PATH}/sign-up/email`;
@@ -207,6 +213,7 @@ export interface AuthenticationDependencies {
 	observe: (observation: AuthenticationObservation) => void;
 	runInBackground: ((promise: Promise<unknown>) => void) | undefined;
 	sendEmail: (message: AuthenticationEmail) => Promise<void>;
+	verifyHuman: HumanVerificationVerifier;
 }
 
 /**
@@ -231,6 +238,7 @@ export interface AuthenticationObservation {
 		| "authentication_library_log"
 		| "authentication_method_completed"
 		| "authentication_verification_state_classified"
+		| "human_verification_evaluated"
 		| "public_authentication_response_normalized";
 	failure: AuthenticationEmailFailure | null;
 	level: "debug" | "error" | "info" | "warn";
@@ -343,6 +351,64 @@ async function sendAuthenticationEmail(
 		return;
 	}
 	dependencies.runInBackground(delivery);
+}
+
+// 🤖 The surfaces a signed-out visitor can reach, and the widget action each one's token must carry.
+// A token minted for one surface cannot unlock another. The create-account page asks for the first
+// verification message with the token it already holds, so that one path accepts either surface.
+const HUMAN_VERIFICATION_ACTIONS: ReadonlyMap<string, readonly string[]> = new Map([
+	[EMAIL_REGISTRATION_PATH, ["register"]],
+	[EMAIL_SIGN_IN_PATH, ["sign_in"]],
+	[EMAIL_VERIFICATION_REQUEST_PATH, ["register", "verify_email"]],
+	[MAGIC_LINK_SIGN_IN_PATH, ["sign_in"]],
+	[PASSWORD_RECOVERY_REQUEST_PATH, ["reset_password"]],
+]);
+
+// One reply for every refusal. The visitor learns that the check has to be redone and nothing else:
+// not whether the address exists, not which of the nine outcomes fired.
+const HUMAN_VERIFICATION_FAILURE_BODY = {
+	code: "HUMAN_VERIFICATION_REQUIRED",
+	message: "Human verification did not complete. Complete the check on the page and try again.",
+} as const;
+
+/**
+ * The outermost gate. It runs before Better Auth sees the request, so a visitor who cannot redeem a
+ * token never causes an account lookup, a password comparison, a token mint, or an email send. It
+ * supplements the per-requester and per-destination limits underneath it rather than replacing any
+ * of them: a redeemed token still lands in the same magic-link window and the same delivery retry
+ * budget it always did.
+ */
+function humanVerificationAuthenticationHandler(
+	verifyHuman: HumanVerificationVerifier,
+	observe: AuthenticationDependencies["observe"],
+): AuthenticationMiddleware {
+	return (next) => async (request) => {
+		if (request.method !== "POST") {
+			return next(request);
+		}
+		const actions = HUMAN_VERIFICATION_ACTIONS.get(new URL(request.url).pathname);
+		if (actions === undefined) {
+			return next(request);
+		}
+		const outcome = await verifyHuman({
+			actions,
+			remoteIp: request.headers.get("CF-Connecting-IP"),
+			token: request.headers.get(HUMAN_VERIFICATION_HEADER),
+		});
+		if (outcome === HumanVerificationOutcome.Accepted) {
+			// Solve volume is already Cloudflare's own analytics to report. The Worker log exists to
+			// explain refusals, so a cleared check leaves no trace beyond the request it allowed.
+			return next(request);
+		}
+		observe({
+			event: "human_verification_evaluated",
+			failure: null,
+			level: outcome === HumanVerificationOutcome.Misconfigured ? "error" : "warn",
+			reason: outcome,
+			status: null,
+		});
+		return Response.json(HUMAN_VERIFICATION_FAILURE_BODY, {headers: {"Cache-Control": "no-store"}, status: 403});
+	};
 }
 
 enum PublicAuthenticationOperation {
@@ -897,10 +963,14 @@ export function createAuthentication(environment: AuthenticationEnvironment, dep
 	});
 	return {
 		...authentication,
-		// Outermost first. Telemetry sits inside the non-enumerating normalizer so it records the
-		// real status rather than the generic one that reaches the caller.
+		// Outermost first. Human verification comes before everything so a refused request costs the
+		// account store nothing, and it sits outside the non-enumerating normalizer so its refusal
+		// reaches the page as a refusal instead of being rewritten into the accepted reply.
+		// Telemetry sits inside that normalizer so it records the real status rather than the
+		// generic one that reaches the caller.
 		handler: composeAuthenticationMiddleware(
 			[
+				humanVerificationAuthenticationHandler(dependencies.verifyHuman, dependencies.observe),
 				restrictedDynamicClientRegistrationHandler(),
 				singleUseEmailVerificationHandler(environment.DB),
 				nonEnumeratingAuthenticationHandler(dependencies.observe),
@@ -943,6 +1013,7 @@ export function createWorkerAuthentication(
 		sendEmail: async (message) => {
 			await environment.EMAIL.send(message);
 		},
+		verifyHuman: createTurnstileVerifier(environment),
 	});
 }
 

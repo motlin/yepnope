@@ -14,11 +14,18 @@ export class ApiResponseError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
+		readonly code: string | null = null,
 	) {
 		super(message);
 		this.name = "ApiResponseError";
 	}
 }
+
+// 🤖 The Worker refuses a public authentication request whose human-verification token it cannot
+// redeem. The code travels alongside the message so a form can tell "solve the check again" apart
+// from "those credentials did not work".
+const HUMAN_VERIFICATION_REQUIRED_CODE = "HUMAN_VERIFICATION_REQUIRED";
+const HUMAN_VERIFICATION_HEADER = "CF-Turnstile-Response";
 
 async function requestJson<Schema extends z.ZodType>(
 	path: string,
@@ -27,7 +34,7 @@ async function requestJson<Schema extends z.ZodType>(
 ): Promise<z.infer<Schema>> {
 	const response = await fetch(path, {credentials: "same-origin", ...init});
 	if (!response.ok) {
-		const error = z.object({message: z.string()}).safeParse(
+		const error = z.object({code: z.string().optional(), message: z.string()}).safeParse(
 			await response
 				.clone()
 				.json()
@@ -36,6 +43,7 @@ async function requestJson<Schema extends z.ZodType>(
 		throw new ApiResponseError(
 			error.success ? error.data.message : `${init.method ?? "GET"} ${path} failed with ${response.status}`,
 			response.status,
+			error.success ? (error.data.code ?? null) : null,
 		);
 	}
 	const body: unknown = await response.json();
@@ -46,6 +54,21 @@ function jsonRequest(body: Record<string, unknown>): RequestInit {
 	return {
 		method: "POST",
 		headers: {"Content-Type": "application/json"},
+		body: JSON.stringify(body),
+	};
+}
+
+/**
+ * The same JSON POST, carrying the token the page's Turnstile widget minted. A null token means the
+ * deployment configured no widget, and the header is simply absent.
+ */
+function verifiedJsonRequest(body: Record<string, unknown>, humanVerificationToken: string | null): RequestInit {
+	return {
+		method: "POST",
+		headers:
+			humanVerificationToken === null
+				? {"Content-Type": "application/json"}
+				: {"Content-Type": "application/json", [HUMAN_VERIFICATION_HEADER]: humanVerificationToken},
 		body: JSON.stringify(body),
 	};
 }
@@ -70,11 +93,17 @@ const PUBLIC_SIGN_IN_FAILURE_MESSAGE = "Sign-in failed. Check your email and pas
 
 async function requestSignIn<Schema extends z.ZodType>(
 	body: Record<string, unknown>,
+	humanVerificationToken: string | null,
 	schema: Schema,
 ): Promise<z.infer<Schema>> {
 	try {
-		return await requestJson("/api/auth/sign-in/email", jsonRequest(body), schema);
+		return await requestJson("/api/auth/sign-in/email", verifiedJsonRequest(body, humanVerificationToken), schema);
 	} catch (caught) {
+		if (caught instanceof ApiResponseError && caught.code === HUMAN_VERIFICATION_REQUIRED_CODE) {
+			// An unredeemable token says nothing about the credentials, so it must not be
+			// flattened into the deliberately uninformative credential failure below.
+			throw caught;
+		}
 		if (caught instanceof ApiResponseError && [400, 401, 403].includes(caught.status)) {
 			throw new ApiResponseError(PUBLIC_SIGN_IN_FAILURE_MESSAGE, 401);
 		}
@@ -82,8 +111,12 @@ async function requestSignIn<Schema extends z.ZodType>(
 	}
 }
 
-export async function signIn(email: string, password: string): Promise<AuthenticationUser> {
-	const result = await requestSignIn({email, password}, authenticatedResponseSchema);
+export async function signIn(
+	email: string,
+	password: string,
+	humanVerificationToken: string | null,
+): Promise<AuthenticationUser> {
+	const result = await requestSignIn({email, password}, humanVerificationToken, authenticatedResponseSchema);
 	return result.user;
 }
 
@@ -97,7 +130,12 @@ function normalizedOAuthRedirectUrl(value: string): string {
 	return target.href;
 }
 
-export async function signInForOAuth(email: string, password: string, oauthQuery: string): Promise<string> {
+export async function signInForOAuth(
+	email: string,
+	password: string,
+	oauthQuery: string,
+	humanVerificationToken: string | null,
+): Promise<string> {
 	const result = await requestSignIn(
 		{
 			callbackURL: `/sign-in?${oauthQuery}`,
@@ -105,6 +143,7 @@ export async function signInForOAuth(email: string, password: string, oauthQuery
 			oauth_query: oauthQuery,
 			password,
 		},
+		humanVerificationToken,
 		oauthRedirectResponseSchema,
 	);
 	return normalizedOAuthRedirectUrl(result.url);
@@ -149,10 +188,15 @@ export async function submitOAuthConsent(oauthQuery: string, accept: boolean): P
 	return normalizedOAuthRedirectUrl(result.url);
 }
 
-export async function registerAccount(email: string, password: string, callbackURL = "/verify-email"): Promise<void> {
+export async function registerAccount(
+	email: string,
+	password: string,
+	humanVerificationToken: string | null,
+	callbackURL = "/verify-email",
+): Promise<void> {
 	await requestJson(
 		"/api/auth/sign-up/email",
-		jsonRequest({email, password, callbackURL}),
+		verifiedJsonRequest({email, password, callbackURL}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
 	);
 }
@@ -165,18 +209,22 @@ const publicAuthenticationAcceptedResponseSchema = z
 	.strict();
 const successResponseSchema = z.object({status: z.literal(true)}).strict();
 
-export async function sendVerificationEmail(email: string, callbackURL = "/verify-email"): Promise<void> {
+export async function sendVerificationEmail(
+	email: string,
+	humanVerificationToken: string | null,
+	callbackURL = "/verify-email",
+): Promise<void> {
 	await requestJson(
 		"/api/auth/send-verification-email",
-		jsonRequest({email, callbackURL}),
+		verifiedJsonRequest({email, callbackURL}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
 	);
 }
 
-export async function requestPasswordReset(email: string): Promise<void> {
+export async function requestPasswordReset(email: string, humanVerificationToken: string | null): Promise<void> {
 	await requestJson(
 		"/api/auth/request-password-reset",
-		jsonRequest({email, redirectTo: "/reset-password"}),
+		verifiedJsonRequest({email, redirectTo: "/reset-password"}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
 	);
 }
@@ -200,6 +248,8 @@ export interface AuthenticationMethods {
 	magicLink: boolean;
 	passkey: boolean;
 	social: SocialProvider[];
+	/** The Turnstile site key this deployment demands, or null when it demands no check. */
+	turnstileSiteKey: string | null;
 }
 
 const authenticationMethodsResponseSchema = z.object({
@@ -207,6 +257,7 @@ const authenticationMethodsResponseSchema = z.object({
 	magic_link: z.boolean(),
 	passkey: z.boolean(),
 	social: z.array(z.string()),
+	turnstile_site_key: z.string().nullable(),
 });
 
 function knownSocialProvider(value: string): value is SocialProvider {
@@ -222,13 +273,18 @@ export async function fetchAuthenticationMethods(): Promise<AuthenticationMethod
 		passkey: methods.passkey,
 		// A provider the Worker offers but this build cannot label is dropped rather than rendered blank.
 		social: methods.social.filter(knownSocialProvider),
+		turnstileSiteKey: methods.turnstile_site_key,
 	};
 }
 
-export async function sendMagicLink(email: string, callbackURL = "/"): Promise<void> {
+export async function sendMagicLink(
+	email: string,
+	humanVerificationToken: string | null,
+	callbackURL = "/",
+): Promise<void> {
 	await requestJson(
 		"/api/auth/sign-in/magic-link",
-		jsonRequest({email, callbackURL}),
+		verifiedJsonRequest({email, callbackURL}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
 	);
 }

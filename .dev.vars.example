@@ -5,6 +5,13 @@ BETTER_AUTH_SECRET='replace-with-a-local-secret'
 # The Access application audience and team origin used by the separate admin Worker.
 ACCESS_AUD='replace-with-the-access-application-audience'
 ACCESS_TEAM_DOMAIN='https://replace-with-your-team.cloudflareaccess.com'
+# Optional, and loopback-only. Leave both blank and a local dev server draws no human-verification
+# widget and demands no token; set both and it behaves exactly like production. Any non-loopback
+# BETTER_AUTH_URL without both values refuses every public authentication request.
+# These are Cloudflare's documented always-pass test keys, safe to commit and useless anywhere real:
+# https://developers.cloudflare.com/turnstile/troubleshooting/testing/
+TURNSTILE_SITE_KEY=''
+TURNSTILE_SECRET_KEY=''
 # Optional. A social provider appears on the sign-in page only when both of its values are set.
 # Register a dev-only OAuth application whose callback URL points at your dev origin
 # (.../api/auth/callback/github, .../api/auth/callback/google); never reuse production secrets.

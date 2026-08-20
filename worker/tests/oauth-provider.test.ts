@@ -2,7 +2,15 @@ import {env} from "cloudflare:workers";
 import {decodeJwt} from "jose";
 import {describe, expect, it} from "vitest";
 import {MCP_RESOURCE_PATH, OAUTH_SCOPES, createAuthentication} from "../auth";
-import {API_ORIGIN, cookieFrom, createVerifiedBrowserSession, emailLink, required, worker} from "./helpers";
+import {
+	API_ORIGIN,
+	cookieFrom,
+	createVerifiedBrowserSession,
+	emailLink,
+	humanVerified,
+	required,
+	worker,
+} from "./helpers";
 
 const ISSUER = `${API_ORIGIN}/api/auth`;
 const RESOURCE = `${API_ORIGIN}${MCP_RESOURCE_PATH}`;
@@ -316,6 +324,7 @@ describe("Better Auth OAuth MCP provider", () => {
 		const authentication = createAuthentication(env, {
 			observe: () => undefined,
 			runInBackground: undefined,
+			verifyHuman: humanVerified,
 			sendEmail: async (message) => {
 				if (message.text === undefined) {
 					throw new Error("verification email is missing its text body");
@@ -607,6 +616,7 @@ describe("Better Auth OAuth MCP provider", () => {
 		const authentication = createAuthentication(env, {
 			observe: () => undefined,
 			runInBackground: undefined,
+			verifyHuman: humanVerified,
 			sendEmail: async () => Promise.resolve(),
 		});
 		const plugin = authentication.options.plugins?.find((candidate) => candidate.id === "oauth-provider");

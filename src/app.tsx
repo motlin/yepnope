@@ -42,8 +42,10 @@ import {
 	type SocialProvider,
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
+import {HumanVerificationField} from "./human-verification";
 import {migrateLegacyIdentity} from "./legacy-token";
 import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
+import {humanVerificationBlocksSubmit, useHumanVerification, type HumanVerification} from "./turnstile";
 
 // 🌟 Harness icon placeholder: an 8-ray starburst standing in for the asking harness's logo.
 function HarnessIcon(): ReactElement {
@@ -305,7 +307,11 @@ const NO_ALTERNATIVE_METHODS: AuthenticationMethods = {
 	magicLink: false,
 	passkey: false,
 	social: [],
+	turnstileSiteKey: null,
 };
+
+const METHOD_DISCOVERY_FAILED_MESSAGE =
+	"We could not reach YepNope to set this page up. Check your connection and reload.";
 
 const MAGIC_LINK_SENT_MESSAGE =
 	"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.";
@@ -320,23 +326,67 @@ function signInRedirectError(): string | null {
 	return new URLSearchParams(window.location.search).has("error") ? PROVIDER_SIGN_IN_FAILED_MESSAGE : null;
 }
 
-function useAuthenticationMethods(): AuthenticationMethods {
-	const [methods, setMethods] = useState<AuthenticationMethods>(NO_ALTERNATIVE_METHODS);
+// Discovery now carries one answer the page cannot guess at: whether this deployment demands a
+// human-verification check. So the three outcomes stay distinct instead of collapsing into one
+// object, and a page that has not heard back yet knows it has not heard back yet.
+type MethodDiscovery = {status: "pending"} | {status: "ready"; methods: AuthenticationMethods} | {status: "failed"};
+
+function useAuthenticationMethods(): MethodDiscovery {
+	const [discovery, setDiscovery] = useState<MethodDiscovery>({status: "pending"});
 	useEffect(() => {
 		let abandoned = false;
 		void fetchAuthenticationMethods().then(
-			(discovered) => {
+			(methods) => {
 				if (!abandoned) {
-					setMethods(discovered);
+					setDiscovery({methods, status: "ready"});
 				}
 			},
-			() => undefined,
+			() => {
+				if (!abandoned) {
+					setDiscovery({status: "failed"});
+				}
+			},
 		);
 		return () => {
 			abandoned = true;
 		};
 	}, []);
-	return methods;
+	return discovery;
+}
+
+/** Alternative sign-in methods stay an enhancement: not knowing them still renders the page. */
+function alternativeMethods(discovery: MethodDiscovery): AuthenticationMethods {
+	return discovery.status === "ready" ? discovery.methods : NO_ALTERNATIVE_METHODS;
+}
+
+interface AccountForm {
+	/** True while a submission could only be refused, so the control that would send it stays inert. */
+	blocked: boolean;
+	discoveryError: string | null;
+	methods: AuthenticationMethods;
+	verification: HumanVerification;
+}
+
+/**
+ * Everything a signed-out form needs from discovery, with the widget bound to the one surface that
+ * form protects.
+ *
+ * Human verification is the opposite of an enhancement. Until the deployment has said whether a
+ * check is required, a submission could only be a refusal, so the form holds it back and says why.
+ */
+function useAccountForm(action: string): AccountForm {
+	const discovery = useAuthenticationMethods();
+	// Before discovery answers, the placeholder methods carry a null site key — the same value a
+	// deployment that wants no widget sends. `blocked` is what keeps those two apart, holding the
+	// form back until the answer has actually arrived.
+	const methods = alternativeMethods(discovery);
+	const verification = useHumanVerification(action, methods.turnstileSiteKey);
+	return {
+		blocked: discovery.status !== "ready" || humanVerificationBlocksSubmit(verification),
+		discoveryError: discovery.status === "failed" ? METHOD_DISCOVERY_FAILED_MESSAGE : null,
+		methods,
+		verification,
+	};
 }
 
 function passkeysUsable(methods: AuthenticationMethods): boolean {
@@ -349,6 +399,10 @@ interface AlternativeSignInProps {
 	methods: AuthenticationMethods;
 	onAuthenticated: (user: AuthenticationUser) => void;
 	onError: (message: string | null) => void;
+	// 🤖 An emailed sign-in link is another way to ask this Worker to send mail, so it goes through
+	// the same check as the password form beside it, sharing that page's single widget.
+	verificationBlocked: boolean;
+	verificationToken: () => Promise<string | null>;
 }
 
 function AlternativeSignIn({
@@ -357,6 +411,8 @@ function AlternativeSignIn({
 	methods,
 	onAuthenticated,
 	onError,
+	verificationBlocked,
+	verificationToken,
 }: AlternativeSignInProps): ReactElement | null {
 	const [status, setStatus] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -414,7 +470,7 @@ function AlternativeSignIn({
 				<button
 					type="button"
 					className="secondary"
-					disabled={busy}
+					disabled={busy || verificationBlocked}
 					onClick={() => {
 						if (email.trim() === "") {
 							setStatus(null);
@@ -422,7 +478,7 @@ function AlternativeSignIn({
 							return;
 						}
 						void run(async () => {
-							await sendMagicLink(email);
+							await sendMagicLink(email, await verificationToken());
 							setStatus(MAGIC_LINK_SENT_MESSAGE);
 						});
 					}}
@@ -443,21 +499,25 @@ interface SignInProps extends AccountRouteProps, AuthenticationCompletionProps {
 
 function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
-	const methods = useAuthenticationMethods();
+	const {blocked, discoveryError, methods, verification} = useAccountForm("sign_in");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(signInRedirectError);
 	const [submitting, setSubmitting] = useState(false);
+	const displayedError = error ?? discoveryError;
 
 	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
 		event.preventDefault();
 		setSubmitting(true);
 		setError(null);
 		try {
+			const humanVerificationToken = await verification.consume();
 			if (oauthQuery === null) {
-				onAuthenticated(await signIn(email, password));
+				onAuthenticated(await signIn(email, password, humanVerificationToken));
 			} else {
-				const redirectUrl = await signInForOAuth(email, password, oauthQuery);
+				// The authorization query rides through verification untouched, so a refused check
+				// costs the visitor a retry rather than the MCP client's whole authorization.
+				const redirectUrl = await signInForOAuth(email, password, oauthQuery, humanVerificationToken);
 				const user = await fetchSession();
 				if (user === null || !user.emailVerified) {
 					throw new Error("Verify your YepNope email before authorizing this MCP client.");
@@ -505,12 +565,13 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps
 						}}
 					/>
 				</label>
-				{error !== null && (
+				<HumanVerificationField verification={verification} />
+				{displayedError !== null && (
 					<p className="form-error" role="alert">
-						{error}
+						{displayedError}
 					</p>
 				)}
-				<button type="submit" disabled={submitting}>
+				<button type="submit" disabled={submitting || blocked}>
 					{submitting ? "Signing in…" : "Sign in"}
 				</button>
 			</form>
@@ -520,6 +581,8 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated}: SignInProps
 				methods={methods}
 				onAuthenticated={onAuthenticated}
 				onError={setError}
+				verificationBlocked={blocked}
+				verificationToken={verification.consume}
 			/>
 			<div className="account-links">
 				<button
@@ -559,10 +622,12 @@ type VerificationDelivery = "accepted" | "failed" | "idle";
 
 function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
+	const {blocked, discoveryError, verification} = useAccountForm("register");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
+	const displayedError = error ?? discoveryError;
 
 	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
 		event.preventDefault();
@@ -570,17 +635,11 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 		setError(null);
 		try {
 			const callbackURL = oauthQuery === null ? "/verify-email" : oauthCallbackPath(oauthQuery);
-			if (oauthQuery === null) {
-				await registerAccount(email, password);
-			} else {
-				await registerAccount(email, password, callbackURL);
-			}
+			await registerAccount(email, password, await verification.consume(), callbackURL);
 			try {
-				if (oauthQuery === null) {
-					await sendVerificationEmail(email);
-				} else {
-					await sendVerificationEmail(email, callbackURL);
-				}
+				// 🎟️ Creating the account spent the first token, so the message that follows it
+				// waits for the widget to earn a second one rather than replaying the first.
+				await sendVerificationEmail(email, await verification.consume(), callbackURL);
 				onRegistered(email, "accepted");
 			} catch {
 				onRegistered(email, "failed");
@@ -623,12 +682,13 @@ function Register({onNavigate, onRegistered}: RegisterProps): ReactElement {
 						}}
 					/>
 				</label>
-				{error !== null && (
+				<HumanVerificationField verification={verification} />
+				{displayedError !== null && (
 					<p className="form-error" role="alert">
-						{error}
+						{displayedError}
 					</p>
 				)}
-				<button type="submit" disabled={submitting}>
+				<button type="submit" disabled={submitting || blocked}>
 					{submitting ? "Creating account…" : "Create account"}
 				</button>
 			</form>
@@ -663,6 +723,7 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 	const parameters = new URLSearchParams(window.location.search);
 	const oauthQuery = oauthQueryFromLocation();
 	const verificationError = parameters.get("error");
+	const {blocked, discoveryError, verification} = useAccountForm("verify_email");
 	const [email, setEmail] = useState(initialEmail);
 	const [delivery, setDelivery] = useState(initialDelivery);
 	const [submitting, setSubmitting] = useState(false);
@@ -674,11 +735,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 		setDelivery("idle");
 		setResendCompleted(false);
 		try {
-			if (oauthQuery === null) {
-				await sendVerificationEmail(email);
-			} else {
-				await sendVerificationEmail(email, oauthCallbackPath(oauthQuery));
-			}
+			const callbackURL = oauthQuery === null ? "/verify-email" : oauthCallbackPath(oauthQuery);
+			await sendVerificationEmail(email, await verification.consume(), callbackURL);
 			setDelivery("accepted");
 			setResendCompleted(true);
 		} catch {
@@ -711,10 +769,23 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 					arrive, so check your spam folder too.
 				</p>
 			)}
+			{discoveryError !== null && (
+				<p className="form-error" role="alert">
+					{discoveryError}
+				</p>
+			)}
 			{hasRegistrationEmail ? (
-				<button type="button" disabled={submitting} aria-busy={submitting} onClick={() => void resend()}>
-					{submitting ? "Sending…" : "Resend verification email"}
-				</button>
+				<>
+					<HumanVerificationField verification={verification} />
+					<button
+						type="button"
+						disabled={submitting || blocked}
+						aria-busy={submitting}
+						onClick={() => void resend()}
+					>
+						{submitting ? "Sending…" : "Resend verification email"}
+					</button>
+				</>
 			) : (
 				<form
 					className="account-form"
@@ -736,7 +807,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 							}}
 						/>
 					</label>
-					<button type="submit" disabled={submitting} aria-busy={submitting}>
+					<HumanVerificationField verification={verification} />
+					<button type="submit" disabled={submitting || blocked} aria-busy={submitting}>
 						{submitting ? "Sending…" : "Resend verification email"}
 					</button>
 				</form>
@@ -765,15 +837,17 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate}: VerifyEmailPro
 
 function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
+	const {blocked, discoveryError, verification} = useAccountForm("reset_password");
 	const [email, setEmail] = useState("");
 	const [sent, setSent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const displayedError = error ?? discoveryError;
 
 	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
 		event.preventDefault();
 		setError(null);
 		try {
-			await requestPasswordReset(email);
+			await requestPasswordReset(email, await verification.consume());
 			rememberPasswordResetOAuthQuery(oauthQuery);
 			setSent(true);
 		} catch (caught) {
@@ -798,17 +872,20 @@ function ForgotPassword({onNavigate}: AccountRouteProps): ReactElement {
 						}}
 					/>
 				</label>
+				<HumanVerificationField verification={verification} />
 				{sent && (
 					<p className="form-success" role="status">
 						If recovery is available for that address, check its inbox for next steps.
 					</p>
 				)}
-				{error !== null && (
+				{displayedError !== null && (
 					<p className="form-error" role="alert">
-						{error}
+						{displayedError}
 					</p>
 				)}
-				<button type="submit">Send recovery email</button>
+				<button type="submit" disabled={blocked}>
+					Send recovery email
+				</button>
 			</form>
 			<div className="account-links">
 				<button
@@ -850,11 +927,15 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: Rese
 		return {invalid: parameters.get("error") !== null || initialToken === null, token: initialToken};
 	});
 	const [oauthQuery] = useState(passwordResetOAuthQuery);
+	// Consuming the emailed recovery link is not gated: it already carries a single-use credential.
+	// The sign-in that immediately follows it is an ordinary sign-in, and is gated like one.
+	const {blocked, discoveryError, verification} = useAccountForm("sign_in");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticationUser | null>(null);
 	const [phase, setPhase] = useState(PasswordResetPhase.Ready);
 	const [error, setError] = useState<string | null>(null);
+	const displayedError = error ?? discoveryError;
 
 	async function resumeAuthorization(user: AuthenticationUser, oauthQueryToResume: string): Promise<void> {
 		setPhase(PasswordResetPhase.ResumingAuthorization);
@@ -874,7 +955,7 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: Rese
 		setError(null);
 		let user: AuthenticationUser;
 		try {
-			user = await signIn(email, password);
+			user = await signIn(email, password, await verification.consume());
 		} catch (caught) {
 			setError(errorMessage(caught));
 			setPhase(PasswordResetPhase.SignInFailed);
@@ -966,7 +1047,10 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: Rese
 									}}
 								/>
 							</label>
-							<button type="submit">Try signing in again</button>
+							<HumanVerificationField verification={verification} />
+							<button type="submit" disabled={blocked}>
+								Try signing in again
+							</button>
 						</form>
 					)}
 					{phase === PasswordResetPhase.AuthorizationResumeFailed &&
@@ -1009,12 +1093,13 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated}: Rese
 							}}
 						/>
 					</label>
-					{error !== null && (
+					<HumanVerificationField verification={verification} />
+					{displayedError !== null && (
 						<p className="form-error" role="alert">
-							{error}
+							{displayedError}
 						</p>
 					)}
-					<button type="submit" disabled={phase === PasswordResetPhase.Resetting}>
+					<button type="submit" disabled={phase === PasswordResetPhase.Resetting || blocked}>
 						{phase === PasswordResetPhase.Resetting ? "Saving new password…" : "Save new password"}
 					</button>
 				</form>
@@ -1352,7 +1437,9 @@ interface SignInMethodsPanelProps {
 
 // 🔐 One place to see every way into this account, and the only place to add or remove one.
 function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElement {
-	const methods = useAuthenticationMethods();
+	// This panel is behind a session and adds no method the Worker gates, so discovery stays the
+	// enhancement it always was here.
+	const methods = alternativeMethods(useAuthenticationMethods());
 	const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([]);
 	const [passkeys, setPasskeys] = useState<RegisteredPasskey[]>([]);
 	const [error, setError] = useState<string | null>(null);

@@ -2,7 +2,7 @@ import {env} from "cloudflare:workers";
 import {SignJWT} from "jose";
 import {describe, expect, it} from "vitest";
 import {createAuthentication, hashToken, type AuthenticationObservation} from "../auth";
-import {API_ORIGIN, cookieFrom, emailLink, required, worker} from "./helpers";
+import {API_ORIGIN, cookieFrom, emailLink, humanVerified, required, worker} from "./helpers";
 
 interface DeliveredEmail {
 	from: string | EmailAddress;
@@ -18,6 +18,7 @@ function createMailboxAuthentication(mailbox: DeliveredEmail[], observations: Au
 			observations.push(observation);
 		},
 		runInBackground: undefined,
+		verifyHuman: humanVerified,
 		sendEmail: async (message) => {
 			await Promise.resolve(
 				mailbox.push({
@@ -352,6 +353,7 @@ describe("Better Auth account recovery", () => {
 				observations.push(observation);
 			},
 			runInBackground: undefined,
+			verifyHuman: humanVerified,
 			sendEmail: async () => {
 				deliveries += 1;
 				return Promise.reject(
@@ -447,6 +449,7 @@ describe("Better Auth account recovery", () => {
 				observations.push(observation);
 			},
 			runInBackground: undefined,
+			verifyHuman: humanVerified,
 			sendEmail: async (message) => {
 				deliveries += 1;
 				if (deliveries === 1) {
@@ -522,6 +525,7 @@ describe("Better Auth account recovery", () => {
 				observations.push(observation);
 			},
 			runInBackground: undefined,
+			verifyHuman: humanVerified,
 			sendEmail: async () => {
 				deliveries += 1;
 				return Promise.reject(emailServiceError("E_DELIVERY_FAILED", "recipient server rejected the message"));
@@ -582,6 +586,7 @@ describe("Better Auth account recovery", () => {
 					observations.push(observation);
 				},
 				runInBackground: undefined,
+				verifyHuman: humanVerified,
 				sendEmail: async () => {
 					deliveries += 1;
 					return Promise.reject(emailServiceError(rejection.code, "rejected by the email service"));

@@ -24,6 +24,7 @@ import {
 	revokeMachineToken,
 	type PairingStatus,
 } from "./pairing";
+import {turnstileSiteKey} from "./turnstile";
 import type {UserDurableObject} from "./user-do";
 import {
 	afkRequestSchema,
@@ -85,6 +86,10 @@ export default {
 					magic_link: methods.magicLink,
 					passkey: methods.passkey,
 					social: methods.social,
+					// 🤖 Public by construction, and the browser needs it before it can draw the
+					// human-verification widget the Worker is about to demand. Null means this
+					// deployment demands nothing.
+					turnstile_site_key: turnstileSiteKey(env),
 				},
 				// Deploy-constant and identical for every visitor, so it is safe to cache publicly.
 				{headers: {"Cache-Control": "public, max-age=300"}},

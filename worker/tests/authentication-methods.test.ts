@@ -1,6 +1,7 @@
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import {authenticationMethods} from "../auth";
+import {TURNSTILE_TEST_KEYS} from "../turnstile-test-siteverify";
 import {API_ORIGIN, worker} from "./helpers";
 
 describe("Authentication method availability", () => {
@@ -52,6 +53,7 @@ describe("Authentication method discovery", () => {
 			magic_link: true,
 			passkey: true,
 			social: [],
+			turnstile_site_key: TURNSTILE_TEST_KEYS.alwaysPassesSiteKey,
 		});
 	});
 

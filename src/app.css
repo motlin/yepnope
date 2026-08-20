@@ -526,6 +526,62 @@ body {
 	margin-top: 8px;
 }
 
+/* 🤖 The human-verification check sits in the same column as the inputs above it and stays inside
+   the panel on the narrowest phone, where Turnstile's flexible widget fills the available width. */
+.human-verification {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.human-verification-widget {
+	display: flex;
+	min-height: 66px;
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.human-verification-widget iframe {
+	max-width: 100%;
+}
+
+.human-verification-status {
+	margin: 0;
+	color: #aeb4be;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.human-verification-disclosure {
+	margin: 0;
+	color: #8f96a1;
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+.human-verification-disclosure a {
+	color: #aeb4be;
+	text-underline-offset: 3px;
+}
+
+.human-verification > button.secondary {
+	width: 100%;
+	border: 1px solid #626873;
+	border-radius: 10px;
+	background: transparent;
+	color: #eceef2;
+	cursor: pointer;
+	font-size: 14px;
+	font-weight: 650;
+	padding: 11px 14px;
+}
+
+.account-form > button:disabled,
+.account-panel > button:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
 .form-error,
 .form-success {
 	margin: 0;
