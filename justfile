@@ -65,3 +65,9 @@ verify quick="": check build fallow pre-commit
 # Deprecated alias for `verify`
 [arg("quick", long, value="true", help="Skip tests")]
 precommit quick="": (verify quick)
+
+# Verify, tag, deploy to production, and push the release tag
+[group('release')]
+[arg("dry-run", long, value="true", help="Print the release plan without verifying, tagging, or deploying")]
+release dry-run="": install
+    node --experimental-strip-types scripts/release.ts {{ if dry-run == "true" { "--dry-run" } else { "" } }}

@@ -425,6 +425,46 @@ Note that Worker sends show up in the Email **Routing** summary as dropped even
 when they were delivered; the Email **Sending** metrics this script reads are
 the authoritative record.
 
+## Releasing to production
+
+`just release` is the supported path to production; a bare `vp run deploy` skips
+every guard below.
+
+```sh
+just release --dry-run   # print the guards and the tag a release would cut
+just release             # verify, tag, deploy, push
+```
+
+The recipe refuses to start on a dirty working tree, on a branch with no
+upstream, or on a branch behind its upstream. It then runs `just verify`, cuts
+an annotated tag on the current commit, deploys with `vp run deploy`, rewrites
+the annotation with the Cloudflare Version ID that deploy reported, and pushes
+the tag last.
+
+`package.json` stays at `0.0.0` — nothing installs YepNope from a registry — so
+the release version is the UTC date plus the short commit, `v2026.08.20-abc1234`.
+One tag per released commit: re-running the recipe on an already-released commit
+fails instead of retagging.
+
+The tag is cut before the deploy so the deployed tree is exactly the tagged tree,
+and it is pushed only after Wrangler names a version, so every pushed tag maps to
+one deployment:
+
+```sh
+git show v2026.08.20-abc1234 --no-patch
+# YepNope release v2026.08.20-abc1234
+#
+# Deployed commit abc1234 to yepnope.app.
+# cloudflare_version_id: 1d9f8b6a-4c2e-4f77-9b32-2f6c9c9c7a11
+```
+
+Nothing partial survives. A failed `just verify` never tags. A failed deploy, or
+a deploy that prints no Version ID, deletes the unpushed tag and exits non-zero.
+A failed push reports the deployed version ID and the `git push` command that
+finishes the release. `tests/release.test.ts` covers that ordering and each
+guard. The administration Worker is released separately with
+`npm run deploy:admin`.
+
 ## Privacy and retention
 
 YepNope can read question bodies and answers stored by the service. End-to-end
@@ -438,6 +478,7 @@ content is deleted.
 just install   # install toolchain and dependencies
 just dev       # run the dev server
 just verify    # format, lint, typecheck, build, test
+just release   # verify, tag, deploy to production, push the tag
 ```
 
 Card layout mockups live in `mockups/index.html` — a self-contained page used to
