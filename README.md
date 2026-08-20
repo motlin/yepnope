@@ -474,6 +474,24 @@ encryption is not part of the MVP. Question bodies and answers are deleted seven
 days after each batch is created. Content-free counters are retained after that
 content is deleted.
 
+A nightly Worker cron (`0 4 * * *`) sweeps expired records and logs one
+count-only line, `scheduled_cleanup_completed`. Part of that sweep reclaims
+abandoned OAuth clients: Dynamic Client Registration lets an MCP client register
+itself before anyone consents, so every `codex mcp login` that stops short of
+consent leaves a row behind. A registered client is reclaimed once it is seven
+days old, holds no consent, holds no access or refresh token, and has no
+unexpired authorization in flight. Anything short of all four spares it. Count
+the rows the predicate would take before it takes them, without deleting
+anything:
+
+```sh
+npm run dry-run:oauth-client-reclamation
+```
+
+The dry run issues nothing but `SELECT count(*)`, reads the production database
+through `wrangler d1 execute --remote`, and reports counts only. Deleting is the
+cron's job alone.
+
 ## Development
 
 ```sh

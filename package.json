@@ -28,6 +28,7 @@
 		"test-storybook": "npx concurrently -k -s first -n \"SB,TEST\" -c \"magenta,blue\" \"npx http-server storybook-static --port 6006 --silent\" \"npx wait-on tcp:127.0.0.1:6006 && test-storybook\"",
 		"prepare": "VITE_GIT_HOOKS=0 vp config",
 		"test:worker": "node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts",
+		"dry-run:oauth-client-reclamation": "node --experimental-strip-types scripts/oauth-client-reclamation.ts",
 		"smoke:skills-install": "node --experimental-strip-types scripts/skill-install-smoke.ts",
 		"smoke:codex-oauth": "node --experimental-strip-types scripts/codex-oauth-smoke.ts",
 		"smoke:verification-delivery": "node --experimental-strip-types scripts/verification-delivery-smoke.ts",

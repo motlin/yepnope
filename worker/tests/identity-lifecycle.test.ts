@@ -182,10 +182,12 @@ describe("identity lifecycle", () => {
 		await env.USER_DO.getByName("legacy-alice").setAfk(true, true);
 
 		expect(await cleanupExpiredIdentityRecords(env.DB, env.USER_DO, now)).toStrictEqual({
+			abandonedOAuthClients: 0,
 			expiredLegacyIdentities: 1,
 			expiredPairingCodes: 1,
 			inactiveOAuthAccessTokens: 0,
 			inactiveOAuthRefreshTokens: 0,
+			reclaimedOAuthClientResources: 0,
 			revokedTokens: 1,
 		});
 		expect(
@@ -218,10 +220,12 @@ describe("identity lifecycle", () => {
 			).first(),
 		).toStrictEqual({completed_at: null});
 		expect(await cleanupExpiredIdentityRecords(env.DB, env.USER_DO, now)).toStrictEqual({
+			abandonedOAuthClients: 0,
 			expiredLegacyIdentities: 0,
 			expiredPairingCodes: 0,
 			inactiveOAuthAccessTokens: 0,
 			inactiveOAuthRefreshTokens: 0,
+			reclaimedOAuthClientResources: 0,
 			revokedTokens: 0,
 		});
 	});

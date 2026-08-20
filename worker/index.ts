@@ -208,10 +208,19 @@ export default {
 		}
 		return new Response(null, {status: 404});
 	},
-	scheduled(_controller, environment, executionContext): void {
-		executionContext.waitUntil(cleanupExpiredIdentityRecords(environment.DB, environment.USER_DO, Date.now()));
+	scheduled(controller, environment, executionContext): void {
+		executionContext.waitUntil(runScheduledCleanup(environment, controller.scheduledTime));
 	},
 } satisfies ExportedHandler<Env>;
+
+/**
+ * 🔭 The nightly sweep leaves exactly one line behind, and that line is counts. No client id,
+ * redirect URI, secret, or user identifier is ever in a position to reach it.
+ */
+async function runScheduledCleanup(environment: Env, scheduledTime: number): Promise<void> {
+	const cleanup = await cleanupExpiredIdentityRecords(environment.DB, environment.USER_DO, scheduledTime);
+	console.warn(JSON.stringify({event: "scheduled_cleanup_completed", ...cleanup}));
+}
 
 function pairingStatusResponse(pairingStatus: PairingStatus): {
 	paired: boolean;

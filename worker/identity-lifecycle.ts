@@ -1,6 +1,14 @@
 import {and, eq, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {durableObjectCleanupJobs, identityLifecycles, machineTokens, pairingCodes} from "./db/d1-schema";
+import {
+	ABANDONED_OAUTH_CLIENT_COUNT_SQL,
+	ABANDONED_OAUTH_CLIENT_DELETE_SQL,
+	ABANDONED_OAUTH_CLIENT_RESOURCE_DELETE_SQL,
+	abandonedOAuthClientBindings,
+	ORPHANED_OAUTH_CLIENT_RESOURCE_DELETE_SQL,
+	RECLAIMABLE_OAUTH_CLIENT_RESOURCE_COUNT_SQL,
+} from "./db/oauth-client-reclamation";
 import type {UserDurableObject} from "./user-do";
 
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1_000;
@@ -10,7 +18,12 @@ export const UNCLAIMED_LEGACY_IDENTITY_RETENTION_MILLISECONDS = 30 * DAY_MILLISE
 
 type CleanupReason = "account_deleted" | "legacy_claimed" | "legacy_expired";
 
-export interface IdentityCleanupResult {
+export interface OAuthClientReclamationResult {
+	abandonedOAuthClients: number;
+	reclaimedOAuthClientResources: number;
+}
+
+export interface IdentityCleanupResult extends OAuthClientReclamationResult {
 	expiredLegacyIdentities: number;
 	inactiveOAuthAccessTokens: number;
 	inactiveOAuthRefreshTokens: number;
@@ -89,6 +102,64 @@ export async function completeDurableObjectCleanup(
 		.where(eq(durableObjectCleanupJobs.objectName, objectName));
 }
 
+async function countedRows(database: D1Database, sql: string, bindings: readonly number[]): Promise<number> {
+	const row = await database
+		.prepare(sql)
+		.bind(...bindings)
+		.first<{value: number}>();
+	if (row === null) {
+		throw new Error("a counting query returned no row");
+	}
+	return row.value;
+}
+
+/**
+ * What `reclaimAbandonedOAuthClients` would take, without taking it. The counts come from the same
+ * predicate the deletion uses, so a dry run and the run that follows differ only in what the
+ * database did in between.
+ */
+export async function planAbandonedOAuthClientReclamation(
+	database: D1Database,
+	now: number,
+): Promise<OAuthClientReclamationResult> {
+	const bindings = abandonedOAuthClientBindings(now);
+	return {
+		abandonedOAuthClients: await countedRows(database, ABANDONED_OAUTH_CLIENT_COUNT_SQL, bindings),
+		reclaimedOAuthClientResources: await countedRows(
+			database,
+			RECLAIMABLE_OAUTH_CLIENT_RESOURCE_COUNT_SQL,
+			bindings,
+		),
+	};
+}
+
+/**
+ * 🧹 Reclaims registered OAuth clients that never became grants.
+ *
+ * All three statements run in one D1 batch, which is one transaction, so the predicate that spares a
+ * client also spares its dependent rows, and a client that gains a consent or a token concurrently
+ * is protected by the whole batch rather than by whichever statement happened to run first. Running
+ * it twice, or twice at once, reclaims nothing the first pass already took.
+ */
+export async function reclaimAbandonedOAuthClients(
+	database: D1Database,
+	now: number,
+): Promise<OAuthClientReclamationResult> {
+	const bindings = abandonedOAuthClientBindings(now);
+	const [dependents, clients, orphans] = await database.batch([
+		database.prepare(ABANDONED_OAUTH_CLIENT_RESOURCE_DELETE_SQL).bind(...bindings),
+		database.prepare(ABANDONED_OAUTH_CLIENT_DELETE_SQL).bind(...bindings),
+		database.prepare(ORPHANED_OAUTH_CLIENT_RESOURCE_DELETE_SQL),
+	]);
+	if (dependents === undefined || clients === undefined || orphans === undefined) {
+		throw new Error("OAuth client reclamation batch returned an incomplete result");
+	}
+	return {
+		abandonedOAuthClients: clients.meta.changes,
+		reclaimedOAuthClientResources: dependents.meta.changes + orphans.meta.changes,
+	};
+}
+
 export async function cleanupExpiredIdentityRecords(
 	database: D1Database,
 	namespace: DurableObjectNamespace<UserDurableObject>,
@@ -137,8 +208,12 @@ export async function cleanupExpiredIdentityRecords(
 		]);
 	}
 	await processPendingDurableObjectCleanups(database, namespace, now);
+	// 🧹 Last, so a client whose final token was purged above still keeps its consent, and a consent
+	// is enough to spare it.
+	const reclaimedOAuthClients = await reclaimAbandonedOAuthClients(database, now);
 
 	return {
+		...reclaimedOAuthClients,
 		expiredLegacyIdentities: expiredLegacyIdentities.length,
 		inactiveOAuthAccessTokens: inactiveOAuthAccessTokens.meta.changes,
 		inactiveOAuthRefreshTokens: inactiveOAuthRefreshTokens.meta.changes,
