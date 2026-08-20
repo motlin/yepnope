@@ -1,5 +1,5 @@
 import {env, exports} from "cloudflare:workers";
-import {createAuthentication, hashToken} from "../auth";
+import {createAuthentication, createPasskeyAuthentication, hashToken, type AuthenticationObservation} from "../auth";
 import {HUMAN_VERIFICATION_HEADER, HumanVerificationOutcome, type HumanVerificationVerifier} from "../turnstile";
 import {testTurnstileToken} from "../turnstile-test-siteverify";
 import type {CreateBatchRequest} from "../validation";
@@ -26,33 +26,77 @@ export function humanVerificationHeader(action: string): Record<string, string> 
 
 export const worker = exports.default;
 
-const AUTHENTICATION_PASSWORD = "correct-horse-battery-staple";
+export const AUTHENTICATION_PASSWORD = "correct-horse-battery-staple";
 
-interface DeliveredAuthenticationEmail {
+export interface DeliveredAuthenticationEmail {
+	from: string | EmailAddress;
+	html: string;
 	subject: string;
 	text: string;
+	to: string | EmailAddress | (string | EmailAddress)[];
 }
 
-function authenticationWithMailbox(mailbox: DeliveredAuthenticationEmail[]) {
-	return createAuthentication(env, {
-		observe: () => undefined,
-		runInBackground: undefined,
-		sendEmail: async (message) => {
-			if (message.text === undefined) {
-				throw new Error("authentication email is missing its text body");
-			}
-			await Promise.resolve(mailbox.push({subject: message.subject, text: message.text}));
+/**
+ * An authentication instance whose emails land in an array and whose observations land in another,
+ * so a test can read both without a live email service or log sink.
+ */
+export interface AuthenticationHarness {
+	authentication: ReturnType<typeof createAuthentication>;
+	mailbox: DeliveredAuthenticationEmail[];
+	observations: AuthenticationObservation[];
+}
+
+function mailboxHarnessParts(overrides: Partial<Env>) {
+	const mailbox: DeliveredAuthenticationEmail[] = [];
+	const observations: AuthenticationObservation[] = [];
+	return {
+		environment: {...env, ...overrides},
+		mailbox,
+		observations,
+		dependencies: {
+			observe: (observation: AuthenticationObservation) => observations.push(observation),
+			runInBackground: undefined,
+			sendEmail: async (message: Parameters<SendEmail["send"]>[0]) => {
+				await Promise.resolve(
+					mailbox.push({
+						from: message.from,
+						html: required(message.html, "email HTML"),
+						subject: message.subject,
+						text: required(message.text, "email text"),
+						to: required(message.to, "email recipient"),
+					}),
+				);
+			},
+			verifyHuman: humanVerified,
 		},
-		verifyHuman: humanVerified,
-	});
+	};
 }
 
-function authenticationRequest(path: string, body: Record<string, string>): Request {
-	return new Request(`${API_ORIGIN}/api/auth/${path}`, {
-		method: "POST",
-		headers: {"Content-Type": "application/json", Origin: API_ORIGIN},
-		body: JSON.stringify(body),
-	});
+export function authenticationWithMailbox(overrides: Partial<Env> = {}): AuthenticationHarness {
+	const {environment, dependencies, mailbox, observations} = mailboxHarnessParts(overrides);
+	return {authentication: createAuthentication(environment, dependencies), mailbox, observations};
+}
+
+/** Passkey ceremonies are served by the lazily loaded instance, so this harness awaits that import. */
+export async function passkeyAuthenticationWithMailbox(overrides: Partial<Env> = {}): Promise<AuthenticationHarness> {
+	const {environment, dependencies, mailbox, observations} = mailboxHarnessParts(overrides);
+	return {authentication: await createPasskeyAuthentication(environment, dependencies), mailbox, observations};
+}
+
+export function postAuthentication(path: string, body: Record<string, unknown>, cookie?: string): Request {
+	const headers = new Headers({"Content-Type": "application/json", Origin: API_ORIGIN});
+	if (cookie !== undefined) {
+		headers.set("Cookie", cookie);
+	}
+	return new Request(`${API_ORIGIN}/api/auth/${path}`, {method: "POST", headers, body: JSON.stringify(body)});
+}
+
+export function getAuthentication(path: string, cookie?: string): Request {
+	const headers = new Headers({Origin: API_ORIGIN});
+	if (cookie !== undefined) {
+		headers.set("Cookie", cookie);
+	}
+	return new Request(`${API_ORIGIN}/api/auth/${path}`, {headers});
 }
 
 export function cookieFrom(response: Response): string {
@@ -60,7 +104,7 @@ export function cookieFrom(response: Response): string {
 	return required(cookie, "session cookie");
 }
 
-export function emailLink(email: DeliveredAuthenticationEmail): string {
+export function emailLink(email: {text: string}): string {
 	const url = /https:\/\/\S+/.exec(email.text)?.[0];
 	return required(url, "authentication email link");
 }
@@ -68,10 +112,9 @@ export function emailLink(email: DeliveredAuthenticationEmail): string {
 export async function createVerifiedBrowserSession(
 	email = `alice-${crypto.randomUUID()}@example.com`,
 ): Promise<{cookie: string; userId: string}> {
-	const mailbox: DeliveredAuthenticationEmail[] = [];
-	const authentication = authenticationWithMailbox(mailbox);
+	const {authentication, mailbox} = authenticationWithMailbox();
 	const signUp = await authentication.handler(
-		authenticationRequest("sign-up/email", {
+		postAuthentication("sign-up/email", {
 			callbackURL: "/verify-email",
 			email,
 			password: AUTHENTICATION_PASSWORD,
@@ -81,7 +124,7 @@ export async function createVerifiedBrowserSession(
 		throw new Error(`expected sign-up 200, got ${signUp.status}`);
 	}
 	const verificationRequest = await authentication.handler(
-		authenticationRequest("send-verification-email", {callbackURL: "/verify-email", email}),
+		postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
 	);
 	if (verificationRequest.status !== 200) {
 		throw new Error(`expected verification email request 200, got ${verificationRequest.status}`);

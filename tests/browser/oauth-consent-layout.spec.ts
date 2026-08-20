@@ -1,5 +1,6 @@
 import {resolve} from "node:path";
-import {expect, test, type Page, type Route} from "playwright/test";
+import {expect, test, type Page} from "playwright/test";
+import {fulfillJson} from "./helpers";
 
 const screenshotDirectory = resolve(import.meta.dirname, "../../.llm/screenshots");
 const clientName = "Codex";
@@ -16,10 +17,6 @@ const oauthQuery = new URLSearchParams({
  * panel are therefore the last two surfaces YepNope owns in the flow, and both are covered here.
  */
 const loopbackCallback = "http://127.0.0.1:57015/callback/4FAwZNJbSB0T?code=test-code&state=test-state";
-
-async function fulfillJson(route: Route, body: unknown): Promise<void> {
-	await route.fulfill({json: body});
-}
 
 interface ConsentHarness {
 	consentSubmissions: unknown[];

@@ -2,36 +2,18 @@ import {env} from "cloudflare:workers";
 import {SignJWT} from "jose";
 import {describe, expect, it} from "vitest";
 import {createAuthentication, hashToken, type AuthenticationObservation} from "../auth";
-import {API_ORIGIN, cookieFrom, emailLink, humanVerified, required, worker} from "./helpers";
-
-interface DeliveredEmail {
-	from: string | EmailAddress;
-	html: string;
-	subject: string;
-	text: string;
-	to: string | EmailAddress | (string | EmailAddress)[];
-}
-
-function createMailboxAuthentication(mailbox: DeliveredEmail[], observations: AuthenticationObservation[] = []) {
-	return createAuthentication(env, {
-		observe: (observation) => {
-			observations.push(observation);
-		},
-		runInBackground: undefined,
-		verifyHuman: humanVerified,
-		sendEmail: async (message) => {
-			await Promise.resolve(
-				mailbox.push({
-					from: message.from,
-					html: required(message.html, "email HTML"),
-					subject: message.subject,
-					text: required(message.text, "email text"),
-					to: required(message.to, "email recipient"),
-				}),
-			);
-		},
-	});
-}
+import {
+	API_ORIGIN,
+	AUTHENTICATION_PASSWORD,
+	authenticationWithMailbox,
+	cookieFrom,
+	emailLink,
+	humanVerified,
+	postAuthentication,
+	required,
+	worker,
+	type DeliveredAuthenticationEmail,
+} from "./helpers";
 
 function escapeHtml(value: string): string {
 	return value
@@ -94,14 +76,6 @@ function emailServiceError(code: string, message: string): Error {
 	return Object.assign(new Error(message), {code});
 }
 
-function postAuthentication(path: string, body: Record<string, string>, cookie?: string): Request {
-	const headers = new Headers({"Content-Type": "application/json", Origin: API_ORIGIN});
-	if (cookie !== undefined) {
-		headers.set("Cookie", cookie);
-	}
-	return new Request(`${API_ORIGIN}/api/auth/${path}`, {method: "POST", headers, body: JSON.stringify(body)});
-}
-
 async function timedPublicContract(responsePromise: Promise<Response>) {
 	const startedAt = performance.now();
 	const response = await responsePromise;
@@ -120,13 +94,13 @@ async function timedPublicContract(responsePromise: Promise<Response>) {
 
 describe("Better Auth account recovery", () => {
 	it("deduplicates concurrent account onboarding without minting browser credentials", async () => {
-		const authentication = createMailboxAuthentication([]);
+		const {authentication} = authenticationWithMailbox();
 		const requests = Array.from({length: 10}, async () =>
 			authentication.handler(
 				postAuthentication("sign-up/email", {
 					callbackURL: "/",
 					email: "concurrent-alice@example.com",
-					password: "correct-horse-battery-staple",
+					password: AUTHENTICATION_PASSWORD,
 				}),
 			),
 		);
@@ -143,10 +117,10 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("registers with only email and password and never stores or returns a display name", async () => {
-		const authentication = createMailboxAuthentication([]);
+		const {authentication} = authenticationWithMailbox();
 		const email = "alice@example.com";
 		const signUp = await authentication.handler(
-			postAuthentication("sign-up/email", {email, password: "correct-horse-battery-staple"}),
+			postAuthentication("sign-up/email", {email, password: AUTHENTICATION_PASSWORD}),
 		);
 
 		expect({body: await signUp.json(), status: signUp.status}).toStrictEqual({
@@ -162,7 +136,7 @@ describe("Better Auth account recovery", () => {
 			postAuthentication("sign-up/email", {
 				email: "bob@example.com",
 				name: "Bob",
-				password: "correct-horse-battery-staple",
+				password: AUTHENTICATION_PASSWORD,
 			}),
 		);
 		expect({body: await namedSignUp.json(), status: namedSignUp.status}).toStrictEqual({
@@ -180,7 +154,7 @@ describe("Better Auth account recovery", () => {
 	// The absent requireLocalEmailVerified above is deliberate: its default keeps a pre-registered
 	// unverified local row from absorbing a victim's social identity on that provider's first sign-in.
 	it("links only provider identities that resolve to the same verified email account", () => {
-		const authentication = createMailboxAuthentication([]);
+		const {authentication} = authenticationWithMailbox();
 		const accountOptions = authentication.options.account;
 		if (accountOptions === undefined) {
 			throw new Error("authentication account options are missing");
@@ -194,11 +168,10 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("keeps verification resend responses generic for unknown email addresses", async () => {
-		const mailbox: DeliveredEmail[] = [];
-		const authentication = createMailboxAuthentication(mailbox);
+		const {authentication, mailbox} = authenticationWithMailbox();
 		const email = "generic-alice@example.com";
 		const signUp = await authentication.handler(
-			postAuthentication("sign-up/email", {email, password: "correct-horse-battery-staple"}),
+			postAuthentication("sign-up/email", {email, password: AUTHENTICATION_PASSWORD}),
 		);
 		expect(signUp.status).toBe(200);
 
@@ -230,9 +203,8 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("keeps every public account-state contract indistinguishable", async () => {
-		const mailbox: DeliveredEmail[] = [];
-		const authentication = createMailboxAuthentication(mailbox);
-		const password = "correct-horse-battery-staple";
+		const {authentication, mailbox} = authenticationWithMailbox();
+		const password = AUTHENTICATION_PASSWORD;
 		const unverifiedEmail = "unverified-contract-alice@example.com";
 		const verifiedEmail = "verified-contract-alice@example.com";
 		const newRegistrationEmail = "new-registration-contract-alice@example.com";
@@ -343,8 +315,10 @@ describe("Better Auth account recovery", () => {
 
 	it("suppresses delivery failures without recording their sensitive details", async () => {
 		const email = "delivery-failure-alice@example.com";
-		const password = "correct-horse-battery-staple";
-		await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+		const password = AUTHENTICATION_PASSWORD;
+		await authenticationWithMailbox().authentication.handler(
+			postAuthentication("sign-up/email", {email, password}),
+		);
 		const observations: AuthenticationObservation[] = [];
 		const attempts: number[] = [];
 		let deliveries = 0;
@@ -439,10 +413,12 @@ describe("Better Auth account recovery", () => {
 
 	it("retries a transient delivery failure without minting a second verification token", async () => {
 		const email = "transient-delivery-alice@example.com";
-		const password = "correct-horse-battery-staple";
-		await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+		const password = AUTHENTICATION_PASSWORD;
+		await authenticationWithMailbox().authentication.handler(
+			postAuthentication("sign-up/email", {email, password}),
+		);
 		const observations: AuthenticationObservation[] = [];
-		const mailbox: DeliveredEmail[] = [];
+		const mailbox: DeliveredAuthenticationEmail[] = [];
 		let deliveries = 0;
 		const authentication = createAuthentication(env, {
 			observe: (observation) => {
@@ -516,8 +492,10 @@ describe("Better Auth account recovery", () => {
 
 	it("bounds retries when every delivery attempt keeps failing transiently", async () => {
 		const email = "transient-exhausted-alice@example.com";
-		const password = "correct-horse-battery-staple";
-		await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+		const password = AUTHENTICATION_PASSWORD;
+		await authenticationWithMailbox().authentication.handler(
+			postAuthentication("sign-up/email", {email, password}),
+		);
 		const observations: AuthenticationObservation[] = [];
 		let deliveries = 0;
 		const authentication = createAuthentication(env, {
@@ -574,11 +552,13 @@ describe("Better Auth account recovery", () => {
 			{code: "E_DAILY_LIMIT_EXCEEDED", failure: "throttled"},
 			{code: "E_VALIDATION_ERROR", failure: "message_rejected"},
 		];
-		const password = "correct-horse-battery-staple";
+		const password = AUTHENTICATION_PASSWORD;
 		const outcomes = [];
 		for (const [index, rejection] of terminalRejections.entries()) {
 			const email = `terminal-delivery-${index}-alice@example.com`;
-			await createMailboxAuthentication([]).handler(postAuthentication("sign-up/email", {email, password}));
+			await authenticationWithMailbox().authentication.handler(
+				postAuthentication("sign-up/email", {email, password}),
+			);
 			const observations: AuthenticationObservation[] = [];
 			let deliveries = 0;
 			const authentication = createAuthentication(env, {
@@ -619,13 +599,11 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("classifies verification requests by account state behind one public response", async () => {
-		const password = "correct-horse-battery-staple";
+		const password = AUTHENTICATION_PASSWORD;
 		const unverifiedEmail = "state-unverified-alice@example.com";
 		const verifiedEmail = "state-verified-alice@example.com";
 		const unknownEmail = "state-unknown-alice@example.com";
-		const mailbox: DeliveredEmail[] = [];
-		const observations: AuthenticationObservation[] = [];
-		const authentication = createMailboxAuthentication(mailbox, observations);
+		const {authentication, mailbox, observations} = authenticationWithMailbox();
 		for (const email of [unverifiedEmail, verifiedEmail]) {
 			await authentication.handler(postAuthentication("sign-up/email", {email, password}));
 		}
@@ -670,10 +648,9 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("gives a genuinely new account exactly one branded message and one usable token", async () => {
-		const mailbox: DeliveredEmail[] = [];
-		const authentication = createMailboxAuthentication(mailbox);
+		const {authentication, mailbox} = authenticationWithMailbox();
 		const email = "single-token-alice@example.com";
-		const password = "correct-horse-battery-staple";
+		const password = AUTHENTICATION_PASSWORD;
 
 		// The browser's registration sequence: create the account, then ask for the verification link.
 		await authentication.handler(
@@ -708,10 +685,9 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("records only classified authentication observations", async () => {
-		const observations: AuthenticationObservation[] = [];
-		const authentication = createMailboxAuthentication([], observations);
+		const {authentication, observations} = authenticationWithMailbox();
 		const email = "observed-alice@example.com";
-		const password = "correct-horse-battery-staple";
+		const password = AUTHENTICATION_PASSWORD;
 		await authentication.handler(postAuthentication("sign-up/email", {email, password}));
 		observations.length = 0;
 
@@ -768,10 +744,9 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("creates, verifies, restores, signs out, and recovers a verified email account", async () => {
-		const mailbox: DeliveredEmail[] = [];
-		const authentication = createMailboxAuthentication(mailbox);
+		const {authentication, mailbox} = authenticationWithMailbox();
 		const email = "alice@example.com";
-		const originalPassword = "correct-horse-battery-staple";
+		const originalPassword = AUTHENTICATION_PASSWORD;
 		const replacementPassword = "example-replacement-password";
 
 		const signUp = await authentication.handler(
@@ -922,7 +897,7 @@ describe("Better Auth account recovery", () => {
 			status: 302,
 		});
 
-		const restoredAuthentication = createMailboxAuthentication(mailbox);
+		const {authentication: restoredAuthentication, mailbox: restoredMailbox} = authenticationWithMailbox();
 		const restored = await restoredAuthentication.handler(
 			new Request(`${API_ORIGIN}/api/auth/get-session`, {headers: {Cookie: sessionCookie}}),
 		);
@@ -993,7 +968,7 @@ describe("Better Auth account recovery", () => {
 			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
 			status: 200,
 		});
-		const resetEmail = required(mailbox[2], "password reset email");
+		const resetEmail = required(restoredMailbox[0], "password reset email");
 		const resetUrl = emailLink(resetEmail);
 		const {html: resetHtml, ...resetEnvelope} = resetEmail;
 		expect(resetEnvelope).toStrictEqual({
@@ -1093,10 +1068,10 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("rejects an expired email verification link without creating a session", async () => {
-		const authentication = createMailboxAuthentication([]);
+		const {authentication} = authenticationWithMailbox();
 		const email = "expired-alice@example.com";
 		const signUp = await authentication.handler(
-			postAuthentication("sign-up/email", {email, password: "correct-horse-battery-staple"}),
+			postAuthentication("sign-up/email", {email, password: AUTHENTICATION_PASSWORD}),
 		);
 		expect(signUp.status).toBe(200);
 		const expiredToken = await new SignJWT({email})

@@ -1,13 +1,14 @@
 import {env} from "cloudflare:workers";
 import {decodeJwt} from "jose";
 import {describe, expect, it} from "vitest";
-import {MCP_RESOURCE_PATH, OAUTH_SCOPES, createAuthentication} from "../auth";
+import {MCP_RESOURCE_PATH, OAUTH_SCOPES} from "../auth";
 import {
 	API_ORIGIN,
+	authenticationWithMailbox,
 	cookieFrom,
 	createVerifiedBrowserSession,
 	emailLink,
-	humanVerified,
+	postAuthentication,
 	required,
 	worker,
 } from "./helpers";
@@ -320,25 +321,10 @@ describe("Better Auth OAuth MCP provider", () => {
 	});
 
 	it("preserves a signed authorization request through sign-in and required email verification", async () => {
-		const mailbox: Array<{subject: string; text: string}> = [];
-		const authentication = createAuthentication(env, {
-			observe: () => undefined,
-			runInBackground: undefined,
-			verifyHuman: humanVerified,
-			sendEmail: async (message) => {
-				if (message.text === undefined) {
-					throw new Error("verification email is missing its text body");
-				}
-				await Promise.resolve(mailbox.push({subject: message.subject, text: message.text}));
-			},
-		});
+		const {authentication, mailbox} = authenticationWithMailbox();
 		const email = "oauth-unverified@example.com";
 		const signUp = await authentication.handler(
-			new Request(`${ISSUER}/sign-up/email`, {
-				method: "POST",
-				headers: {"Content-Type": "application/json", Origin: API_ORIGIN},
-				body: JSON.stringify({callbackURL: "/verify-email", email, password: ACCOUNT_PASSWORD}),
-			}),
+			postAuthentication("sign-up/email", {callbackURL: "/verify-email", email, password: ACCOUNT_PASSWORD}),
 		);
 		expect({body: await signUp.json(), status: signUp.status}).toStrictEqual({
 			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
@@ -367,15 +353,11 @@ describe("Better Auth OAuth MCP provider", () => {
 		});
 
 		const unverifiedSignIn = await authentication.handler(
-			new Request(`${ISSUER}/sign-in/email`, {
-				method: "POST",
-				headers: {"Content-Type": "application/json", Origin: API_ORIGIN},
-				body: JSON.stringify({
-					callbackURL: `/sign-in?${signedQuery}`,
-					email,
-					oauth_query: signedQuery,
-					password: ACCOUNT_PASSWORD,
-				}),
+			postAuthentication("sign-in/email", {
+				callbackURL: `/sign-in?${signedQuery}`,
+				email,
+				oauth_query: signedQuery,
+				password: ACCOUNT_PASSWORD,
 			}),
 		);
 		expect({body: await unverifiedSignIn.json(), status: unverifiedSignIn.status}).toStrictEqual({
@@ -613,12 +595,7 @@ describe("Better Auth OAuth MCP provider", () => {
 	});
 
 	it("configures explicit endpoint abuse controls", () => {
-		const authentication = createAuthentication(env, {
-			observe: () => undefined,
-			runInBackground: undefined,
-			verifyHuman: humanVerified,
-			sendEmail: async () => Promise.resolve(),
-		});
+		const {authentication} = authenticationWithMailbox();
 		const plugin = authentication.options.plugins?.find((candidate) => candidate.id === "oauth-provider");
 		if (plugin === undefined) {
 			throw new Error("OAuth provider plugin is missing");

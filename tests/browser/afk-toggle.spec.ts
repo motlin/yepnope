@@ -1,5 +1,6 @@
 import {resolve} from "node:path";
-import {expect, test, type Page, type Route} from "playwright/test";
+import {expect, test, type Page} from "playwright/test";
+import {fulfillJson} from "./helpers";
 
 const screenshotDirectory = resolve(import.meta.dirname, "../../.llm/screenshots");
 
@@ -8,10 +9,6 @@ interface Color {
 	blue: number;
 	green: number;
 	red: number;
-}
-
-async function fulfillJson(route: Route, body: unknown): Promise<void> {
-	await route.fulfill({json: body});
 }
 
 function parseColor(value: string): Color {

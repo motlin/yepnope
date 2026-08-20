@@ -10,6 +10,7 @@ import {
 	TOOL_DESCRIPTION,
 	TOOL_INPUT_SCHEMA,
 } from "../../shim/tool";
+import {mailboxLink, sessionUser} from "./helpers";
 
 const serverOrigin = "https://localhost:4173";
 const issuer = `${serverOrigin}/api/auth`;
@@ -64,8 +65,6 @@ const oauthTokenSchema = z
 		token_type: z.literal("Bearer"),
 	})
 	.strict();
-const mailboxSchema = z.object({url: z.url()}).strict();
-const sessionSchema = z.object({user: z.object({id: z.string().min(1)}).loose()}).loose();
 const authorizationMetadataSchema = z
 	.object({
 		authorization_endpoint: z.url(),
@@ -119,21 +118,6 @@ async function authorizationUrl(clientId: string, callback: string, verifier: st
 		scope: scopes.join(" "),
 		state,
 	})}`;
-}
-
-async function mailboxLink(request: APIRequestContext, subject = verificationSubject): Promise<string> {
-	await expect
-		.poll(async () => {
-			const response = await request.get("/api/__e2e__/mailbox", {
-				params: {email, subject},
-			});
-			return response.status();
-		})
-		.toBe(200);
-	const response = await request.get("/api/__e2e__/mailbox", {
-		params: {email, subject},
-	});
-	return mailboxSchema.parse(await response.json()).url;
 }
 
 async function captureConsentCallback(page: Page, callback: string, buttonName: "Allow" | "Cancel"): Promise<URL> {
@@ -384,18 +368,15 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		await page.getByLabel("Password").fill(password);
 		await page.getByRole("button", {name: "Create account"}).click();
 		await expect(page.getByRole("heading", {name: "Verify your email"})).toBeVisible();
-		const verificationLink = await mailboxLink(request);
+		const verificationLink = await mailboxLink(request, verificationSubject, email);
 		await page.goto(verificationLink);
-		const sessionResponse = await page.request.get("/api/auth/get-session");
-		const session = sessionSchema.parse(await sessionResponse.json());
+		const verifiedUser = await sessionUser(page);
 		expect({
 			cookieNames: (await context.cookies()).map(({name}) => name),
-			sessionUserIdPresent: session.user.id.length > 0,
-			sessionStatus: sessionResponse.status(),
+			sessionUserIdPresent: verifiedUser.id.length > 0,
 		}).toStrictEqual({
 			cookieNames: ["__Secure-better-auth.session_token"],
 			sessionUserIdPresent: true,
-			sessionStatus: 200,
 		});
 		const sessionCookie = (await context.cookies()).find(
 			(cookie) => cookie.name === "__Secure-better-auth.session_token",
@@ -621,7 +602,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		await expect(secondPage.getByRole("status")).toHaveText(
 			"If recovery is available for that address, check its inbox for next steps.",
 		);
-		await secondPage.goto(await mailboxLink(request, resetSubject));
+		await secondPage.goto(await mailboxLink(request, resetSubject, email));
 		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
 		await secondPage.getByLabel("New password").fill(recoveryPassword);
 		let consentSubmissions = 0;
@@ -675,7 +656,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		await secondPage.waitForTimeout(3_000);
 		expect(unauthorizedReconnects).toBe(0);
 		const deletedState = await request.post("/api/__e2e__/deleted-account", {
-			data: {user_id: session.user.id},
+			data: {user_id: verifiedUser.id},
 		});
 		expect({body: await deletedState.json(), status: deletedState.status()}).toStrictEqual({
 			body: {cleanup_completed: 1, identity_deleted: 1, machine_tokens: 0, oauth_clients: 0, users: 0},

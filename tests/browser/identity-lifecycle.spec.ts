@@ -1,11 +1,5 @@
-import {
-	expect,
-	test,
-	type APIRequestContext,
-	type BrowserContext,
-	type Page,
-	type WebSocketRoute,
-} from "playwright/test";
+import {expect, test, type BrowserContext, type Page, type WebSocketRoute} from "playwright/test";
+import {mailboxLink, sessionUserId} from "./helpers";
 
 const email = "alice-browser-test@example.com";
 const originalPassword = "browser-test-original-password";
@@ -13,37 +7,12 @@ const replacementPassword = "browser-test-replacement-password";
 const verificationSubject = "Verify your YepNope email";
 const resetSubject = "Reset your YepNope password";
 
-interface MailboxResponse {
-	url: string;
-}
-
-interface SessionResponse {
-	user: {id: string};
-}
-
 async function signIn(page: Page, password: string): Promise<void> {
 	await page.goto("/sign-in");
 	await page.getByRole("textbox", {name: "Email"}).fill(email);
 	await page.getByLabel("Password").fill(password);
 	await page.getByRole("button", {name: "Sign in", exact: true}).click();
 	await expect(page).toHaveURL(/\/settings$/);
-}
-
-async function mailboxLink(request: APIRequestContext, subject: string, recipient = email): Promise<string> {
-	await expect
-		.poll(async () => {
-			const response = await request.get("/api/__e2e__/mailbox", {params: {email: recipient, subject}});
-			return response.status();
-		})
-		.toBe(200);
-	const response = await request.get("/api/__e2e__/mailbox", {params: {email: recipient, subject}});
-	return ((await response.json()) as MailboxResponse).url;
-}
-
-async function sessionUserId(page: Page): Promise<string> {
-	const response = await page.request.get("/api/auth/get-session");
-	expect(response.status()).toBe(200);
-	return ((await response.json()) as SessionResponse).user.id;
 }
 
 async function activitySummary(page: Page): Promise<{body: unknown; status: number}> {
@@ -127,7 +96,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		const verificationContext = await browser.newContext({ignoreHTTPSErrors: true});
 		contexts.push(verificationContext);
 		const verificationPage = await verificationContext.newPage();
-		await verificationPage.goto(await mailboxLink(request, verificationSubject));
+		await verificationPage.goto(await mailboxLink(request, verificationSubject, email));
 		await expect(verificationPage).toHaveURL(/\/$/);
 		await expect(verificationPage.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
 		await verificationPage.getByRole("button", {name: "Settings"}).click();
@@ -261,7 +230,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await expect(secondPage.getByRole("status")).toHaveText(
 			"If recovery is available for that address, check its inbox for next steps.",
 		);
-		const resetLink = await mailboxLink(request, resetSubject);
+		const resetLink = await mailboxLink(request, resetSubject, email);
 		await secondPage.goto(resetLink);
 		await expect(secondPage.getByRole("heading", {name: "Choose a new password"})).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);

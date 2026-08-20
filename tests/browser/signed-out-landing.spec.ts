@@ -1,10 +1,7 @@
-import {expect, test, type Page, type Route, type WebSocketRoute} from "playwright/test";
+import {expect, test, type Page, type WebSocketRoute} from "playwright/test";
+import {fulfillJson} from "./helpers";
 
 const signedOutCopy = "Sign in to answer questions from your coding agents, or create an account to get started.";
-
-async function fulfillJson(route: Route, body: unknown, status = 200): Promise<void> {
-	await route.fulfill({json: body, status});
-}
 
 async function assertSignedOutLanding(page: Page): Promise<void> {
 	expect(

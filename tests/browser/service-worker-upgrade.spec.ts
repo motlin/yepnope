@@ -1,6 +1,7 @@
 import {spawnSync} from "node:child_process";
 import {resolve} from "node:path";
-import {expect, test, type Page, type Route} from "playwright/test";
+import {expect, test, type Page} from "playwright/test";
+import {fulfillJson} from "./helpers";
 
 const repositoryDirectory = resolve(import.meta.dirname, "../..");
 
@@ -13,10 +14,6 @@ function buildApplicationVersion(version: string): void {
 	if (result.status !== 0) {
 		throw new Error(`version ${version} build failed\n${result.stdout}\n${result.stderr}`);
 	}
-}
-
-async function fulfillJson(route: Route, body: unknown): Promise<void> {
-	await route.fulfill({json: body});
 }
 
 async function routeAuthenticatedApplication(page: Page): Promise<void> {

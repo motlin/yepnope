@@ -1,36 +1,12 @@
 import {expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page} from "playwright/test";
+import {mailboxLink, sessionEmail} from "./helpers";
 
 const magicLinkSubject = "Sign in to YepNope";
 const verificationSubject = "Verify your YepNope email";
 const passkeyPassword = "browser-test-passkey-password";
 
-interface MailboxResponse {
-	url: string;
-}
-
-interface SessionResponse {
-	user: {email: string};
-}
-
 function uniqueEmail(prefix: string): string {
 	return `${prefix}-${crypto.randomUUID()}@example.com`;
-}
-
-async function mailboxLink(request: APIRequestContext, subject: string, recipient: string): Promise<string> {
-	await expect
-		.poll(async () => {
-			const response = await request.get("/api/__e2e__/mailbox", {params: {email: recipient, subject}});
-			return response.status();
-		})
-		.toBe(200);
-	const response = await request.get("/api/__e2e__/mailbox", {params: {email: recipient, subject}});
-	return ((await response.json()) as MailboxResponse).url;
-}
-
-async function sessionEmail(page: Page): Promise<string> {
-	const response = await page.request.get("/api/auth/get-session");
-	expect(response.status()).toBe(200);
-	return ((await response.json()) as SessionResponse).user.email;
 }
 
 // Chrome's virtual authenticator stands in for a platform authenticator so the real WebAuthn

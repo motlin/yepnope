@@ -1,11 +1,8 @@
 import {resolve} from "node:path";
-import {expect, test, type Page, type Route} from "playwright/test";
+import {expect, test, type Page} from "playwright/test";
+import {fulfillJson} from "./helpers";
 
 const screenshotDirectory = resolve(import.meta.dirname, "../../.llm/screenshots");
-
-async function fulfillJson(route: Route, body: unknown): Promise<void> {
-	await route.fulfill({json: body});
-}
 
 async function routeSettingsData(page: Page): Promise<void> {
 	await page.route("**/api/auth/get-session", async (route) =>
