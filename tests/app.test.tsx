@@ -326,6 +326,98 @@ describe("OAuth consent continuity", () => {
 		});
 	});
 
+	it("hands the browser back to the client without delaying or rewriting the callback redirect", async () => {
+		const callback = "http://127.0.0.1:57015/callback/4FAwZNJbSB0T?code=authorization-code&state=client-state";
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions",
+			sig: "signed-authorization-request",
+		}).toString();
+		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
+		submitOAuthConsent.mockResolvedValue(callback);
+		const assign = interceptNavigation();
+
+		render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Allow"}));
+
+		const handoff = await screen.findByRole("status");
+		expect({
+			assignCalls: assign.mock.calls,
+			consentCalls: vi.mocked(submitOAuthConsentApi).mock.calls,
+			handoff: handoff.textContent,
+			heading: screen.getByRole("heading", {level: 1}).textContent,
+			remainingActions: [
+				screen.queryByRole("button", {name: "Allow"}),
+				screen.queryByRole("button", {name: "Cancel"}),
+			],
+		}).toStrictEqual({
+			assignCalls: [[callback]],
+			consentCalls: [[oauthQuery, true]],
+			handoff:
+				"YepNope sent your approval back to Codex." +
+				"You can close this tab once Codex confirms the connection in your terminal.",
+			heading: "Connection authorized",
+			remainingActions: [null, null],
+		});
+	});
+
+	it("states the declined outcome instead of a success handoff", async () => {
+		const callback = "http://127.0.0.1:57015/callback/4FAwZNJbSB0T?error=access_denied&state=client-state";
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions",
+			sig: "signed-authorization-request",
+		}).toString();
+		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
+		submitOAuthConsent.mockResolvedValue(callback);
+		const assign = interceptNavigation();
+
+		render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Cancel"}));
+
+		const handoff = await screen.findByRole("status");
+		expect({
+			assignCalls: assign.mock.calls,
+			handoff: handoff.textContent,
+			heading: screen.getByRole("heading", {level: 1}).textContent,
+		}).toStrictEqual({
+			assignCalls: [[callback]],
+			handoff:
+				"YepNope told Codex you declined the connection." +
+				"You can close this tab and go back to your terminal.",
+			heading: "Connection declined",
+		});
+	});
+
+	it("keeps the authorization surface when the request continues on YepNope", async () => {
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions",
+			sig: "signed-authorization-request",
+		}).toString();
+		window.history.replaceState({}, "", `/oauth/consent?${oauthQuery}`);
+		submitOAuthConsent.mockResolvedValue(`/oauth/consent?${oauthQuery}&prompt=consent`);
+		const assign = interceptNavigation();
+
+		render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Allow"}));
+
+		await waitFor(() => {
+			expect(window.location.search).toBe(`?${oauthQuery}&prompt=consent`);
+		});
+		expect({
+			assignCalls: assign.mock.calls,
+			handoff: screen.queryByRole("status"),
+			heading: screen.getByRole("heading", {level: 1}).textContent,
+		}).toStrictEqual({assignCalls: [], handoff: null, heading: "Authorize MCP client"});
+	});
+
 	it("rejects unsupported scope and resource requests before loading client metadata", async () => {
 		const oauthQuery = new URLSearchParams({
 			client_id: "oauth-client",
@@ -1176,7 +1268,17 @@ describe("Better Auth account routes", () => {
 });
 
 // jsdom's `location.assign` is non-configurable, so swap in a live-reading stand-in for the test.
-const LIVE_LOCATION_PROPERTIES = ["hash", "host", "hostname", "href", "origin", "pathname", "port", "protocol"];
+const LIVE_LOCATION_PROPERTIES = [
+	"hash",
+	"host",
+	"hostname",
+	"href",
+	"origin",
+	"pathname",
+	"port",
+	"protocol",
+	"search",
+];
 
 function interceptNavigation(): ReturnType<typeof vi.fn> {
 	const assign = vi.fn<(_url: string) => void>();

@@ -41,6 +41,31 @@ Client ID Metadata Documents were not selected. Better Auth 1.7 supports CIMD th
 
 References: [Better Auth MCP](https://www.better-auth.com/docs/plugins/mcp), [MCP TypeScript SDK v2 serving](https://ts.sdk.modelcontextprotocol.io/v2/serving/http), and [Codex MCP](https://developers.openai.com/codex/mcp/).
 
+## Where YepNope's surfaces stop
+
+Verified 2026-08-20 with `codex-cli 0.148.0` against this fixture on port `37891`, driving a real `codex mcp login`.
+
+The browser sequence is authorize, then the authorization server's own sign-in page, then its consent page, then a redirect to the loopback redirect URI Codex registered for this login. That redirect carries `code`, `iss`, and `state` to `http://127.0.0.1:<ephemeral-port>/callback/<stable-suffix>`, and the response comes from Codex:
+
+```http
+HTTP/1.1 200 OK
+Server: tiny-http (Rust)
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 51
+
+Authentication complete. You may close this window.
+```
+
+That page is not HTML, is not served by YepNope, and carries no YepNope-controlled bytes. The string is compiled into the Codex binary next to `rmcp-client/src/perform_oauth_login.rs`. YepNope cannot brand or style it, and must not try: substituting a YepNope page, or bouncing through one, would move the authorization code off the exact registered redirect and break PKCE and state validation for no user-visible gain.
+
+The last surface YepNope owns is `/oauth/consent`. After a decision it renders `OAuthHandoffPanel`, which names the client, says whether the connection was authorized or declined, and tells the user they can close the tab. It renders while the browser is already navigating to the client's callback, so it adds no delay to code delivery. `tests/browser/oauth-consent-layout.spec.ts` covers both surfaces at desktop and narrow-phone sizes.
+
+The redirect target and callback response above were confirmed against this local fixture. The production authorization server issues the same redirect shape, and the callback response is produced entirely by the local Codex process, so it does not vary by authorization server.
+
+### Smallest actionable upstream request
+
+Codex answers its own callback with `200 text/plain` and no `Cache-Control`, and leaves the authorization code and state in the browser's address bar and history. A minimal upstream change would send `Cache-Control: no-store` on that response and return a small HTML body that calls `history.replaceState` to drop the query string. Neither touches the protocol, the redirect URI, nor the timing of the code exchange.
+
 ## Repeatable checks
 
 ```sh

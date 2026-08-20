@@ -597,6 +597,27 @@ body {
 	color: #eceef2;
 }
 
+.oauth-handoff {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	border-radius: 10px;
+	background: #141519;
+	padding: 14px;
+}
+
+.oauth-handoff strong {
+	color: #eceef2;
+	font-size: 15px;
+	line-height: 1.35;
+}
+
+.oauth-handoff span {
+	color: #aeb4be;
+	font-size: 13px;
+	line-height: 1.45;
+}
+
 .hint {
 	background: #1d1f24;
 	border: 1px solid #2a2d33;

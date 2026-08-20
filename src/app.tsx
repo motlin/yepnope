@@ -227,14 +227,16 @@ function oauthCallbackPath(oauthQuery: string): string {
 	return `/sign-in?${oauthQuery}`;
 }
 
-function followOAuthRedirect(url: string): void {
+/** Returns true when the browser leaves YepNope for the requesting client. */
+function followOAuthRedirect(url: string): boolean {
 	const target = new URL(url, window.location.origin);
 	if (target.origin === window.location.origin && viewFromPath(target.pathname) === "oauth-consent") {
 		window.history.replaceState({}, "", `${target.pathname}${target.search}`);
 		window.dispatchEvent(new PopStateEvent("popstate"));
-		return;
+		return false;
 	}
 	window.location.assign(target.href);
+	return true;
 }
 
 const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
@@ -1056,6 +1058,38 @@ function grantedScopeSummary(scopes: string[]): string {
 		.join(", ");
 }
 
+type OAuthHandoff = "allowed" | "declined";
+
+interface OAuthHandoffPanelProps {
+	clientName: string;
+	handoff: OAuthHandoff;
+}
+
+/**
+ * The page that ends an MCP authorization is served by the client's own loopback callback, so this
+ * panel is the last surface YepNope owns. The browser is already navigating to the client while it
+ * renders; nothing here delays, replaces, or inspects the authorization response.
+ */
+function OAuthHandoffPanel({clientName, handoff}: OAuthHandoffPanelProps): ReactElement {
+	const allowed = handoff === "allowed";
+	return (
+		<AccountPanel title={allowed ? "Connection authorized" : "Connection declined"}>
+			<div className="oauth-handoff" role="status">
+				<strong>
+					{allowed
+						? `YepNope sent your approval back to ${clientName}.`
+						: `YepNope told ${clientName} you declined the connection.`}
+				</strong>
+				<span>
+					{allowed
+						? `You can close this tab once ${clientName} confirms the connection in your terminal.`
+						: "You can close this tab and go back to your terminal."}
+				</span>
+			</div>
+		</AccountPanel>
+	);
+}
+
 function OAuthConsent(): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
 	const parameters = new URLSearchParams(oauthQuery ?? "");
@@ -1075,6 +1109,7 @@ function OAuthConsent(): ReactElement {
 	const [client, setClient] = useState<OAuthClientSummary | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
+	const [handoff, setHandoff] = useState<OAuthHandoff | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -1106,11 +1141,17 @@ function OAuthConsent(): ReactElement {
 		setSubmitting(true);
 		setError(null);
 		try {
-			followOAuthRedirect(await submitOAuthConsent(oauthQuery, accept));
+			if (followOAuthRedirect(await submitOAuthConsent(oauthQuery, accept))) {
+				setHandoff(accept ? "allowed" : "declined");
+			}
 		} catch (caught) {
 			setError(errorMessage(caught));
 			setSubmitting(false);
 		}
+	}
+
+	if (handoff !== null) {
+		return <OAuthHandoffPanel clientName={client?.name ?? "the MCP client"} handoff={handoff} />;
 	}
 
 	return (
