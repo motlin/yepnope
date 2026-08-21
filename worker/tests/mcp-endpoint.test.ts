@@ -11,7 +11,7 @@ import {
 	TOOL_DESCRIPTION,
 	TOOL_INPUT_SCHEMA,
 } from "../ask-tool";
-import {API_ORIGIN, createVerifiedBrowserSession, required, worker} from "./helpers";
+import {API_ORIGIN, createVerifiedBrowserSession, questionOutcomes, required, worker} from "./helpers";
 import {authorizeMcpHostClient} from "./oauth-client-helpers";
 
 const ISSUER = `${API_ORIGIN}/api/auth`;
@@ -215,7 +215,7 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		const questions = await waitForQuestionCount(bob.userId, 3);
 		expect(await env.USER_DO.getByName(alice.userId).getCurrentQuestions()).toStrictEqual([]);
 		expect(
-			questions.map(({body, branch, directory, position, project, repo, title, worktree}) => ({
+			questions.map(({body, branch, directory, position, project, repo, title}) => ({
 				body,
 				branch,
 				directory,
@@ -223,7 +223,6 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 				project,
 				repo,
 				title,
-				worktree,
 			})),
 		).toStrictEqual([
 			{
@@ -234,7 +233,6 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 				project: "Example project",
 				repo: null,
 				title: "Ship it?",
-				worktree: null,
 			},
 			{
 				body: "The legacy path is still in use.",
@@ -244,7 +242,6 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 				project: "Example project",
 				repo: null,
 				title: "Delete it?",
-				worktree: null,
 			},
 			{
 				body: "The optional migration can wait.",
@@ -254,7 +251,6 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 				project: "Example project",
 				repo: null,
 				title: "Migrate it?",
-				worktree: null,
 			},
 		]);
 		await bobStub.submitAnswers([
@@ -270,15 +266,7 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			),
 		);
 		expect(await bobStub.getCurrentQuestions()).toStrictEqual([]);
-		expect(await bobStub.getActivitySummary()).toStrictEqual({
-			expired: 0,
-			nope: 1,
-			outstanding: 0,
-			retracted: 0,
-			skip: 1,
-			total_questions: 3,
-			yep: 1,
-		});
+		expect(await questionOutcomes(bob.userId)).toStrictEqual(["nope", "skip", "yep"]);
 	});
 
 	it("records why a token was refused without varying the refusal it puts on the wire", async () => {
@@ -439,15 +427,7 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		controller.abort();
 		await cancelledResponse.text().catch(() => "cancelled");
 		await waitForQuestionCount(cancelledGrant.userId, 0);
-		expect(await cancelledStub.getActivitySummary()).toStrictEqual({
-			expired: 0,
-			nope: 0,
-			outstanding: 0,
-			retracted: 3,
-			skip: 0,
-			total_questions: 3,
-			yep: 0,
-		});
+		expect(await questionOutcomes(cancelledGrant.userId)).toStrictEqual(["retracted", "retracted", "retracted"]);
 
 		const timedOutGrant = await issueGrant("mcp-timeout-alice@example.com");
 		const timedOutStub = env.USER_DO.getByName(timedOutGrant.userId);
@@ -458,14 +438,6 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			strictTextResponse("The ask_yep_nope call timed out before every question was answered.", true),
 		);
 		expect(await timedOutStub.getCurrentQuestions()).toStrictEqual([]);
-		expect(await timedOutStub.getActivitySummary()).toStrictEqual({
-			expired: 0,
-			nope: 0,
-			outstanding: 0,
-			retracted: 3,
-			skip: 0,
-			total_questions: 3,
-			yep: 0,
-		});
+		expect(await questionOutcomes(timedOutGrant.userId)).toStrictEqual(["retracted", "retracted", "retracted"]);
 	});
 });

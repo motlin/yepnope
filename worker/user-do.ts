@@ -1,6 +1,6 @@
 // fallow-ignore-file unused-class-member -- RPC methods are invoked through DurableObjectStub, which fallow cannot trace
 import {DurableObject} from "cloudflare:workers";
-import {and, asc, count, eq, inArray, isNull, lte, min, sql} from "drizzle-orm";
+import {and, asc, eq, inArray, isNull, lte, min, sql} from "drizzle-orm";
 import {drizzle, type DrizzleSqliteDODatabase} from "drizzle-orm/durable-sqlite";
 import {migrate} from "drizzle-orm/durable-sqlite/migrator";
 import {z} from "zod";
@@ -28,7 +28,6 @@ export interface CurrentQuestion {
 	project: string;
 	repo: string | null;
 	branch: string | null;
-	worktree: string | null;
 	directory: string | null;
 	questionId: string;
 	position: number;
@@ -42,7 +41,6 @@ export interface CurrentQuestionPayload {
 	project: string;
 	repo: string | null;
 	branch: string | null;
-	worktree: string | null;
 	directory: string | null;
 	question_id: string;
 	position: number;
@@ -60,16 +58,6 @@ export interface CurrentDeckState {
 
 interface ConnectedMcpClientAuthorizationState {
 	activeClientCount: number;
-}
-
-export interface ActivitySummary {
-	total_questions: number;
-	outstanding: number;
-	yep: number;
-	nope: number;
-	skip: number;
-	retracted: number;
-	expired: number;
 }
 
 export type AfkUpdateResult =
@@ -184,7 +172,6 @@ export class UserDurableObject extends DurableObject<Env> {
 					project: request.project,
 					repo: request.repo ?? null,
 					branch: request.branch ?? null,
-					worktree: request.worktree ?? null,
 					directory: request.directory ?? null,
 					createdAt: now,
 					lastHeartbeatAt: now,
@@ -291,7 +278,6 @@ export class UserDurableObject extends DurableObject<Env> {
 				project: batches.project,
 				repo: batches.repo,
 				branch: batches.branch,
-				worktree: batches.worktree,
 				directory: batches.directory,
 				questionId: questions.id,
 				position: questions.position,
@@ -321,7 +307,6 @@ export class UserDurableObject extends DurableObject<Env> {
 				project: question.project,
 				repo: question.repo,
 				branch: question.branch,
-				worktree: question.worktree,
 				directory: question.directory,
 				question_id: question.questionId,
 				position: question.position,
@@ -330,49 +315,6 @@ export class UserDurableObject extends DurableObject<Env> {
 				created_at: question.createdAt,
 			})),
 		};
-	}
-
-	async getActivitySummary(): Promise<ActivitySummary> {
-		await this.initialize();
-		const summary: ActivitySummary = {
-			total_questions: 0,
-			outstanding: 0,
-			yep: 0,
-			nope: 0,
-			skip: 0,
-			retracted: 0,
-			expired: 0,
-		};
-		const rows = await this.database
-			.select({outcome: questionActivity.outcome, total: count()})
-			.from(questionActivity)
-			.groupBy(questionActivity.outcome);
-		for (const row of rows) {
-			switch (row.outcome) {
-				case "outstanding":
-					summary.outstanding = row.total;
-					break;
-				case "yep":
-					summary.yep = row.total;
-					break;
-				case "nope":
-					summary.nope = row.total;
-					break;
-				case "skip":
-					summary.skip = row.total;
-					break;
-				case "retracted":
-					summary.retracted = row.total;
-					break;
-				case "expired":
-					summary.expired = row.total;
-					break;
-				default:
-					throw new Error(`unknown activity outcome: ${row.outcome}`);
-			}
-			summary.total_questions += row.total;
-		}
-		return summary;
 	}
 
 	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {

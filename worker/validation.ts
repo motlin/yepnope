@@ -32,7 +32,6 @@ export const createBatchRequestSchema = z.object({
 	project: z.string().min(1).max(TITLE_MAX_CHARACTERS),
 	repo: contextFieldSchema,
 	branch: contextFieldSchema,
-	worktree: contextFieldSchema,
 	directory: contextFieldSchema,
 	questions: z.array(questionInputSchema).min(1),
 });

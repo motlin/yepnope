@@ -15,9 +15,14 @@ async function signIn(page: Page, password: string): Promise<void> {
 	await expect(page).toHaveURL(/\/settings$/);
 }
 
-async function activitySummary(page: Page): Promise<{body: unknown; status: number}> {
-	const response = await page.request.get("/api/v1/activity-summary");
-	return {body: await response.json(), status: response.status()};
+/**
+ * 🗂️ What the server still considers unanswered. Titles rather than counts, so a poll says which
+ * question is outstanding instead of only how many are.
+ */
+async function outstandingTitles(page: Page): Promise<{status: number; titles: string[]}> {
+	const response = await page.request.get("/api/v1/current-deck");
+	const body = (await response.json()) as {current_deck: Array<{title: string}>};
+	return {status: response.status(), titles: body.current_deck.map(({title}) => title)};
 }
 
 async function answerCurrentCard(page: Page, buttonName: string, nextHeading: string): Promise<void> {
@@ -164,40 +169,12 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await firstPage.getByRole("button", {name: "Undo skip"}).click();
 		await expect(firstPage.getByRole("heading", {name: "Defer the optional browser test?"})).toBeVisible();
 		await expect
-			.poll(async () => activitySummary(firstPage))
-			.toStrictEqual({
-				body: {
-					activity_summary: {
-						expired: 0,
-						nope: 1,
-						outstanding: 1,
-						retracted: 0,
-						skip: 0,
-						total_questions: 3,
-						yep: 1,
-					},
-				},
-				status: 200,
-			});
+			.poll(async () => outstandingTitles(firstPage))
+			.toStrictEqual({status: 200, titles: ["Defer the optional browser test?"]});
 
 		await answerCurrentCard(firstPage, "↓ Skip", "All caught up");
 		await expect(firstPage.getByRole("button", {name: "Undo skip"})).toBeHidden({timeout: 15_000});
-		await expect
-			.poll(async () => activitySummary(firstPage))
-			.toStrictEqual({
-				body: {
-					activity_summary: {
-						expired: 0,
-						nope: 1,
-						outstanding: 0,
-						retracted: 0,
-						skip: 1,
-						total_questions: 3,
-						yep: 1,
-					},
-				},
-				status: 200,
-			});
+		await expect.poll(async () => outstandingTitles(firstPage)).toStrictEqual({status: 200, titles: []});
 
 		const failureContext = await browser.newContext({ignoreHTTPSErrors: true});
 		contexts.push(failureContext);

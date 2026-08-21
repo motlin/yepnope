@@ -141,7 +141,6 @@ describe("GET /api/v1/current-deck", () => {
 					question_id: created.question_ids[0],
 					repo: null,
 					title: "First?",
-					worktree: null,
 				},
 				{
 					batch_id: created.batch_id,
@@ -154,18 +153,16 @@ describe("GET /api/v1/current-deck", () => {
 					question_id: created.question_ids[1],
 					repo: null,
 					title: "Second?",
-					worktree: null,
 				},
 			],
 		});
 	});
 
-	it("round-trips repo, branch, worktree, and directory to the card list", async () => {
+	it("round-trips repo, branch, and directory to the card list", async () => {
 		const token = await authorizeAgentClient("user-git-context");
 		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}], {
 			repo: "github.com/acme/rocket",
 			branch: "migrate-build",
-			worktree: "/w/rocket",
 			directory: "/w/rocket/core",
 		});
 
@@ -185,7 +182,6 @@ describe("GET /api/v1/current-deck", () => {
 				created_at: expect.any(Number) as number,
 				repo: "github.com/acme/rocket",
 				branch: "migrate-build",
-				worktree: "/w/rocket",
 				directory: "/w/rocket/core",
 			},
 		]);
@@ -213,7 +209,6 @@ describe("GET /api/v1/current-deck", () => {
 				created_at: expect.any(Number) as number,
 				repo: null,
 				branch: "migrate-build",
-				worktree: null,
 				directory: null,
 			},
 		]);
@@ -238,7 +233,6 @@ describe("GET /api/v1/current-deck", () => {
 				created_at: expect.any(Number) as number,
 				repo: null,
 				branch: null,
-				worktree: null,
 				directory: null,
 			},
 		]);
@@ -296,7 +290,6 @@ describe("GET /api/v1/current-deck/stream", () => {
 					project: "demo",
 					repo: null,
 					branch: null,
-					worktree: null,
 					directory: null,
 					question_id: created.question_ids[0],
 					position: 0,
@@ -309,7 +302,6 @@ describe("GET /api/v1/current-deck/stream", () => {
 					project: "demo",
 					repo: null,
 					branch: null,
-					worktree: null,
 					directory: null,
 					question_id: created.question_ids[1],
 					position: 1,
@@ -336,7 +328,6 @@ describe("GET /api/v1/current-deck/stream", () => {
 					project: "demo",
 					repo: null,
 					branch: null,
-					worktree: null,
 					directory: null,
 					question_id: created.question_ids[1],
 					position: 1,

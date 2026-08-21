@@ -2,13 +2,21 @@ import {runDurableObjectAlarm, runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import {HEARTBEAT_GRACE_MILLISECONDS, RETENTION_MILLISECONDS} from "../validation";
-import {API_ORIGIN, createBatchOverHttp, postAnswers, authorizeAgentClient, required, worker} from "./helpers";
+import {
+	API_ORIGIN,
+	authorizeAgentClient,
+	createBatchOverHttp,
+	postAnswers,
+	questionOutcomes,
+	required,
+	worker,
+} from "./helpers";
 
-describe("current deck and activity summary", () => {
+describe("current deck and durable question activity", () => {
 	it("keeps durable outcomes consistent when current batches are answered, skipped, retracted, or expired", async () => {
 		const userId = "activity-all-outcomes";
 		const token = await authorizeAgentClient(userId);
-		const unauthorized = await worker.fetch(`${API_ORIGIN}/api/v1/activity-summary`);
+		const unauthorized = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck`);
 		expect({body: await unauthorized.text(), status: unauthorized.status}).toStrictEqual({body: "", status: 401});
 		const answered = await createBatchOverHttp(token, "answered", [{title: "Approve?", body: ""}]);
 		const skipped = await createBatchOverHttp(token, "skipped", [{title: "Decide later?", body: ""}]);
@@ -55,54 +63,14 @@ describe("current deck and activity summary", () => {
 						question_id: outstanding.question_ids[0],
 						repo: null,
 						title: "Answer this?",
-						worktree: null,
 					},
 				],
 			},
 			status: 200,
 		});
 
-		const summaryResponse = await worker.fetch(`${API_ORIGIN}/api/v1/activity-summary`, {
-			headers: {Authorization: `Bearer ${token}`},
-		});
-		const body = await summaryResponse.json<{
-			activity_summary: {
-				total_questions: number;
-				outstanding: number;
-				yep: number;
-				nope: number;
-				skip: number;
-				retracted: number;
-				expired: number;
-			};
-		}>();
-		expect({body, status: summaryResponse.status}).toStrictEqual({
-			body: {
-				activity_summary: {
-					total_questions: 5,
-					outstanding: 1,
-					yep: 1,
-					nope: 0,
-					skip: 1,
-					retracted: 1,
-					expired: 1,
-				},
-			},
-			status: 200,
-		});
-		const {total_questions: totalQuestions, ...outcomes} = body.activity_summary;
-		expect(Object.values(outcomes).reduce((total, count) => total + count, 0)).toBe(totalQuestions);
-
-		await runInDurableObject(stub, (_instance, state) => {
-			expect(
-				state.storage.sql.exec("SELECT outcome FROM question_activity ORDER BY outcome").toArray(),
-			).toStrictEqual([
-				{outcome: "expired"},
-				{outcome: "outstanding"},
-				{outcome: "retracted"},
-				{outcome: "skip"},
-				{outcome: "yep"},
-			]);
-		});
+		// 🧾 One row per question asked, and the deck above is the "outstanding" one. Answering,
+		// skipping, retracting, and expiring each leave their own mark and none of them lose a row.
+		expect(await questionOutcomes(userId)).toStrictEqual(["expired", "outstanding", "retracted", "skip", "yep"]);
 	});
 });

@@ -102,7 +102,6 @@ describe("heartbeat and delete (batch identifier option C)", () => {
 					project: "demo",
 					repo: null,
 					branch: null,
-					worktree: null,
 					directory: null,
 					question_id: created.question_ids[0],
 					position: 0,

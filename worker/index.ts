@@ -168,9 +168,6 @@ export default {
 		if (url.pathname === "/api/v1/current-deck" && request.method === "GET") {
 			return currentDeck(stub);
 		}
-		if (url.pathname === "/api/v1/activity-summary" && request.method === "GET") {
-			return Response.json({activity_summary: await stub.getActivitySummary()});
-		}
 		if (url.pathname === "/api/v1/answers" && request.method === "POST") {
 			return submitAnswers(request, stub);
 		}

@@ -1,7 +1,9 @@
+import {runInDurableObject} from "cloudflare:test";
 import {env, exports} from "cloudflare:workers";
 import {createAuthentication, createPasskeyAuthentication, type AuthenticationObservation} from "../auth";
 import {HUMAN_VERIFICATION_HEADER, HumanVerificationOutcome, type HumanVerificationVerifier} from "../turnstile";
 import {testTurnstileToken} from "../turnstile-test-siteverify";
+import type {UserDurableObject} from "../user-do";
 import type {CreateBatchRequest} from "../validation";
 import {authorizeDeviceClient} from "./oauth-client-helpers";
 
@@ -171,7 +173,7 @@ export interface CreatedBatchResponse {
 	question_ids: string[];
 }
 
-export type BatchGitContext = Pick<CreateBatchRequest, "repo" | "branch" | "worktree" | "directory">;
+export type BatchGitContext = Pick<CreateBatchRequest, "repo" | "branch" | "directory">;
 
 export async function createBatchOverHttp(
 	token: string,
@@ -199,6 +201,20 @@ export async function postAnswers(
 		headers: {Authorization: `Bearer ${token}`},
 		body: JSON.stringify({answers}),
 	});
+}
+
+/**
+ * 🧾 The durable outcome ledger, read straight from the row it lives in. Nothing in the product
+ * aggregates it, so a suite that wants to know what happened asks for the outcomes themselves
+ * rather than for counts some reporting layer derived.
+ */
+export async function questionOutcomes(userId: string): Promise<string[]> {
+	return runInDurableObject(env.USER_DO.getByName(userId), (_instance: UserDurableObject, state) =>
+		state.storage.sql
+			.exec<{outcome: string}>("SELECT outcome FROM question_activity ORDER BY outcome")
+			.toArray()
+			.map(({outcome}) => outcome),
+	);
 }
 
 export async function nextMessage(socket: WebSocket): Promise<string> {

@@ -21,7 +21,6 @@ export const batches = sqliteTable("batches", {
 	// hook-sourced and non-git batches.
 	repo: text("repo"),
 	branch: text("branch"),
-	worktree: text("worktree"),
 	directory: text("directory"),
 	createdAt: integer("created_at").notNull(),
 	lastHeartbeatAt: integer("last_heartbeat_at").notNull(),
@@ -53,5 +52,6 @@ export const questionActivity = sqliteTable("question_activity", {
 	outcomeAt: integer("outcome_at"),
 });
 
-// 🪦 `identity_merges` and `identity_merge_lock` survive in the immutable Durable Object
-// baseline, but the legacy-identity-claim flow is gone and no code reads them.
+// 🪦 `identity_merges`, `identity_merge_lock`, and `batches.worktree` survive in the immutable
+// Durable Object baseline, but the legacy-identity-claim flow is gone and no code reads them. The
+// worktree column never reached a card: the layout decision picked repo, branch, and directory.
