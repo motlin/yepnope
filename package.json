@@ -29,6 +29,8 @@
 		"smoke:skills-install": "node --experimental-strip-types scripts/skill-install-smoke.ts",
 		"smoke:codex-oauth": "node --experimental-strip-types scripts/codex-oauth-smoke.ts",
 		"smoke:verification-delivery": "node --experimental-strip-types scripts/verification-delivery-smoke.ts",
+		"check:deployment": "node --experimental-strip-types scripts/deployment-check.ts",
+		"enroll:deployment-passkey": "node --experimental-strip-types scripts/deployment-check.ts --enroll",
 		"admin:storage": "node scripts/admin-storage.ts",
 		"deploy:admin": "wrangler deploy --config wrangler.admin.jsonc --keep-vars",
 		"deploy": "vp build && wrangler deploy",

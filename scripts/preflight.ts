@@ -21,8 +21,13 @@ import {z} from "zod";
 /** The one origin this repository releases to. */
 export const PRODUCTION_HOSTNAME = "yepnope.app";
 
+/** The rehearsal deployment the release proves the core loop on before it touches production. */
+export const STAGING_CONFIG = "wrangler.staging.jsonc";
+
+const STAGING_PLACEHOLDER_HOSTNAME = "REPLACE_WITH_THE_STAGING_ORIGIN";
 const SECRET_LIST: readonly string[] = ["exec", "wrangler", "secret", "list", "--format", "json"];
 const BINDING_LIST: readonly string[] = ["exec", "wrangler", "deploy", "--dry-run"];
+const STAGING_BINDING_LIST: readonly string[] = [...BINDING_LIST, "--config", STAGING_CONFIG];
 
 export interface CommandResult {
 	code: number;
@@ -36,6 +41,7 @@ export interface PreflightDependencies {
 export interface PreflightReport {
 	bindings: readonly string[];
 	secrets: readonly string[];
+	staging: string;
 	target: string;
 }
 
@@ -208,6 +214,43 @@ function originProblem(bindings: ReadonlyMap<string, string | null>): string | n
 }
 
 /**
+ * 🎭 Where the release rehearses. `wrangler.staging.jsonc` deploys the same `worker/index.ts` onto
+ * its own database and its own Durable Object namespace, and the origin it answers on belongs to
+ * whoever owns the Cloudflare account, so it is read out of the configuration rather than guessed.
+ * A Worker refuses every token minted against an origin that is not its own, which is exactly why a
+ * placeholder here has to stop the release rather than produce a staging deployment that fails
+ * every sign-in.
+ */
+async function stagingDeploymentOrigin(dependencies: PreflightDependencies): Promise<string> {
+	const result = await dependencies.run("vp", STAGING_BINDING_LIST);
+	const cannotTell = "so this release cannot tell where to prove the core loop before deploying production";
+	if (result.code !== 0) {
+		throw new Error(
+			`\`wrangler deploy --dry-run --config ${STAGING_CONFIG}\` failed with exit code ${result.code}, ` +
+				cannotTell,
+		);
+	}
+	const printed = variableValue(parseBindings(result.output).get("BETTER_AUTH_URL"));
+	const hostname = originHostname(printed);
+	if (hostname === null) {
+		throw new Error(`${STAGING_CONFIG} declares no BETTER_AUTH_URL origin, ${cannotTell}`);
+	}
+	if (hostname.toUpperCase() === STAGING_PLACEHOLDER_HOSTNAME) {
+		throw new Error(
+			`${STAGING_CONFIG} still carries its placeholder origin. Deploy staging once with ` +
+				"`just deploy-staging`, then set BETTER_AUTH_URL to the origin Wrangler printed.",
+		);
+	}
+	if (hostname === PRODUCTION_HOSTNAME) {
+		throw new Error(
+			`${STAGING_CONFIG} points at ${PRODUCTION_HOSTNAME}, so the release would rehearse on production. ` +
+				"Staging has to be its own deployment, with its own database.",
+		);
+	}
+	return new URL(printed ?? "").origin;
+}
+
+/**
  * Checks one deployment against every name the Worker reads and returns what it found, or refuses
  * the release with all of the unmet requirements at once.
  */
@@ -242,6 +285,7 @@ export async function preflightDeployment(dependencies: PreflightDependencies): 
 	return {
 		bindings: [...bindings.keys()].sort(),
 		secrets: [...secrets].sort(),
+		staging: await stagingDeploymentOrigin(dependencies),
 		target: PRODUCTION_HOSTNAME,
 	};
 }

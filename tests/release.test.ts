@@ -54,10 +54,23 @@ const CONFIGURED_BINDINGS = ok(
 		'env.VAPID_SUBJECT ("mailto:push@yepnope.app")',
 	].join("\n"),
 );
-const PREFLIGHT = [CONFIGURED_SECRETS, CONFIGURED_BINDINGS];
+const STAGING_ORIGIN = "https://yepnope-staging.example.workers.dev";
+const STAGING_BINDINGS = ok(`env.BETTER_AUTH_URL ("${STAGING_ORIGIN}")`);
+const PREFLIGHT = [CONFIGURED_SECRETS, CONFIGURED_BINDINGS, STAGING_BINDINGS];
 const PREFLIGHT_CALLS = [
 	["vp", ["exec", "wrangler", "secret", "list", "--format", "json"]],
 	["vp", ["exec", "wrangler", "deploy", "--dry-run"]],
+	["vp", ["exec", "wrangler", "deploy", "--dry-run", "--config", "wrangler.staging.jsonc"]],
+];
+
+// 🎭 The rehearsal: this tree onto staging, then the one check that proves a question still reaches
+// a deck and comes back as an answer on a real deployment.
+const STAGING_DEPLOYED = ok("Uploaded yepnope-staging (3.10 sec)\nCurrent Version ID: 8f0b1a52-...\n");
+const CORE_LOOP_PROVEN = ok("1 passed (48.2s)\n");
+const REHEARSAL = [STAGING_DEPLOYED, CORE_LOOP_PROVEN];
+const REHEARSAL_CALLS = [
+	["vp", ["exec", "wrangler", "deploy", "--config", "wrangler.staging.jsonc"]],
+	["just", ["check-deployment", STAGING_ORIGIN]],
 ];
 
 function releaseRunner(results: CommandResult[]) {
@@ -94,6 +107,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			...REHEARSAL,
 			TAGGED,
 			DEPLOYED,
 			TAGGED,
@@ -110,6 +124,7 @@ describe("just release", () => {
 			...PLAN_CALLS,
 			...PREFLIGHT_CALLS,
 			["just", ["verify"]],
+			...REHEARSAL_CALLS,
 			["git", ["tag", "--annotate", TAG, "--message", PENDING_ANNOTATION]],
 			["vp", ["run", "deploy"]],
 			["git", ["tag", "--annotate", "--force", TAG, "--message", RELEASED_ANNOTATION]],
@@ -197,7 +212,58 @@ describe("just release", () => {
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
 			"refusing to release: the yepnope.app Worker is missing configuration it reads at runtime",
 		);
-		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ...PREFLIGHT_CALLS]);
+		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ...PREFLIGHT_CALLS.slice(0, 2)]);
+	});
+
+	it("stops before tagging when this tree cannot be deployed to staging", async () => {
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			FETCHED,
+			IN_SYNC,
+			HEAD_COMMIT,
+			UNUSED_TAG,
+			...PREFLIGHT,
+			VERIFIED,
+			{code: 1, output: "Authentication error [code: 10000]\n"},
+		]);
+
+		await expect(runRelease(dependencies(run))).rejects.toThrow(
+			`deploying this tree to ${STAGING_ORIGIN} failed with exit code 1, so the core loop could not be ` +
+				"proven; nothing was tagged or deployed",
+		);
+		expect(run.mock.calls).toStrictEqual([
+			...PLAN_CALLS,
+			...PREFLIGHT_CALLS,
+			["just", ["verify"]],
+			REHEARSAL_CALLS[0],
+		]);
+	});
+
+	it("stops before tagging when the core loop no longer works on a real deployment", async () => {
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			FETCHED,
+			IN_SYNC,
+			HEAD_COMMIT,
+			UNUSED_TAG,
+			...PREFLIGHT,
+			VERIFIED,
+			STAGING_DEPLOYED,
+			{code: 1, output: "1 failed\n  a deployed YepNope answers an authorized MCP client's question\n"},
+		]);
+
+		await expect(runRelease(dependencies(run))).rejects.toThrow(
+			`the core loop failed on ${STAGING_ORIGIN} with exit code 1, so this tree is not releasable; ` +
+				"nothing was tagged or deployed",
+		);
+		expect(run.mock.calls).toStrictEqual([
+			...PLAN_CALLS,
+			...PREFLIGHT_CALLS,
+			["just", ["verify"]],
+			...REHEARSAL_CALLS,
+		]);
 	});
 
 	it("deletes the local tag and never pushes when the deploy fails", async () => {
@@ -210,6 +276,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			...REHEARSAL,
 			TAGGED,
 			{code: 1, output: "Authentication error [code: 10000]\n"},
 			ok(`Deleted tag '${TAG}'\n`),
@@ -231,6 +298,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			...REHEARSAL,
 			TAGGED,
 			ok("Uploaded yepnope (4.21 sec)\n"),
 			ok(`Deleted tag '${TAG}'\n`),
@@ -253,6 +321,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			...REHEARSAL,
 			TAGGED,
 			DEPLOYED,
 			TAGGED,

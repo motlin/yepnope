@@ -15,6 +15,10 @@
 		"worker/admin.ts",
 		"worker/browser-e2e.ts",
 		"tests/browser/**/*.spec.ts",
+		// The deployed core-loop check runs against a Cloudflare deployment, not a local server, so
+		// it has its own Playwright config and is never reached from playwright.config.ts.
+		"playwright.deployed.config.ts",
+		"tests/deployed/**/*.spec.ts",
 		"worker/tests/**/*.test.ts",
 		"worker/tests/apply-migrations.ts",
 		"drizzle-do.config.ts",

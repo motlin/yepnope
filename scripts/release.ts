@@ -1,17 +1,18 @@
 import {spawn} from "node:child_process";
 import {pathToFileURL} from "node:url";
 // Node runs this file directly, so the relative import carries the extension TypeScript allows.
-import {preflightDeployment, PRODUCTION_HOSTNAME, type CommandResult} from "./preflight.ts";
+import {preflightDeployment, PRODUCTION_HOSTNAME, STAGING_CONFIG, type CommandResult} from "./preflight.ts";
 
 /**
- * 🚀 One-command production release: guard, preflight, verify, tag, deploy, push.
+ * 🚀 One-command production release: guard, preflight, verify, rehearse on staging, tag, deploy, push.
  *
  * A release is a git tag that names a Cloudflare deployment. The tag is cut before the deploy so the
  * deployed tree is exactly the tagged tree, and it is pushed only after Wrangler reports a Version
  * ID, which the annotation records. Every other outcome fails loudly: a dirty tree, a branch behind
  * its upstream, an already-released commit, a deployment missing a secret or binding the Worker
- * reads, a failed verify, or a deploy that never named a version all stop the release, and a deploy
- * that fails after tagging takes its unpushed tag down with it.
+ * reads, a failed verify, a core loop that no longer works on a real deployment, or a deploy that
+ * never named a version all stop the release, and a deploy that fails after tagging takes its
+ * unpushed tag down with it.
  *
  * `package.json` stays at 0.0.0 — nothing installs YepNope from a registry — so the release version
  * is the UTC date plus the short commit, which is unique per released commit and sorts by date.
@@ -108,11 +109,31 @@ export async function runRelease(dependencies: ReleaseDependencies): Promise<Rel
 
 	// 🚦 Before the expensive part, and long before anything is tagged: the repository can be
 	// perfect and the deployment still be unconfigured. See `scripts/preflight.ts`.
-	await preflightDeployment(dependencies);
+	const deployment = await preflightDeployment(dependencies);
 
 	const verify = await run("just", ["verify"]);
 	if (verify.code !== 0) {
 		throw new Error(`\`just verify\` failed with exit code ${verify.code}`);
+	}
+
+	// 🎭 Everything above is green in a process on this machine. The product is a question that
+	// leaves an agent, crosses Cloudflare, lands on a phone, and comes back as an answer, and no
+	// local suite can tell whether that still happens. So this tree is deployed to staging and the
+	// core loop is proven there — an OAuth-authorized MCP client, a blocking `ask_yep_nope`, a deck
+	// that answers it — before a tag exists or production is touched.
+	const stagingDeploy = await run("vp", ["exec", "wrangler", "deploy", "--config", STAGING_CONFIG]);
+	if (stagingDeploy.code !== 0) {
+		throw new Error(
+			`deploying this tree to ${deployment.staging} failed with exit code ${stagingDeploy.code}, ` +
+				"so the core loop could not be proven; nothing was tagged or deployed",
+		);
+	}
+	const coreLoop = await run("just", ["check-deployment", deployment.staging]);
+	if (coreLoop.code !== 0) {
+		throw new Error(
+			`the core loop failed on ${deployment.staging} with exit code ${coreLoop.code}, so this tree is not ` +
+				"releasable; nothing was tagged or deployed",
+		);
 	}
 
 	await git(dependencies, ["tag", "--annotate", plan.tag, "--message", pendingAnnotation(plan)]);

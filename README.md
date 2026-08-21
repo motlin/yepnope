@@ -441,6 +441,11 @@ response is byte-identical for all three.
 
 ### Verifying a deployment
 
+The core loop itself is covered by
+[the deployed check](#proving-the-core-loop-on-a-deployment), which `just release`
+runs against staging before it tags. What remains here is the signed-out
+authentication surface, which no robot can drive.
+
 After each deploy, exercise every advertised method against production once:
 sign in with email and password, request an emailed link and follow it,
 register and then use a passkey, and complete each configured provider's
@@ -470,14 +475,15 @@ every guard below.
 
 ```sh
 just release --dry-run   # print the guards, the preflight, and the tag a release would cut
-just release             # preflight, verify, tag, deploy, push
+just release             # preflight, verify, rehearse on staging, tag, deploy, push
 ```
 
 The recipe refuses to start on a dirty working tree, on a branch with no
 upstream, or on a branch behind its upstream. It then runs the deployment
-preflight below, runs `just verify`, cuts an annotated tag on the current
-commit, deploys with `vp run deploy`, rewrites the annotation with the
-Cloudflare Version ID that deploy reported, and pushes the tag last.
+preflight below, runs `just verify`, deploys the tree to staging and proves the
+core loop there, cuts an annotated tag on the current commit, deploys with
+`vp run deploy`, rewrites the annotation with the Cloudflare Version ID that
+deploy reported, and pushes the tag last.
 
 ### The deployment preflight
 
@@ -522,6 +528,77 @@ git show v2026.08.20-abc1234 --no-patch
 # Deployed commit abc1234 to yepnope.app.
 # cloudflare_version_id: 1d9f8b6a-4c2e-4f77-9b32-2f6c9c9c7a11
 ```
+
+### Proving the core loop on a deployment
+
+Everything else in this repository is green in a process on this machine. The
+unit suite, the workerd suite, and the browser suite all run against a loopback
+Worker whose mail and Siteverify are substituted, so none of them can tell
+whether a real Cloudflare deployment still does the one thing the product is
+for: carry a question from an agent, through OAuth and a Durable Object and a
+WebSocket, onto a phone, and back into the blocking tool call.
+
+`tests/deployed/core-loop.spec.ts` is the check that can. It runs against a
+deployed origin with no stand-ins — the deployment under test has no
+`/api/__e2e__` back door — and in one pass it:
+
+- reads the RFC 8414 and RFC 9728 metadata off the live origin;
+- registers an MCP client through Dynamic Client Registration, authorizes it on
+  the real consent page, and exchanges the code with PKCE;
+- connects a real Streamable HTTP MCP client over the public internet;
+- turns routing on, calls `ask_yep_nope` with a three-question batch, and
+  answers it with three swipes on the deck — Yep, Nope, Skip;
+- asserts the call is **still blocking** while the deck offers to undo the last
+  swipe, and that it returns only after that five-second window closes;
+- authorizes a second MCP client on the same account and answers its question
+  from a deck that was already open;
+- cancels a call and watches the card leave that already-open deck over the live
+  socket;
+- revokes both clients and turns routing back off.
+
+```sh
+just deploy-staging                    # deploy this tree to the staging Worker
+just check-deployment                  # prove the loop on $YEPNOPE_DEPLOYMENT_ORIGIN
+just check-deployment https://elsewhere.example.workers.dev
+```
+
+`just release` runs both of those for you, against staging, before it cuts a
+tag. A core loop that no longer works stops the release with nothing tagged and
+production untouched.
+
+**What a person has to do, once per deployment.** The signed-out surface is
+[Turnstile-gated](#human-verification-on-the-signed-out-pages) —
+create-account, password sign-in, emailed sign-in links, password reset, and
+verification resend — and finishing a registration means reading a message that
+was delivered to a real inbox. Neither is automatable, and nothing here weakens
+the gate to pretend otherwise. So:
+
+1. Create `wrangler.staging.jsonc`'s database with
+   `vp exec wrangler d1 create yepnope-staging`, paste the id it prints, apply
+   `worker/migrations/d1` to it with `--remote`, and set staging's own
+   `BETTER_AUTH_SECRET` and `VAPID_PRIVATE_JWK` secrets. A staging Turnstile
+   pair is optional: nothing the check does is behind the gate.
+2. `just deploy-staging`, then set `BETTER_AUTH_URL` in `wrangler.staging.jsonc`
+   to the origin Wrangler printed and deploy again. The preflight refuses to
+   release while that value is still its placeholder.
+3. Create one account on staging by hand, in a browser, and follow the
+   verification link.
+4. `just enroll-deployment-passkey`. It opens a window, waits for you to sign
+   in, registers one passkey against a Chrome virtual authenticator, and prints
+   the credential. Store it as `YEPNOPE_DEPLOYMENT_PASSKEY` and the staging
+   origin as `YEPNOPE_DEPLOYMENT_ORIGIN`.
+
+After that the check runs with nobody present. Passkey sign-in is the one
+authenticated entry point that is not Turnstile-gated, so each run signs itself
+in through the real WebAuthn ceremony — the deployment verifies the signature
+against the public key it recorded at enrollment; the only thing standing in for
+hardware is the authenticator holding the private key. There is no session to
+expire and no inbox to poll.
+
+The check refuses to run against `yepnope.app` unless
+`YEPNOPE_DEPLOYMENT_ALLOW_PRODUCTION=1` is set by name, because it turns routing
+on and answers the questions it asks — which on production happens on the real
+phone. `tests/deployment-check.test.ts` covers those refusals.
 
 Nothing partial survives. A failed `just verify` never tags. A failed deploy, or
 a deploy that prints no Version ID, deletes the unpushed tag and exits non-zero.

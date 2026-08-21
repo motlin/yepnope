@@ -1,0 +1,55 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// 🎭 Staging: the same `worker/index.ts` production runs, on its own D1 database and its own
+	// Durable Object namespace, so `just release` can prove the core loop on a real Cloudflare
+	// deployment before it tags or touches yepnope.app. See "Proving the core loop on a deployment"
+	// in README.md, which also lists the once-per-account setup a person has to do here.
+	//
+	// Two values below are placeholders that belong to whoever owns the Cloudflare account:
+	//   - "database_id": create the database with `vp exec wrangler d1 create yepnope-staging` and
+	//     paste the id it prints, then apply migrations with
+	//     `vp exec wrangler d1 migrations apply DB --config wrangler.staging.jsonc --remote`.
+	//   - "BETTER_AUTH_URL": the origin this Worker answers on. It is the account's own
+	//     workers.dev subdomain, and the Worker refuses tokens minted against any other origin, so
+	//     it cannot be guessed here.
+	// `scripts/preflight.ts` refuses a release while either is still the placeholder.
+	"name": "yepnope-staging",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-08-17",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"preview_urls": false,
+	"assets": {
+		"directory": "./dist",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*", "/.well-known/*", "/mcp"],
+	},
+	"durable_objects": {
+		"bindings": [{"name": "USER_DO", "class_name": "UserDurableObject"}],
+	},
+	"migrations": [{"tag": "v1", "new_sqlite_classes": ["UserDurableObject"]}],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "yepnope-staging",
+			"database_id": "REPLACE_WITH_THE_STAGING_D1_DATABASE_ID",
+			"migrations_dir": "worker/migrations/d1",
+		},
+	],
+	"send_email": [{"name": "EMAIL", "allowed_sender_addresses": ["accounts@yepnope.app"]}],
+	"rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
+	// Staging carries its own BETTER_AUTH_SECRET and VAPID_PRIVATE_JWK as Wrangler secrets, set with
+	// `vp exec wrangler secret put NAME --config wrangler.staging.jsonc`. Its Turnstile pair is
+	// optional: nothing the deployed check does is behind the gate, and a staging deployment without
+	// the pair simply answers its own signed-out forms with 403.
+	"vars": {
+		"AUTH_EMAIL_FROM": "accounts@yepnope.app",
+		"BETTER_AUTH_URL": "https://REPLACE_WITH_THE_STAGING_ORIGIN",
+		"VAPID_SUBJECT": "mailto:push@yepnope.app",
+	},
+	"observability": {
+		"enabled": true,
+		"logs": {"enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "persist": true},
+		"traces": {"enabled": true, "head_sampling_rate": 1, "persist": true},
+	},
+}

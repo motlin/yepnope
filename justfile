@@ -73,3 +73,20 @@ precommit quick="": (verify quick)
 [arg("dry-run", long, value="true", help="Print the release plan and the deployment preflight without verifying, tagging, or deploying")]
 release dry-run="": build
     node --experimental-strip-types scripts/release.ts {{ if dry-run == "true" { "--dry-run" } else { "" } }}
+
+# Deploy this tree to the staging Worker the release rehearses on
+[group('release')]
+deploy-staging: build
+    vp exec wrangler deploy --config wrangler.staging.jsonc
+
+# Prove the core loop on a deployment: OAuth, a blocking ask_yep_nope, and a deck that answers it
+[group('release')]
+[arg("origin", help="Deployment to check; defaults to $YEPNOPE_DEPLOYMENT_ORIGIN")]
+check-deployment origin="": install
+    {{ if origin != "" { "YEPNOPE_DEPLOYMENT_ORIGIN=" + origin } else { "" } }} node --experimental-strip-types scripts/deployment-check.ts
+
+# Enroll the passkey the deployed core-loop check signs in with; opens a browser for you to sign in
+[group('release')]
+[arg("origin", help="Deployment to enroll on; defaults to $YEPNOPE_DEPLOYMENT_ORIGIN")]
+enroll-deployment-passkey origin="": install
+    {{ if origin != "" { "YEPNOPE_DEPLOYMENT_ORIGIN=" + origin } else { "" } }} node --experimental-strip-types scripts/deployment-check.ts --enroll

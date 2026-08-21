@@ -65,6 +65,18 @@ const PREFLIGHT_CALLS = [
 	["vp", ["exec", "wrangler", "deploy", "--dry-run"]],
 ];
 
+const STAGING_ORIGIN = "https://yepnope-staging.example.workers.dev";
+const STAGING_CALL = ["vp", ["exec", "wrangler", "deploy", "--dry-run", "--config", "wrangler.staging.jsonc"]];
+
+/** The staging dry run, whose only interesting row is the origin the core-loop check will target. */
+function stagingBindings(origin: string = STAGING_ORIGIN): CommandResult {
+	return bindings([
+		"env.USER_DO (UserDurableObject)                                         Durable Object            ",
+		"env.DB (yepnope-staging)                                                D1 Database               ",
+		`env.BETTER_AUTH_URL ("${origin}")                                       Environment Variable      `,
+	]);
+}
+
 function preflightRunner(results: readonly CommandResult[]) {
 	const run = vi.fn<PreflightDependencies["run"]>();
 	for (const result of results) {
@@ -87,14 +99,15 @@ async function refusal(run: ReturnType<typeof preflightRunner>): Promise<Deploym
 
 describe("release preflight", () => {
 	it("accepts a deployment that has every binding and secret the Worker reads", async () => {
-		const run = preflightRunner([secrets(), bindings()]);
+		const run = preflightRunner([secrets(), bindings(), stagingBindings()]);
 
 		expect(await preflightDeployment({run})).toStrictEqual({
 			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
 			secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
+			staging: STAGING_ORIGIN,
 			target: "yepnope.app",
 		});
-		expect(run.mock.calls).toStrictEqual(PREFLIGHT_CALLS);
+		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
 	});
 
 	it("refuses a production deployment that has neither Turnstile key, which fails closed", async () => {
@@ -123,6 +136,7 @@ describe("release preflight", () => {
 				...PRODUCTION_BINDINGS,
 				'env.TURNSTILE_SITE_KEY ("0x4AAAAAAA")                                   Environment Variable      ',
 			]),
+			stagingBindings(),
 		]);
 
 		expect((await preflightDeployment({run})).bindings).toContain("TURNSTILE_SITE_KEY");
@@ -231,6 +245,50 @@ describe("release preflight", () => {
 
 		await expect(preflightDeployment({run})).rejects.toThrow(
 			"`wrangler deploy --dry-run` listed no bindings, so this release cannot tell what yepnope.app would be deployed with",
+		);
+	});
+
+	it("refuses a staging configuration still carrying its placeholder origin", async () => {
+		const run = preflightRunner([
+			secrets(),
+			bindings(),
+			stagingBindings("https://REPLACE_WITH_THE_STAGING_ORIGIN"),
+		]);
+
+		await expect(preflightDeployment({run})).rejects.toThrow(
+			"wrangler.staging.jsonc still carries its placeholder origin. Deploy staging once with " +
+				"`just deploy-staging`, then set BETTER_AUTH_URL to the origin Wrangler printed.",
+		);
+	});
+
+	it("refuses to rehearse the release on production itself", async () => {
+		const run = preflightRunner([secrets(), bindings(), stagingBindings("https://yepnope.app")]);
+
+		await expect(preflightDeployment({run})).rejects.toThrow(
+			"wrangler.staging.jsonc points at yepnope.app, so the release would rehearse on production. " +
+				"Staging has to be its own deployment, with its own database.",
+		);
+	});
+
+	it("refuses a staging configuration that declares no origin", async () => {
+		const run = preflightRunner([
+			secrets(),
+			bindings(),
+			bindings(["env.DB (yepnope-staging)                                                D1 Database  "]),
+		]);
+
+		await expect(preflightDeployment({run})).rejects.toThrow(
+			"wrangler.staging.jsonc declares no BETTER_AUTH_URL origin, so this release cannot tell where to " +
+				"prove the core loop before deploying production",
+		);
+	});
+
+	it("fails loudly when the staging configuration cannot be resolved", async () => {
+		const run = preflightRunner([secrets(), bindings(), {code: 1, output: "Could not resolve D1 database\n"}]);
+
+		await expect(preflightDeployment({run})).rejects.toThrow(
+			"`wrangler deploy --dry-run --config wrangler.staging.jsonc` failed with exit code 1, so this release " +
+				"cannot tell where to prove the core loop before deploying production",
 		);
 	});
 });
