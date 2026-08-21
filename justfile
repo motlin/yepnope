@@ -67,7 +67,9 @@ verify quick="": check build fallow pre-commit
 precommit quick="": (verify quick)
 
 # Verify, tag, deploy to production, and push the release tag
+# Depends on `build` because the deployment preflight resolves the configuration with
+# `wrangler deploy --dry-run`, which reads the built asset directory.
 [group('release')]
-[arg("dry-run", long, value="true", help="Print the release plan without verifying, tagging, or deploying")]
-release dry-run="": install
+[arg("dry-run", long, value="true", help="Print the release plan and the deployment preflight without verifying, tagging, or deploying")]
+release dry-run="": build
     node --experimental-strip-types scripts/release.ts {{ if dry-run == "true" { "--dry-run" } else { "" } }}

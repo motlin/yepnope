@@ -33,6 +33,33 @@ const PLAN_CALLS = [
 	["git", ["tag", "--list", TAG]],
 ];
 
+// A production deployment carrying every name the Worker reads. `tests/preflight.test.ts` covers
+// what each missing one does; these only have to get the release past the gate.
+const CONFIGURED_SECRETS = ok(
+	JSON.stringify(
+		["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"].map((name) => ({
+			name,
+			type: "secret_text",
+		})),
+	),
+);
+const CONFIGURED_BINDINGS = ok(
+	[
+		"Your Worker has access to the following bindings:",
+		"env.USER_DO (UserDurableObject)",
+		"env.EMAIL (unrestricted - senders: accounts@yepnope.app)",
+		"env.DB (yepnope)",
+		'env.AUTH_EMAIL_FROM ("accounts@yepnope.app")',
+		'env.BETTER_AUTH_URL ("https://yepnope.app")',
+		'env.VAPID_SUBJECT ("mailto:push@yepnope.app")',
+	].join("\n"),
+);
+const PREFLIGHT = [CONFIGURED_SECRETS, CONFIGURED_BINDINGS];
+const PREFLIGHT_CALLS = [
+	["vp", ["exec", "wrangler", "secret", "list", "--format", "json"]],
+	["vp", ["exec", "wrangler", "deploy", "--dry-run"]],
+];
+
 function releaseRunner(results: CommandResult[]) {
 	const run = vi.fn<ReleaseDependencies["run"]>();
 	for (const result of results) {
@@ -65,6 +92,7 @@ describe("just release", () => {
 			IN_SYNC,
 			HEAD_COMMIT,
 			UNUSED_TAG,
+			...PREFLIGHT,
 			VERIFIED,
 			TAGGED,
 			DEPLOYED,
@@ -80,6 +108,7 @@ describe("just release", () => {
 		});
 		expect(run.mock.calls).toStrictEqual([
 			...PLAN_CALLS,
+			...PREFLIGHT_CALLS,
 			["just", ["verify"]],
 			["git", ["tag", "--annotate", TAG, "--message", PENDING_ANNOTATION]],
 			["vp", ["run", "deploy"]],
@@ -145,11 +174,30 @@ describe("just release", () => {
 			IN_SYNC,
 			HEAD_COMMIT,
 			UNUSED_TAG,
+			...PREFLIGHT,
 			{code: 1, output: "2 tests failed\n"},
 		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow("`just verify` failed with exit code 1");
-		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ["just", ["verify"]]]);
+		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ...PREFLIGHT_CALLS, ["just", ["verify"]]]);
+	});
+
+	it("refuses an unconfigured deployment before spending a verify or cutting a tag", async () => {
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			FETCHED,
+			IN_SYNC,
+			HEAD_COMMIT,
+			UNUSED_TAG,
+			ok(JSON.stringify([{name: "BETTER_AUTH_SECRET", type: "secret_text"}])),
+			CONFIGURED_BINDINGS,
+		]);
+
+		await expect(runRelease(dependencies(run))).rejects.toThrow(
+			"refusing to release: the yepnope.app Worker is missing configuration it reads at runtime",
+		);
+		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ...PREFLIGHT_CALLS]);
 	});
 
 	it("deletes the local tag and never pushes when the deploy fails", async () => {
@@ -160,6 +208,7 @@ describe("just release", () => {
 			IN_SYNC,
 			HEAD_COMMIT,
 			UNUSED_TAG,
+			...PREFLIGHT,
 			VERIFIED,
 			TAGGED,
 			{code: 1, output: "Authentication error [code: 10000]\n"},
@@ -180,6 +229,7 @@ describe("just release", () => {
 			IN_SYNC,
 			HEAD_COMMIT,
 			UNUSED_TAG,
+			...PREFLIGHT,
 			VERIFIED,
 			TAGGED,
 			ok("Uploaded yepnope (4.21 sec)\n"),
@@ -201,6 +251,7 @@ describe("just release", () => {
 			IN_SYNC,
 			HEAD_COMMIT,
 			UNUSED_TAG,
+			...PREFLIGHT,
 			VERIFIED,
 			TAGGED,
 			DEPLOYED,

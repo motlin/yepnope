@@ -268,7 +268,10 @@ test("the check names itself and discloses who is doing the checking", async ({p
 	await expect(verificationStatus(page)).toHaveAttribute("aria-live", "polite");
 });
 
-test("a deployment that configured no check draws none and still signs people in", async ({page, request}) => {
+// 🏠 Loopback is the only origin where configuring no check is legal, and this Worker is one, so
+// this test says nothing about production: a `yepnope.app` deployment with no keys fails closed and
+// refuses every request below. `scripts/preflight.ts` is what keeps that mistake from shipping.
+test("a loopback deployment that configured no check draws none and still signs people in", async ({page, request}) => {
 	await waiveHumanVerification(request);
 	const email = uniqueEmail("waived");
 

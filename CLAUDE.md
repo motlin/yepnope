@@ -21,6 +21,6 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 
 # Releasing YepNope
 
-`just release` is the supported path to production. It refuses a dirty tree or a branch behind its upstream, runs `just verify`, cuts an annotated `vYYYY.MM.DD-<short-sha>` tag, deploys with `vp run deploy`, records the Cloudflare Version ID in the tag annotation, and pushes the tag last. `just release --dry-run` prints the plan and touches nothing.
+`just release` is the supported path to production. It refuses a dirty tree or a branch behind its upstream, refuses a deployment missing any binding, var, or secret the Worker reads (`scripts/preflight.ts`), runs `just verify`, cuts an annotated `vYYYY.MM.DD-<short-sha>` tag, deploys with `vp run deploy`, records the Cloudflare Version ID in the tag annotation, and pushes the tag last. `just release --dry-run` prints the plan and the preflight and touches nothing.
 
 Never deploy by hand with `vp run deploy` or `wrangler deploy`, and never run a real release without the user asking for it in that session. See "Releasing to production" in `README.md`.

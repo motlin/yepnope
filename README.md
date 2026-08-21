@@ -366,6 +366,10 @@ replaces none of them.
 **Both keys, or neither.** Setting exactly one is a configuration mistake and
 fails closed. Setting neither is allowed only when `BETTER_AUTH_URL` is
 loopback, which is how `vp dev` runs without a widget; see `.dev.vars.example`.
+Because loopback is the legal case, no test can catch the production one —
+the browser suite runs against a loopback Worker — so
+[the deployment preflight](#the-deployment-preflight) refuses to release a
+`yepnope.app` deploy that is missing either key.
 
 **Rolling back.** Deleting both secrets
 (`wrangler secret delete TURNSTILE_SITE_KEY` and
@@ -465,15 +469,42 @@ the authoritative record.
 every guard below.
 
 ```sh
-just release --dry-run   # print the guards and the tag a release would cut
-just release             # verify, tag, deploy, push
+just release --dry-run   # print the guards, the preflight, and the tag a release would cut
+just release             # preflight, verify, tag, deploy, push
 ```
 
 The recipe refuses to start on a dirty working tree, on a branch with no
-upstream, or on a branch behind its upstream. It then runs `just verify`, cuts
-an annotated tag on the current commit, deploys with `vp run deploy`, rewrites
-the annotation with the Cloudflare Version ID that deploy reported, and pushes
-the tag last.
+upstream, or on a branch behind its upstream. It then runs the deployment
+preflight below, runs `just verify`, cuts an annotated tag on the current
+commit, deploys with `vp run deploy`, rewrites the annotation with the
+Cloudflare Version ID that deploy reported, and pushes the tag last.
+
+### The deployment preflight
+
+Every other guard asks the repository a question. `scripts/preflight.ts` asks
+Cloudflare one, because a perfect repository can still be deployed onto a Worker
+that is missing something it reads at runtime — and the Worker fails closed, so
+the operator learns about it from visitors. It enumerates every binding, var, and
+secret `worker/` reads, then checks each against
+`wrangler deploy --dry-run` and `wrangler secret list`:
+
+```sh
+just release --dry-run
+# "deployment": {
+#   "bindings": ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
+#   "secrets": ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
+#   "target": "yepnope.app"
+# }
+```
+
+A missing name stops the release before `just verify` runs and before any tag
+exists, and the refusal names every unmet requirement at once with the command
+that fixes it. `BETTER_AUTH_URL` is checked by value as well as presence: it has
+to be the production origin, since it is the hostname every Turnstile token is
+redeemed against. Social-provider credentials are deliberately not required —
+a deployment without a provider's pair simply never offers that provider.
+
+Only `just release` runs it. A bare `wrangler deploy` deploys whatever is there.
 
 `package.json` stays at `0.0.0` — nothing installs YepNope from a registry — so
 the release version is the UTC date plus the short commit, `v2026.08.20-abc1234`.
@@ -496,8 +527,8 @@ Nothing partial survives. A failed `just verify` never tags. A failed deploy, or
 a deploy that prints no Version ID, deletes the unpushed tag and exits non-zero.
 A failed push reports the deployed version ID and the `git push` command that
 finishes the release. `tests/release.test.ts` covers that ordering and each
-guard. The administration Worker is released separately with
-`npm run deploy:admin`.
+guard, and `tests/preflight.test.ts` covers the preflight. The administration
+Worker is released separately with `npm run deploy:admin`.
 
 ## Privacy and retention
 

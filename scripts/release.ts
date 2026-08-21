@@ -1,26 +1,25 @@
 import {spawn} from "node:child_process";
 import {pathToFileURL} from "node:url";
+// Node runs this file directly, so the relative import carries the extension TypeScript allows.
+import {preflightDeployment, PRODUCTION_HOSTNAME, type CommandResult} from "./preflight.ts";
 
 /**
- * 🚀 One-command production release: guard, verify, tag, deploy, push.
+ * 🚀 One-command production release: guard, preflight, verify, tag, deploy, push.
  *
  * A release is a git tag that names a Cloudflare deployment. The tag is cut before the deploy so the
  * deployed tree is exactly the tagged tree, and it is pushed only after Wrangler reports a Version
  * ID, which the annotation records. Every other outcome fails loudly: a dirty tree, a branch behind
- * its upstream, an already-released commit, a failed verify, or a deploy that never named a version
- * all stop the release, and a deploy that fails after tagging takes its unpushed tag down with it.
+ * its upstream, an already-released commit, a deployment missing a secret or binding the Worker
+ * reads, a failed verify, or a deploy that never named a version all stop the release, and a deploy
+ * that fails after tagging takes its unpushed tag down with it.
  *
  * `package.json` stays at 0.0.0 — nothing installs YepNope from a registry — so the release version
  * is the UTC date plus the short commit, which is unique per released commit and sorts by date.
  */
 
-const PRODUCTION_HOSTNAME = "yepnope.app";
 const VERSION_ID_PATTERN = /Current Version ID:\s*([0-9a-f-]{36})/i;
 
-export interface CommandResult {
-	code: number;
-	output: string;
-}
+export type {CommandResult};
 
 export interface ReleaseDependencies {
 	now: () => Date;
@@ -107,6 +106,10 @@ export async function runRelease(dependencies: ReleaseDependencies): Promise<Rel
 	const {run} = dependencies;
 	const plan = await planRelease(dependencies);
 
+	// 🚦 Before the expensive part, and long before anything is tagged: the repository can be
+	// perfect and the deployment still be unconfigured. See `scripts/preflight.ts`.
+	await preflightDeployment(dependencies);
+
 	const verify = await run("just", ["verify"]);
 	if (verify.code !== 0) {
 		throw new Error(`\`just verify\` failed with exit code ${verify.code}`);
@@ -174,7 +177,10 @@ async function main(): Promise<void> {
 	const dependencies: ReleaseDependencies = {now: () => new Date(), run: spawnCommand};
 	if (process.argv.includes("--dry-run")) {
 		const plan = await planRelease(dependencies);
-		console.log(JSON.stringify({...plan, status: "planned"}, null, 2));
+		// The preflight reads Cloudflare and changes nothing, so the dry run gets it too: an
+		// unconfigured production is exactly what someone runs a dry run to find out about.
+		const deployment = await preflightDeployment(dependencies);
+		console.log(JSON.stringify({...plan, deployment, status: "planned"}, null, 2));
 		return;
 	}
 	const report = await runRelease(dependencies);
