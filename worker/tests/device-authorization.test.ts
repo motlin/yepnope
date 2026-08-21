@@ -97,7 +97,8 @@ describe("RFC 8628 device authorization", () => {
 			status: 400,
 			body: {
 				error: "invalid_client_metadata",
-				error_description: "Client registration metadata is not permitted",
+				error_description:
+					"Client registration metadata is not permitted: grant_types cannot combine the device code grant with authorization_code",
 			},
 		});
 	});

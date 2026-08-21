@@ -94,49 +94,83 @@ const passwordRecoveryRequestSchema = z
 		redirectTo: z.string().optional(),
 	})
 	.strict();
-const dynamicClientRegistrationSchema = z
-	.object({
-		application_type: z.literal("native").optional(),
-		client_name: z.string().trim().min(1).max(120).optional(),
-		client_uri: z.url().optional(),
-		contacts: z.array(z.email()).max(5).optional(),
-		grant_types: z
-			.array(z.enum(["authorization_code", "refresh_token", DEVICE_CODE_GRANT_TYPE]))
-			.min(1)
-			.max(2),
-		logo_uri: z.url().optional(),
-		policy_uri: z.url().optional(),
-		redirect_uris: z.array(z.url()).min(1).max(8).optional(),
-		resources: z.array(z.string()).max(1).optional(),
-		response_types: z.tuple([z.literal("code")]).optional(),
-		scope: z.string().optional(),
-		software_id: z.string().trim().min(1).max(120).optional(),
-		software_version: z.string().trim().min(1).max(60).optional(),
-		token_endpoint_auth_method: z.literal("none"),
-		tos_uri: z.url().optional(),
-	})
-	.strict();
+// 📝 RFC 7591 §2 lets an authorization server ignore registration metadata it does not understand,
+// so this schema is not strict: a member YepNope has no opinion about — `jwks_uri`, `subject_type`,
+// whatever the next client invents — is stripped rather than turned into a refusal. Every member
+// listed here is still checked, and the parsed result, never the caller's body, reaches Better Auth.
+const dynamicClientRegistrationSchema = z.object({
+	application_type: z.literal("native").optional(),
+	client_name: z.string().trim().min(1).max(120).optional(),
+	client_uri: z.url().optional(),
+	contacts: z.array(z.email()).max(5).optional(),
+	grant_types: z
+		.array(z.enum(["authorization_code", "refresh_token", DEVICE_CODE_GRANT_TYPE]))
+		.min(1)
+		.max(2),
+	logo_uri: z.url().optional(),
+	policy_uri: z.url().optional(),
+	redirect_uris: z.array(z.url()).min(1).max(8).optional(),
+	resources: z.array(z.string()).max(1).optional(),
+	response_types: z.tuple([z.literal("code")]).optional(),
+	scope: z.string().optional(),
+	software_id: z.string().trim().min(1).max(120).optional(),
+	software_version: z.string().trim().min(1).max(60).optional(),
+	token_endpoint_auth_method: z.literal("none"),
+	tos_uri: z.url().optional(),
+});
 
 type DynamicClientRegistration = z.infer<typeof dynamicClientRegistrationSchema>;
+
+function invalidRegistrationMembers(error: z.ZodError): string {
+	const members = [
+		...new Set(
+			error.issues.map((issue) => (typeof issue.path[0] === "string" ? issue.path[0] : "the request body")),
+		),
+	].sort();
+	return members.length === 1 ? `${members[0]} is invalid` : `${members.join(", ")} are invalid`;
+}
 
 /**
  * Two client shapes are registrable and nothing else. A browser-redirect client keeps the loopback
  * authorization-code flow it always had; a device client has no browser at all, so it must not carry
- * a redirect URI or a response type it could never use.
+ * a redirect URI or a response type it could never use. A refusal names the member that caused it,
+ * because a client author reading a bare "not permitted" has to guess which field offended.
  */
-function isPermittedClientRegistration(registration: DynamicClientRegistration): boolean {
+function impermissibleRegistrationMember(registration: DynamicClientRegistration, resource: string): string | null {
 	if (registration.grant_types.includes(DEVICE_CODE_GRANT_TYPE)) {
-		return (
-			!registration.grant_types.includes("authorization_code") &&
-			registration.redirect_uris === undefined &&
-			registration.response_types === undefined
-		);
+		if (registration.grant_types.includes("authorization_code")) {
+			return "grant_types cannot combine the device code grant with authorization_code";
+		}
+		if (registration.redirect_uris !== undefined) {
+			return "redirect_uris is not permitted for a device code client";
+		}
+		if (registration.response_types !== undefined) {
+			return "response_types is not permitted for a device code client";
+		}
+	} else {
+		if (!registration.grant_types.includes("authorization_code")) {
+			return "grant_types must include authorization_code";
+		}
+		if (registration.response_types === undefined) {
+			return 'response_types must be ["code"]';
+		}
+		if (registration.redirect_uris === undefined) {
+			return "redirect_uris is required for an authorization_code client";
+		}
+		if (!registration.redirect_uris.every(isLoopbackRedirectUri)) {
+			return "redirect_uris must each be an http loopback URL";
+		}
 	}
-	return (
-		registration.grant_types.includes("authorization_code") &&
-		registration.response_types !== undefined &&
-		registration.redirect_uris?.every(isLoopbackRedirectUri) === true
-	);
+	if (!hasExactOAuthScopes(registration.scope)) {
+		return `scope may request only: ${OAUTH_SCOPES.join(" ")}`;
+	}
+	if (
+		registration.resources !== undefined &&
+		(registration.resources.length !== 1 || registration.resources[0] !== resource)
+	) {
+		return `resources may name only ${resource}`;
+	}
+	return null;
 }
 
 const authenticationSchema = {
@@ -693,6 +727,16 @@ function hasExactOAuthScopes(scope: string | undefined): boolean {
 	);
 }
 
+function refusedClientRegistration(reason: string): Response {
+	return Response.json(
+		{
+			error: "invalid_client_metadata",
+			error_description: `Client registration metadata is not permitted: ${reason}`,
+		},
+		{status: 400},
+	);
+}
+
 function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware {
 	return (next) => async (request) => {
 		const url = new URL(request.url);
@@ -705,28 +749,23 @@ function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware 
 				.json()
 				.catch(() => null),
 		);
-		if (
-			!parsed.success ||
-			!isPermittedClientRegistration(parsed.data) ||
-			!hasExactOAuthScopes(parsed.data.scope) ||
-			(parsed.data.resources !== undefined &&
-				(parsed.data.resources.length !== 1 ||
-					parsed.data.resources[0] !== `${url.origin}${MCP_RESOURCE_PATH}`))
-		) {
-			return Response.json(
-				{error: "invalid_client_metadata", error_description: "Client registration metadata is not permitted"},
-				{status: 400},
-			);
+		if (!parsed.success) {
+			return refusedClientRegistration(invalidRegistrationMembers(parsed.error));
 		}
-		if (parsed.data.application_type !== undefined) {
-			return next(request);
+		const refusal = impermissibleRegistrationMember(parsed.data, `${url.origin}${MCP_RESOURCE_PATH}`);
+		if (refusal !== null) {
+			return refusedClientRegistration(refusal);
 		}
 		// Better Auth defaults an absent application_type to "web" and then rejects the loopback
 		// redirect URIs these clients must use, so name the native client type the request implies.
+		// Forwarding the parsed metadata is also what ignoring unmodelled members means in practice:
+		// they are dropped here instead of being stored by the provider or echoed back.
+		const headers = new Headers(request.headers);
+		headers.delete("Content-Length");
 		return next(
-			new Request(request, {
+			new Request(request.url, {
 				method: "POST",
-				headers: request.headers,
+				headers,
 				body: JSON.stringify({...parsed.data, application_type: "native"}),
 			}),
 		);

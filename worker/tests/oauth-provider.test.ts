@@ -270,10 +270,16 @@ describe("Better Auth OAuth MCP provider", () => {
 				token_endpoint_auth_method: registered.registrationResponse["token_endpoint_auth_method"],
 			},
 		}).toStrictEqual({
-			invalid: Array.from({length: 5}, () => ({
+			invalid: [
+				"redirect_uris must each be an http loopback URL",
+				`scope may request only: ${OAUTH_SCOPES.join(" ")}`,
+				`scope may request only: ${OAUTH_SCOPES.join(" ")}`,
+				"token_endpoint_auth_method is invalid",
+				"application_type is invalid",
+			].map((reason) => ({
 				body: {
 					error: "invalid_client_metadata",
-					error_description: "Client registration metadata is not permitted",
+					error_description: `Client registration metadata is not permitted: ${reason}`,
 				},
 				status: 400,
 			})),
@@ -323,6 +329,39 @@ describe("Better Auth OAuth MCP provider", () => {
 			redirect_uris: [REDIRECT_URI],
 			status: 201,
 			token_endpoint_auth_method: "none",
+		});
+	});
+
+	it("ignores registration metadata this server does not model instead of refusing the client", async () => {
+		const response = await worker.fetch(`${ISSUER}/oauth2/register`, {
+			method: "POST",
+			headers: {"Content-Type": "application/json"},
+			body: JSON.stringify(
+				registrationBody({
+					client_description: "Swipe to answer yes-or-no questions",
+					id_token_signed_response_alg: "RS256",
+					jwks_uri: "https://client.example.com/jwks.json",
+					subject_type: "public",
+				}),
+			),
+		});
+		const body = await response.json<Record<string, unknown>>();
+		expect({
+			client_id: body["client_id"],
+			client_description: body["client_description"],
+			id_token_signed_response_alg: body["id_token_signed_response_alg"],
+			jwks_uri: body["jwks_uri"],
+			redirect_uris: body["redirect_uris"],
+			status: response.status,
+			subject_type: body["subject_type"],
+		}).toStrictEqual({
+			client_id: expect.any(String),
+			client_description: undefined,
+			id_token_signed_response_alg: undefined,
+			jwks_uri: undefined,
+			redirect_uris: [REDIRECT_URI],
+			status: 201,
+			subject_type: undefined,
 		});
 	});
 
