@@ -1027,6 +1027,7 @@ export function createAuthentication(
 
 async function deleteOAuthAuthorizationData(database: D1Database, userId: string): Promise<void> {
 	await database.batch([
+		database.prepare("DELETE FROM mcp_client_use WHERE user_id = ?").bind(userId),
 		database.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(userId),
 		database.prepare("DELETE FROM oauth_refresh_token WHERE user_id = ?").bind(userId),
 		database.prepare("DELETE FROM oauth_consent WHERE user_id = ?").bind(userId),

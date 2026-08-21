@@ -1,5 +1,5 @@
 import {sql} from "drizzle-orm";
-import {index, integer, sqliteTable, text, uniqueIndex} from "drizzle-orm/sqlite-core";
+import {index, integer, primaryKey, sqliteTable, text, uniqueIndex} from "drizzle-orm/sqlite-core";
 
 // 🗄️ Better Auth owns account identity; D1 resolves account-owned credentials before DO routing.
 
@@ -292,6 +292,23 @@ export const oauthClientAssertions = sqliteTable("oauth_client_assertion", {
 	id: text("id").primaryKey(),
 	expiresAt: integer("expires_at", {mode: "timestamp_ms"}).notNull(),
 });
+
+// ⏱️ The clock Settings shows beside a connected client, and the first thing anyone asking "is this
+// connection actually live?" reads. It is deliberately not a request log: one row per authorization,
+// holding a coarse timestamp and nothing a caller supplied — no question, no tool input, no address.
+export const mcpClientUses = sqliteTable(
+	"mcp_client_use",
+	{
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, {onDelete: "cascade"}),
+		clientId: text("client_id")
+			.notNull()
+			.references(() => oauthClients.clientId, {onDelete: "cascade"}),
+		lastUsedAt: integer("last_used_at").notNull(),
+	},
+	(table) => [primaryKey({columns: [table.userId, table.clientId]})],
+);
 
 // 📟 RFC 8628. The Claude Code hook is a local command with no browser and no redirect URI, so it
 // asks for a user code here and the account approves it in the app. `oauthClientId` and `resources`

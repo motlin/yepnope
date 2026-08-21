@@ -9,6 +9,7 @@ import {
 	TOOL_NAME,
 } from "./ask-tool";
 import {OAUTH_SCOPES} from "./auth";
+import {recordConnectedMcpClientUse} from "./connected-mcp-clients";
 import {
 	bearerToken,
 	grantSessionId,
@@ -344,6 +345,7 @@ export async function handleRemoteMcpRequest(
 	if (!(await hasActiveGrant(environment.DB, claims, resource))) {
 		return invalidGrantResponse(resource);
 	}
+	await recordConnectedMcpClientUse(environment.DB, claims.sub, claims.client_id, Date.now());
 	const message = mcpMessageSchema.safeParse(
 		await request
 			.clone()

@@ -37,6 +37,37 @@ async function accountRequest(cookie: string, path: string, method = "GET", labe
 	});
 }
 
+interface ListedConnectedMcpClient {
+	id: string;
+	last_used_at: number | null;
+}
+
+async function connectedMcpClients(cookie: string): Promise<ListedConnectedMcpClient[]> {
+	const response = await accountRequest(cookie, "/api/v1/account/devices");
+	if (response.status !== 200) {
+		throw new Error(`expected the device listing to succeed, got ${String(response.status)}`);
+	}
+	return (await response.json<{connected_mcp_clients: ListedConnectedMcpClient[]}>()).connected_mcp_clients;
+}
+
+/** One authenticated call over the client's own grant, which is what "last used" is supposed to mean. */
+async function useMcpConnection(accessToken: string): Promise<void> {
+	const response = await worker.fetch(`${API_ORIGIN}/mcp`, {
+		method: "POST",
+		headers: {
+			Accept: "application/json, text/event-stream",
+			Authorization: `Bearer ${accessToken}`,
+			"Content-Type": "application/json",
+			"MCP-Protocol-Version": "2025-11-25",
+		},
+		body: JSON.stringify({id: 1, jsonrpc: "2.0", method: "tools/list"}),
+	});
+	const body = await response.text();
+	if (response.status !== 200) {
+		throw new Error(`expected the MCP request to authenticate, got ${String(response.status)}: ${body}`);
+	}
+}
+
 describe("connected MCP client and browser notification management", () => {
 	it("requires the account's own browser session, and refuses even a valid agent token", async () => {
 		const authorized = await authorizeDeviceClient("account-api-alice");
@@ -155,6 +186,32 @@ describe("connected MCP client and browser notification management", () => {
 			serialized.includes(endpoint),
 			serialized.includes("fake-auth-secret"),
 		]).toStrictEqual([false, false, false, false, false, false]);
+	});
+
+	it("stamps a client's last use when it authenticates, and keeps the stamp coarse", async () => {
+		const session = await createVerifiedBrowserSession("connected-client-usage-alice@example.com");
+		const authorized = await authorizeDeviceClient(session.userId, "Alice hook");
+		const [neverUsed] = await connectedMcpClients(session.cookie);
+
+		const requestedAt = Date.now();
+		await useMcpConnection(authorized.accessToken);
+		const [afterFirstUse] = await connectedMcpClients(session.cookie);
+		await useMcpConnection(authorized.accessToken);
+		const [afterSecondUse] = await connectedMcpClients(session.cookie);
+
+		expect({
+			id: afterFirstUse?.id,
+			neverUsed: neverUsed?.last_used_at,
+			stampedOnFirstUse: (afterFirstUse?.last_used_at ?? 0) >= requestedAt,
+			// 🪙 A busy client must not cost a row rewrite per request: a second call inside the same
+			// bucket leaves the stamp exactly where the first one put it.
+			unchangedInsideBucket: afterSecondUse?.last_used_at === afterFirstUse?.last_used_at,
+		}).toStrictEqual({
+			id: authorized.managementId,
+			neverUsed: null,
+			stampedOnFirstUse: true,
+			unchangedInsideBucket: true,
+		});
 	});
 
 	it("revokes clients independently, rejects cross-account IDs, and broadcasts last-client AFK shutdown", async () => {

@@ -1,6 +1,7 @@
 import {createLocalJWKSet, jwtVerify} from "jose";
 import {z} from "zod";
 import {authenticateBrowserSession, MCP_RESOURCE_PATH, withRequestBackgroundTasks, workerAuthentication} from "./auth";
+import {recordConnectedMcpClientUse} from "./connected-mcp-clients";
 
 // 🎟️ One bearer story for every non-browser caller. `/mcp` and the Claude Code hook hold the same
 // kind of credential — a short-lived, audience-bound, refreshable OAuth access token issued to a
@@ -161,7 +162,14 @@ async function authenticateAccessToken(
 	if (claims === null || !new Set(claims.scope.split(" ")).has(QUESTION_SCOPE)) {
 		return null;
 	}
-	return (await hasActiveGrant(environment.DB, claims, mcpResource(environment))) ? claims.sub : null;
+	if (!(await hasActiveGrant(environment.DB, claims, mcpResource(environment)))) {
+		return null;
+	}
+	// The hook posts over the same grant the `/mcp` tool call uses, so both count as the client
+	// being used. A clock that only moved for tool calls would read "not used yet" for an
+	// installation that has been reporting hook events all day.
+	await recordConnectedMcpClientUse(environment.DB, claims.sub, claims.client_id, Date.now());
+	return claims.sub;
 }
 
 /**

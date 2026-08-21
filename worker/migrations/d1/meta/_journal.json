@@ -43,6 +43,13 @@
 			"when": 1787265073065,
 			"tag": "006_retire_machine_credentials",
 			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "6",
+			"when": 1787320557631,
+			"tag": "007_mcp_client_use",
+			"breakpoints": true
 		}
 	]
 }

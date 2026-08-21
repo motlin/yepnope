@@ -1,9 +1,19 @@
+import {sql} from "drizzle-orm";
+import {drizzle} from "drizzle-orm/d1";
 import {z} from "zod";
 import {hashToken} from "./auth";
+import {mcpClientUses} from "./db/d1-schema";
 import type {UserDurableObject} from "./user-do";
 
 const QUESTION_SCOPE = "yepnope:questions";
 const storedStringArraySchema = z.array(z.string());
+
+/**
+ * How stale the stored stamp has to be before a use rewrites it. An operator asking whether a
+ * connection is live is reading minutes, not milliseconds, so a chatty client costs one row rewrite
+ * a minute instead of one per request.
+ */
+const MCP_CLIENT_USE_RESOLUTION_MILLISECONDS = 60_000;
 
 interface OAuthGrantRow {
 	client_id: string;
@@ -17,12 +27,14 @@ interface OAuthGrantRow {
 	refresh_resources: string | null;
 	refresh_revoked_at: number | null;
 	refresh_scopes: string | null;
+	last_used_at: number | null;
 }
 
 interface OAuthClientAuthorization {
 	clientId: string;
 	displayName: string;
 	authorizedAt: number;
+	lastUsedAt: number | null;
 	grantedScopes: string[];
 	active: boolean;
 	revokedAt: number | null;
@@ -64,9 +76,12 @@ async function oauthClientAuthorizations(
 				"consent.created_at AS consent_created_at, consent.resources AS consent_resources, " +
 				"consent.scopes AS consent_scopes, refresh.created_at AS refresh_created_at, " +
 				"refresh.expires_at AS refresh_expires_at, refresh.revoked AS refresh_revoked_at, " +
-				"refresh.resources AS refresh_resources, refresh.scopes AS refresh_scopes " +
+				"refresh.resources AS refresh_resources, refresh.scopes AS refresh_scopes, " +
+				"client_use.last_used_at AS last_used_at " +
 				"FROM oauth_consent AS consent " +
 				"JOIN oauth_client AS client ON client.client_id = consent.client_id " +
+				"LEFT JOIN mcp_client_use AS client_use " +
+				"ON client_use.client_id = consent.client_id AND client_use.user_id = consent.user_id " +
 				"LEFT JOIN oauth_refresh_token AS refresh " +
 				"ON refresh.client_id = consent.client_id AND refresh.user_id = consent.user_id " +
 				"WHERE consent.user_id = ? ORDER BY consent.created_at, consent.client_id, refresh.created_at",
@@ -83,6 +98,7 @@ async function oauthClientAuthorizations(
 			clientId: row.client_id,
 			displayName: row.client_name ?? "MCP client",
 			authorizedAt: row.consent_created_at,
+			lastUsedAt: row.last_used_at,
 			grantedScopes: parseStoredStringArray(row.consent_scopes).sort(),
 			active: false,
 			revokedAt: null,
@@ -129,12 +145,34 @@ export async function listConnectedMcpClients(
 			id: await managementId(userId, authorization.clientId),
 			displayName: authorization.displayName,
 			authorizedAt: authorization.authorizedAt,
-			lastUsedAt: null,
+			lastUsedAt: authorization.lastUsedAt,
 			grantedScopes: authorization.grantedScopes,
 			status: authorization.active ? "active" : authorization.revokedAt === null ? "expired" : "revoked",
 			revokedAt: authorization.active ? null : authorization.revokedAt,
 		})),
 	);
+}
+
+/**
+ * 🕒 Stamps the moment a client's authorization was last accepted, which is the only claim the
+ * Settings clock makes. The guard in the upsert is the whole cost control: inside the resolution
+ * window the statement matches no row and writes nothing, so a client asking a hundred questions a
+ * minute still leaves one row and one rewrite behind. Nothing about the request itself is stored.
+ */
+export async function recordConnectedMcpClientUse(
+	database: D1Database,
+	userId: string,
+	clientId: string,
+	usedAt: number,
+): Promise<void> {
+	await drizzle(database)
+		.insert(mcpClientUses)
+		.values({userId, clientId, lastUsedAt: usedAt})
+		.onConflictDoUpdate({
+			target: [mcpClientUses.userId, mcpClientUses.clientId],
+			set: {lastUsedAt: usedAt},
+			setWhere: sql`${usedAt} - ${mcpClientUses.lastUsedAt} >= ${MCP_CLIENT_USE_RESOLUTION_MILLISECONDS}`,
+		});
 }
 
 export async function revokeConnectedMcpClient(
