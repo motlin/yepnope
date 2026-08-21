@@ -437,6 +437,30 @@ invalidates every registered passkey. Emailed sign-in links expire in 15
 minutes, are stored only as a hash, and are delivered through the same
 Cloudflare `send_email` binding as verification and password-reset mail.
 
+### Recovering an account
+
+Recovery is proof that you can read the registered inbox, and nothing else. It
+re-establishes a session for the same account, which is the same Durable Object
+under the same user id, so the questions and settings that come back are the
+ones that were already there. Nothing is merged, moved, or claimed.
+
+`/forgot-password` offers the two emails that carry that proof, both against the
+address typed into its one field and both gated by its one Turnstile widget:
+
+- **A password-reset link.** Better Auth mints one for any account with that
+  address and attaches a credential when the link is redeemed, so this works
+  even for an account that never had a password.
+- **An emailed sign-in link.** The same 15-minute link the sign-in page offers.
+  It is the shorter path for an account created with a link, a passkey, or a
+  provider, because it asks the owner to invent nothing.
+
+There is no separate recovery token type and no recovery endpoint. Both paths
+are ordinary authentication, so they inherit its non-enumeration: identical body,
+status, and 500 ms timing floor whether or not the address has an account.
+
+The registered address cannot be changed from the app, so losing that mailbox
+means losing the account.
+
 ### 📮 Email delivery to people who are not you
 
 Every authentication message leaves through the `send_email` binding, and
@@ -474,7 +498,9 @@ After each deploy, exercise every advertised method against production once:
 sign in with email and password, request an emailed link and follow it,
 register and then use a passkey, and complete each configured provider's
 round trip. `/api/v1/auth-methods` is the checklist — every `true` and every
-listed provider needs one pass.
+listed provider needs one pass. Then recover once from `/forgot-password`,
+taking both the reset link and the sign-in link, and confirm each lands back on
+the same account's deck.
 
 Then run the delivery smoke check, which reads the sending-domain onboarding
 state, Email Service activity for the last seven days, and D1's verification

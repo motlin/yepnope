@@ -1398,6 +1398,26 @@ describe("Better Auth account routes", () => {
 		});
 	});
 
+	// 🔑 An account created with an emailed link or a passkey has no password, so a recovery page
+	// that only resets one asks that owner to invent a credential they never wanted. The link that
+	// signs them straight back in is offered on the same page, drawing on the same typed address.
+	it("emails a sign-in link from the recovery page for an account with no password", async () => {
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", "/forgot-password");
+		render(<App />);
+
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		await submitAccountForm("Email me a sign-in link");
+
+		await waitFor(() => {
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", null]]);
+		});
+		expect((await screen.findByRole("status")).textContent).toBe(
+			"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.",
+		);
+		expect(vi.mocked(requestPasswordReset)).not.toHaveBeenCalled();
+	});
+
 	it("never retries a consumed reset token when the follow-up sign-in fails", async () => {
 		fetchSession.mockResolvedValue(null);
 		vi.mocked(signIn).mockRejectedValueOnce(new Error("Sign-in temporarily unavailable"));

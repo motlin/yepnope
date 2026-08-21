@@ -105,6 +105,77 @@ describe("Passwordless email sign-in", () => {
 	});
 });
 
+// 🔑 Recovery is proof of control of the registered address, and every account is reached the same
+// way regardless of how it was created. An account made by following an emailed link has no password
+// to reset, so these two cases are the ones that decide whether "recover by email" is true for
+// everyone or only for the people who happened to register with a password.
+describe("Recovering an account that never had a password", () => {
+	async function passwordlessAccount(): Promise<{email: string; userId: string}> {
+		const {authentication, mailbox} = authenticationWithMailbox();
+		const email = uniqueEmail();
+		await authentication.handler(postAuthentication("sign-in/magic-link", {callbackURL: "/", email}));
+		const followed = await authentication.handler(new Request(emailLink(required(mailbox[0], "magic link email"))));
+		const userId = await sessionUserId(authentication, cookieFrom(followed));
+		const credentials = await env.DB.prepare(
+			"SELECT count(*) AS total FROM account WHERE user_id = ? AND provider_id = 'credential'",
+		)
+			.bind(userId)
+			.first<{total: number}>();
+		expect(credentials?.total).toBe(0);
+		return {email, userId};
+	}
+
+	it("signs the owner back in from a second emailed link", async () => {
+		const {email, userId} = await passwordlessAccount();
+		const {authentication, mailbox} = authenticationWithMailbox();
+
+		await authentication.handler(postAuthentication("sign-in/magic-link", {callbackURL: "/", email}));
+		const followed = await authentication.handler(new Request(emailLink(required(mailbox[0], "magic link email"))));
+
+		expect(followed.status).toBe(302);
+		await expect(sessionUserId(authentication, cookieFrom(followed))).resolves.toBe(userId);
+	});
+
+	// Better Auth mints a reset token for any user row and attaches the credential on redemption, so
+	// the password form is a way to gain a password rather than a dead end. If that ever changes the
+	// visitor keeps getting the accepted reply and nothing else, which is the failure this pins.
+	it("attaches a password through the reset link instead of stranding the request", async () => {
+		const {email, userId} = await passwordlessAccount();
+		const replacementPassword = "example-recovered-password";
+		const {authentication, mailbox} = authenticationWithMailbox();
+
+		const requested = await authentication.handler(
+			postAuthentication("request-password-reset", {email, redirectTo: "/reset-password"}),
+		);
+
+		expect({body: await requested.json(), status: requested.status}).toStrictEqual({
+			body: {message: "If the request can be completed, check your inbox for next steps.", status: true},
+			status: 200,
+		});
+		const resetEmail = required(mailbox[0], "password reset email");
+		expect({subject: resetEmail.subject, to: resetEmail.to}).toStrictEqual({
+			subject: "Reset your YepNope password",
+			to: email,
+		});
+		const resetToken = required(new URL(emailLink(resetEmail)).pathname.split("/").at(-1), "password reset token");
+		const reset = await authentication.handler(
+			postAuthentication("reset-password", {newPassword: replacementPassword, token: resetToken}),
+		);
+		expect({body: await reset.json(), status: reset.status}).toStrictEqual({body: {status: true}, status: 200});
+
+		const signedIn = await authentication.handler(
+			postAuthentication("sign-in/email", {email, password: replacementPassword}),
+		);
+
+		expect(signedIn.status).toBe(200);
+		await expect(sessionUserId(authentication, cookieFrom(signedIn))).resolves.toBe(userId);
+		const owners = await env.DB.prepare("SELECT count(*) AS total FROM user WHERE email = ?")
+			.bind(email)
+			.first<{total: number}>();
+		expect(owners?.total).toBe(1);
+	});
+});
+
 describe("Passkeys", () => {
 	it("refuses to mint registration options without a session", async () => {
 		const {authentication} = await passkeyAuthenticationWithMailbox();

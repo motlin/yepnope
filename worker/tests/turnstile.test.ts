@@ -219,6 +219,23 @@ describe("Human verification of public authentication requests", () => {
 		expect({delivered: mailbox.length, status: verification.status}).toStrictEqual({delivered: 1, status: 200});
 	});
 
+	// The recovery page offers the emailed sign-in link beside the password form, because an account
+	// made with a link or a passkey has no password to reset. Both buttons draw on that page's single
+	// widget, so the link has to be reachable with the token that page mints.
+	it("accepts the recovery token for the emailed sign-in link offered beside it", async () => {
+		const {handler, mailbox} = harness();
+		const email = uniqueEmail("recover-by-link");
+
+		const magicLink = await handler(
+			post("sign-in/magic-link", {callbackURL: "/", email}, passingToken("reset_password")),
+		);
+
+		expect({delivered: mailbox.map((message) => message.subject), status: magicLink.status}).toStrictEqual({
+			delivered: ["Sign in to YepNope"],
+			status: 200,
+		});
+	});
+
 	it("redeems a token exactly once, so replaying it is refused", async () => {
 		const {handler, mailbox} = harness();
 		const email = uniqueEmail("replay");

@@ -419,13 +419,15 @@ async function sendAuthenticationEmail(
 }
 
 // 🤖 The surfaces a signed-out visitor can reach, and the widget action each one's token must carry.
-// A token minted for one surface cannot unlock another. The create-account page asks for the first
-// verification message with the token it already holds, so that one path accepts either surface.
+// A token minted for one surface cannot unlock another. Two paths accept either of two surfaces,
+// both for the same reason: a page that offers two ways to ask for mail solves one challenge, not
+// one per button. The create-account page asks for the first verification message with the token it
+// already holds, and the recovery page offers the emailed sign-in link beside the password form.
 const HUMAN_VERIFICATION_ACTIONS: ReadonlyMap<string, readonly string[]> = new Map([
 	[EMAIL_REGISTRATION_PATH, ["register"]],
 	[EMAIL_SIGN_IN_PATH, ["sign_in"]],
 	[EMAIL_VERIFICATION_REQUEST_PATH, ["register", "verify_email"]],
-	[MAGIC_LINK_SIGN_IN_PATH, ["sign_in"]],
+	[MAGIC_LINK_SIGN_IN_PATH, ["reset_password", "sign_in"]],
 	[PASSWORD_RECOVERY_REQUEST_PATH, ["reset_password"]],
 ]);
 

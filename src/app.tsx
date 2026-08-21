@@ -516,6 +516,59 @@ function passkeysUsable(methods: AuthenticationMethods): boolean {
 	return methods.passkey && "PublicKeyCredential" in window;
 }
 
+interface EmailedSignInLinkProps {
+	/** Whatever the surrounding page's own email field holds; the link goes nowhere else. */
+	email: string;
+	disabled: boolean;
+	onError: (message: string | null) => void;
+	verificationToken: () => Promise<string | null>;
+}
+
+/**
+ * The one way in that needs no password, no passkey, and no provider. It sits on the sign-in page as
+ * an alternative and on the recovery page as the path for an account that never had a password to
+ * reset, so both pages offer it in the same words and send it the same way.
+ *
+ * The link always lands on the deck. It carries no callback, so an authorization in flight is not
+ * resumed by following one — the same as before this button was shared between the two pages.
+ */
+function EmailedSignInLink({disabled, email, onError, verificationToken}: EmailedSignInLinkProps): ReactElement {
+	const [status, setStatus] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+
+	async function send(): Promise<void> {
+		if (email.trim() === "") {
+			setStatus(null);
+			onError(MAGIC_LINK_MISSING_EMAIL_MESSAGE);
+			return;
+		}
+		setBusy(true);
+		setStatus(null);
+		onError(null);
+		try {
+			await sendMagicLink(email, await verificationToken());
+			setStatus(MAGIC_LINK_SENT_MESSAGE);
+		} catch (caught) {
+			onError(errorMessage(caught));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	return (
+		<>
+			<button type="button" className="secondary" disabled={busy || disabled} onClick={() => void send()}>
+				Email me a sign-in link
+			</button>
+			{status !== null && (
+				<p className="form-success" role="status">
+					{status}
+				</p>
+			)}
+		</>
+	);
+}
+
 interface AlternativeSignInProps {
 	callbackURL: string;
 	email: string;
@@ -537,13 +590,11 @@ function AlternativeSignIn({
 	verificationBlocked,
 	verificationToken,
 }: AlternativeSignInProps): ReactElement | null {
-	const [status, setStatus] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const passkeyAvailable = passkeysUsable(methods);
 
 	async function run(action: () => Promise<void>): Promise<void> {
 		setBusy(true);
-		setStatus(null);
 		onError(null);
 		try {
 			await action();
@@ -590,29 +641,12 @@ function AlternativeSignIn({
 				</button>
 			)}
 			{methods.magicLink && (
-				<button
-					type="button"
-					className="secondary"
+				<EmailedSignInLink
 					disabled={busy || verificationBlocked}
-					onClick={() => {
-						if (email.trim() === "") {
-							setStatus(null);
-							onError(MAGIC_LINK_MISSING_EMAIL_MESSAGE);
-							return;
-						}
-						void run(async () => {
-							await sendMagicLink(email, await verificationToken());
-							setStatus(MAGIC_LINK_SENT_MESSAGE);
-						});
-					}}
-				>
-					Email me a sign-in link
-				</button>
-			)}
-			{status !== null && (
-				<p className="form-success" role="status">
-					{status}
-				</p>
+					email={email}
+					onError={onError}
+					verificationToken={verificationToken}
+				/>
 			)}
 		</div>
 	);
@@ -962,7 +996,7 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 
 function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElement {
 	const oauthQuery = oauthQueryFromLocation();
-	const {blocked, discoveryError, verification} = useAccountForm("reset_password", theme);
+	const {blocked, discoveryError, methods, verification} = useAccountForm("reset_password", theme);
 	const [email, setEmail] = useState("");
 	const [sent, setSent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -981,8 +1015,11 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 	}
 
 	return (
-		<AccountPanel title="Reset your password">
-			<p>Enter your email to request account recovery instructions.</p>
+		<AccountPanel title="Recover your account">
+			<p>
+				Enter the email address your account is registered to. Proving you can read that inbox is enough: choose
+				a new password below, or have a sign-in link emailed instead if you never set one.
+			</p>
 			<form className="account-form" onSubmit={(event) => void submit(event)}>
 				<label>
 					Email
@@ -1012,6 +1049,20 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 					Send recovery email
 				</button>
 			</form>
+			{methods.magicLink && (
+				<div className="sign-in-alternatives">
+					{/* 🔑 An account made with an emailed link, a passkey, or a provider has no password
+					    to reset. Rather than ask that owner to invent one, the link that signs them
+					    straight back in is offered here, on the same address and the same widget. */}
+					<p className="sign-in-alternatives-divider">Or</p>
+					<EmailedSignInLink
+						disabled={blocked}
+						email={email}
+						onError={setError}
+						verificationToken={verification.consume}
+					/>
+				</div>
+			)}
 			<div className="account-links">
 				<button
 					type="button"
@@ -2231,7 +2282,7 @@ export function App(): ReactElement {
 			"sign-in": "Sign in · YepNope",
 			register: "Create account · YepNope",
 			"verify-email": "Verify email · YepNope",
-			"forgot-password": "Reset password · YepNope",
+			"forgot-password": "Recover account · YepNope",
 			"reset-password": "Choose a password · YepNope",
 			"oauth-consent": "Authorize MCP client · YepNope",
 			device: "Approve a device · YepNope",
