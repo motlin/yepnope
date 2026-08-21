@@ -411,6 +411,36 @@ describe("OAuth consent continuity", () => {
 		});
 	});
 
+	it("says the authorization was stranded instead of dropping the signed-in user into a silent app", async () => {
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions",
+			sig: "signed-authorization-request",
+		}).toString();
+		fetchSession.mockResolvedValue(alice);
+		resumeOAuthAuthorization.mockRejectedValue(new Error("The authorization request has expired."));
+		window.history.replaceState({}, "", `/sign-in?${oauthQuery}`);
+
+		render(<App />);
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"We could not finish authorizing that MCP client. Start the connection again from the client.",
+		);
+		expect({
+			deck: screen.getByRole("heading", {name: "All caught up"}).textContent,
+			path: `${window.location.pathname}${window.location.search}`,
+			resumeCalls: resumeOAuthAuthorization.mock.calls,
+		}).toStrictEqual({
+			deck: "All caught up",
+			path: "/",
+			resumeCalls: [[oauthQuery]],
+		});
+
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
 	it("identifies the client, explains every scope, and offers explicit allow and cancel actions", async () => {
 		const oauthQuery = new URLSearchParams({
 			client_id: "oauth-client",

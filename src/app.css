@@ -784,6 +784,12 @@ body {
 	color: var(--success-text);
 }
 
+/* A notice the whole app carries rather than one form, so it keeps its own place in the column. */
+.app-notice {
+	flex: 0 0 auto;
+	margin: 0 0 10px;
+}
+
 .oauth-capabilities {
 	display: flex;
 	flex-direction: column;

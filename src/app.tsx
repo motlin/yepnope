@@ -443,6 +443,12 @@ function signInRedirectError(): string | null {
 	return new URLSearchParams(window.location.search).has("error") ? PROVIDER_SIGN_IN_FAILED_MESSAGE : null;
 }
 
+// 🪫 An authorization that cannot be resumed is stranded: the browser is signed in, the client is
+// still waiting, and nothing the visitor does in YepNope will finish it. The Worker refuses without
+// naming a cause on purpose, so this says the one thing that is both true and actionable.
+const OAUTH_RESUME_FAILED_MESSAGE =
+	"We could not finish authorizing that MCP client. Start the connection again from the client.";
+
 // Discovery now carries one answer the page cannot guess at: whether this deployment demands a
 // human-verification check. So the three outcomes stay distinct instead of collapsing into one
 // object, and a page that has not heard back yet knows it has not heard back yet.
@@ -2202,12 +2208,14 @@ export function App(): ReactElement {
 	const [connectedMcpClientCount, setConnectedMcpClientCount] = useState<number | null>(null);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
 	const [connectingClient, setConnectingClient] = useState(false);
+	const [oauthResumeFailed, setOAuthResumeFailed] = useState(false);
 	const [registrationEmail, setRegistrationEmail] = useState("");
 	const [verificationDelivery, setVerificationDelivery] = useState<VerificationDelivery>("idle");
 	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
 
 	useEffect(() => {
 		function onPopState(): void {
+			setOAuthResumeFailed(false);
 			setView(viewFromPath(window.location.pathname));
 		}
 		window.addEventListener("popstate", onPopState);
@@ -2246,6 +2254,7 @@ export function App(): ReactElement {
 		if (nextView !== "settings") {
 			setConnectingClient(false);
 		}
+		setOAuthResumeFailed(false);
 		setView(nextView);
 	}
 
@@ -2255,6 +2264,7 @@ export function App(): ReactElement {
 		setCurrentQuestions([]);
 		setAfkState(null);
 		setConnectedMcpClientCount(null);
+		setOAuthResumeFailed(false);
 		updateBadge(0);
 		rememberPasswordResetOAuthQuery(null);
 		setSession(null);
@@ -2283,10 +2293,15 @@ export function App(): ReactElement {
 						setSession(user);
 						setSessionReady(true);
 						resumeOAuthAuthorization(oauthQuery).then(followOAuthRedirect, () => {
-							if (!cancelled) {
-								setSession(user);
-								setSessionReady(true);
+							if (cancelled) {
+								return;
 							}
+							// Landing on the sign-in form the visitor already satisfied would tell
+							// them to do the one thing that cannot help. Their deck plus the notice
+							// says what actually happened and who has to retry.
+							setOAuthResumeFailed(true);
+							window.history.replaceState({}, "", "/");
+							setView("deck");
 						});
 						return;
 					}
@@ -2570,6 +2585,11 @@ export function App(): ReactElement {
 						</button>
 					</span>
 				</div>
+			)}
+			{oauthResumeFailed && (
+				<p className="form-error app-notice" role="alert">
+					{OAUTH_RESUME_FAILED_MESSAGE}
+				</p>
 			)}
 			{currentView()}
 		</div>

@@ -262,6 +262,7 @@ function composeAuthenticationMiddleware(
 
 export interface AuthenticationObservation {
 	event:
+		| "access_token_rejected"
 		| "authentication_email_delivered"
 		| "authentication_email_delivery_failed"
 		| "authentication_email_delivery_retried"
@@ -1088,11 +1089,17 @@ export function withRequestBackgroundTasks<T>(executionContext: ExecutionContext
 	return requestExecutionContexts.run(executionContext, work);
 }
 
+/**
+ * 📝 The Worker's one observation sink. Bearer verification lives outside Better Auth but refuses
+ * callers for the same reasons, so it records through here rather than inventing a second log shape.
+ */
+export function observeWorkerAuthentication(observation: AuthenticationObservation): void {
+	console.warn(JSON.stringify(observation));
+}
+
 function workerDependencies(environment: Env): AuthenticationDependencies {
 	return {
-		observe: (observation) => {
-			console.warn(JSON.stringify(observation));
-		},
+		observe: observeWorkerAuthentication,
 		runInBackground: (promise) => {
 			const executionContext = requestExecutionContexts.getStore();
 			if (executionContext === undefined) {

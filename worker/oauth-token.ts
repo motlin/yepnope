@@ -1,6 +1,12 @@
-import {createLocalJWKSet, jwtVerify} from "jose";
+import {createLocalJWKSet, errors, jwtVerify} from "jose";
 import {z} from "zod";
-import {authenticateBrowserSession, MCP_RESOURCE_PATH, withRequestBackgroundTasks, workerAuthentication} from "./auth";
+import {
+	authenticateBrowserSession,
+	MCP_RESOURCE_PATH,
+	observeWorkerAuthentication,
+	withRequestBackgroundTasks,
+	workerAuthentication,
+} from "./auth";
 import {recordConnectedMcpClientUse} from "./connected-mcp-clients";
 
 // 🎟️ One bearer story for every non-browser caller. `/mcp` and the Claude Code hook hold the same
@@ -61,6 +67,78 @@ function parseStoredStringArray(value: string | null): string[] {
 	return value === null ? [] : storedStringArraySchema.parse(JSON.parse(value) as unknown);
 }
 
+// 🕵️ Why a bearer token was refused, drawn from a closed vocabulary. The wire never carries it: a
+// caller holding a stolen, tampered, or stale token gets the same 401 and the same challenge either
+// way, so nothing here tells an attacker which part of their guess was wrong. The operator gets the
+// distinction instead, because "the client re-authorizes forever" has a cause every entry below can
+// produce, and a bare 401 names none of them.
+enum AccessTokenRejection {
+	AudienceMismatch = "audience_mismatch",
+	// Signed by this deployment, but carrying a claim set no grant can be looked up from.
+	ClaimsUnusable = "claims_unusable",
+	Expired = "expired",
+	IssuerMismatch = "issuer_mismatch",
+	JwksMalformed = "jwks_malformed",
+	JwksUnavailable = "jwks_unavailable",
+	// Not a JWT this deployment could even read: wrong shape, wrong encoding, truncated.
+	Malformed = "malformed",
+	SignatureInvalid = "signature_invalid",
+}
+
+// The deployment cannot read its own signing keys, so every token fails no matter who sent it. That
+// is an outage rather than a bad caller, and it is the one case worth waking someone for.
+const OPERATOR_FAULT_REJECTIONS = new Set<AccessTokenRejection>([
+	AccessTokenRejection.JwksMalformed,
+	AccessTokenRejection.JwksUnavailable,
+]);
+
+function refuseAccessToken(rejection: AccessTokenRejection): null {
+	observeWorkerAuthentication({
+		event: "access_token_rejected",
+		failure: null,
+		level: OPERATOR_FAULT_REJECTIONS.has(rejection) ? "error" : "warn",
+		reason: rejection,
+		status: null,
+	});
+	return null;
+}
+
+function joseRejection(caught: unknown): AccessTokenRejection {
+	if (caught instanceof errors.JWTExpired) {
+		return AccessTokenRejection.Expired;
+	}
+	if (caught instanceof errors.JWTClaimValidationFailed) {
+		switch (caught.claim) {
+			case "aud":
+				return AccessTokenRejection.AudienceMismatch;
+			case "iss":
+				return AccessTokenRejection.IssuerMismatch;
+			default:
+				return AccessTokenRejection.ClaimsUnusable;
+		}
+	}
+	if (caught instanceof errors.JWSSignatureVerificationFailed || caught instanceof errors.JWKSNoMatchingKey) {
+		return AccessTokenRejection.SignatureInvalid;
+	}
+	return AccessTokenRejection.Malformed;
+}
+
+/** This deployment's own signing keys, or null once the reason they could not be read was recorded. */
+async function verificationKeys(
+	issuer: string,
+	environment: Env,
+	executionContext: ExecutionContext,
+): Promise<ReturnType<typeof createLocalJWKSet> | null> {
+	const response = await withRequestBackgroundTasks(executionContext, async () =>
+		workerAuthentication(environment).handler(new Request(`${issuer}/jwks`)),
+	).catch(() => null);
+	if (response === null || !response.ok) {
+		return refuseAccessToken(AccessTokenRejection.JwksUnavailable);
+	}
+	const jwks = jsonWebKeySetSchema.safeParse(await response.json().catch(() => null));
+	return jwks.success ? createLocalJWKSet(jwks.data) : refuseAccessToken(AccessTokenRejection.JwksMalformed);
+}
+
 /**
  * Verifies the signature, issuer, audience, and expiry of an access token this deployment minted.
  * Nothing here consults the database: a valid signature only proves the token was issued, which is
@@ -72,23 +150,18 @@ export async function verifyAccessToken(
 	executionContext: ExecutionContext,
 ): Promise<AccessTokenClaims | null> {
 	const issuer = `${environment.BETTER_AUTH_URL}/api/auth`;
-	try {
-		const jwksResponse = await withRequestBackgroundTasks(executionContext, async () =>
-			workerAuthentication(environment).handler(new Request(`${issuer}/jwks`)),
-		);
-		if (!jwksResponse.ok) {
-			throw new Error("Better Auth JWKS endpoint failed");
-		}
-		const jwks = jsonWebKeySetSchema.parse(await jwksResponse.json());
-		const verified = await jwtVerify(token, createLocalJWKSet(jwks), {
-			audience: mcpResource(environment),
-			issuer,
-		});
-		const parsed = accessTokenClaimsSchema.safeParse(verified.payload);
-		return parsed.success ? parsed.data : null;
-	} catch {
+	const keys = await verificationKeys(issuer, environment, executionContext);
+	if (keys === null) {
 		return null;
 	}
+	const verified = await jwtVerify(token, keys, {audience: mcpResource(environment), issuer}).catch(
+		(caught: unknown) => refuseAccessToken(joseRejection(caught)),
+	);
+	if (verified === null) {
+		return null;
+	}
+	const parsed = accessTokenClaimsSchema.safeParse(verified.payload);
+	return parsed.success ? parsed.data : refuseAccessToken(AccessTokenRejection.ClaimsUnusable);
 }
 
 /**

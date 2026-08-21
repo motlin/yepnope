@@ -372,6 +372,64 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		});
 	});
 
+	it("records why a token was refused without varying the refusal it puts on the wire", async () => {
+		const grant = await issueGrant("mcp-refusal-reason-alice@example.com");
+		const claims = decodeJwt(grant.accessToken);
+		const nowSeconds = Math.floor(Date.now() / 1_000);
+		const [expired, wrongAudience] = await Promise.all([
+			signClaims({...claims, exp: nowSeconds - 1}),
+			signClaims({...claims, aud: `${API_ORIGIN}/another-resource`, exp: nowSeconds + 600}),
+		]);
+		const signatureStart = grant.accessToken.lastIndexOf(".") + 1;
+		const signature = grant.accessToken.slice(signatureStart);
+		const forgedSignature = `${grant.accessToken.slice(0, signatureStart)}${
+			signature.startsWith("A") ? "B" : "A"
+		}${signature.slice(1)}`;
+
+		const observations: string[] = [];
+		vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
+			observations.push(String(line));
+		});
+		let read = 0;
+		async function refuse(token: string): Promise<Record<string, unknown>> {
+			const response = await worker.fetch(mcpRequest(token, "tools/list"));
+			const recorded = observations
+				.slice(read)
+				.map((line) => JSON.parse(line) as Record<string, unknown>)
+				.filter((observation) => observation["event"] === "access_token_rejected");
+			read = observations.length;
+			return {
+				body: await response.json(),
+				challenge: response.headers.get("WWW-Authenticate"),
+				recorded,
+				status: response.status,
+			};
+		}
+		const expiredRefusal = await refuse(expired);
+		const audienceRefusal = await refuse(wrongAudience);
+		const forgedRefusal = await refuse(forgedSignature);
+		const unparsableRefusal = await refuse("not-a-json-web-token");
+
+		const challenge =
+			`Bearer resource_metadata="${API_ORIGIN}/.well-known/oauth-protected-resource/mcp", ` +
+			`scope="${OAUTH_SCOPES.join(" ")}"`;
+		const wireRefusal = {
+			body: {error: {code: -32_000, message: "Invalid or missing access token"}, id: null, jsonrpc: "2.0"},
+			challenge,
+			status: 401,
+		};
+		function observation(reason: string): Record<string, unknown> {
+			return {event: "access_token_rejected", failure: null, level: "warn", reason, status: null};
+		}
+		expect([expiredRefusal, audienceRefusal, forgedRefusal, unparsableRefusal]).toStrictEqual([
+			{...wireRefusal, recorded: [observation("expired")]},
+			{...wireRefusal, recorded: [observation("audience_mismatch")]},
+			{...wireRefusal, recorded: [observation("signature_invalid")]},
+			{...wireRefusal, recorded: [observation("malformed")]},
+		]);
+		expect(observations.join("").includes(grant.accessToken)).toBe(false);
+	});
+
 	it("rejects revoked, expired, wrong-audience, wrong-resource, and insufficient-scope credentials", async () => {
 		const grant = await issueGrant("mcp-invalid-grant-alice@example.com");
 		const claims = decodeJwt(grant.accessToken);
