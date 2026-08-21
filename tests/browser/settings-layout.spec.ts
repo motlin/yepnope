@@ -177,6 +177,13 @@ test("settings separates account access, MCP clients, and browser notifications"
 		await expect(page.getByText("Alice laptop")).toBeVisible();
 		await expect(page.getByText("Safari on iPhone · This browser")).toBeVisible();
 		await expect(page.getByText("Alice phone")).toBeVisible();
+		await expect(page.getByRole("heading", {name: "Claude Code"})).toBeVisible();
+		await expect(page.getByText("claude plugin install yepnope@yepnope")).toBeVisible();
+		await expect(
+			page.getByText("claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp"),
+		).toBeVisible();
+		await expect(page.getByRole("heading", {name: "Codex"})).toBeVisible();
+		await expect(page.getByText("codex plugin add yepnope@yepnope")).toBeVisible();
 		await expect(page.getByText("codex mcp add yepnope --url https://yepnope.app/mcp")).toBeVisible();
 		await expect(page.getByText("codex mcp login yepnope")).toBeVisible();
 		expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("pair");
@@ -186,7 +193,7 @@ test("settings separates account access, MCP clients, and browser notifications"
 	}
 });
 
-test("Codex install commands stay copyable within a narrow mobile width", async ({browser}) => {
+test("install commands stay copyable within a narrow mobile width", async ({browser}) => {
 	const context = await browser.newContext({
 		ignoreHTTPSErrors: true,
 		isMobile: true,
@@ -196,7 +203,8 @@ test("Codex install commands stay copyable within a narrow mobile width", async 
 	try {
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 		await openSettings(page);
-		const command = page.getByText("codex mcp add yepnope --url https://yepnope.app/mcp");
+		// The longest command in the panel, so wrapping is proven where it is hardest.
+		const command = page.getByText("claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp");
 		const commandBounds = await command.boundingBox();
 		const containerBounds = await command.locator("xpath=../..").boundingBox();
 		if (commandBounds === null || containerBounds === null) {
@@ -215,7 +223,7 @@ test("Codex install commands stay copyable within a narrow mobile width", async 
 		expect(commandBounds.x + commandBounds.width).toBeLessThanOrEqual(containerBounds.x + containerBounds.width);
 		await command.locator("xpath=../../button").click();
 		await expect(command.locator("xpath=../../button")).toHaveText("Copied");
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-codex-mobile.png")});
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-install-mobile.png")});
 	} finally {
 		await context.close();
 	}

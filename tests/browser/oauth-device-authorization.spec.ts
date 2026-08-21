@@ -150,7 +150,7 @@ test("a device-authorized hook is approved in the browser and dies the moment Se
 		await page.getByRole("button", {name: "Create account"}).click();
 		await expect(page.getByRole("heading", {name: "Verify your email"})).toBeVisible();
 		await page.goto(await mailboxLink(request, verificationSubject, email));
-		await expect(page.getByRole("button", {name: "Connect an MCP client"})).toBeVisible();
+		await expect(page.getByRole("button", {name: "Connect Claude Code or Codex"})).toBeVisible();
 
 		await page.goto(issued.verification_uri_complete);
 		await expect(page.getByRole("button", {name: "Approve"})).toBeVisible();

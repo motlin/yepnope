@@ -38,8 +38,30 @@ const alice: AuthenticationUser = {
 	emailVerified: true,
 };
 
+// Claude Code is the primary audience, so its commands ship next to the Codex ones and neither
+// client is guessed at from the browser.
+const CLAUDE_CODE_MARKETPLACE_COMMAND = "claude plugin marketplace add motlin/yepnope";
+const CLAUDE_CODE_PLUGIN_COMMAND = "claude plugin install yepnope@yepnope";
+const CLAUDE_CODE_ADD_COMMAND = "claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp";
+const CLAUDE_CODE_LOGIN_COMMAND = "/mcp";
+const CODEX_MARKETPLACE_COMMAND = "codex plugin marketplace add motlin/yepnope";
+const CODEX_PLUGIN_COMMAND = "codex plugin add yepnope@yepnope";
 const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
 const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
+const SETUP_COMMANDS = [
+	CLAUDE_CODE_MARKETPLACE_COMMAND,
+	CLAUDE_CODE_PLUGIN_COMMAND,
+	CLAUDE_CODE_ADD_COMMAND,
+	CLAUDE_CODE_LOGIN_COMMAND,
+	CODEX_MARKETPLACE_COMMAND,
+	CODEX_PLUGIN_COMMAND,
+	CODEX_ADD_COMMAND,
+	CODEX_LOGIN_COMMAND,
+];
+
+function setupCommands(panel: HTMLElement): (string | null)[] {
+	return Array.from(panel.querySelectorAll("code")).map((command) => command.textContent);
+}
 
 // §13.2 asks for the privacy position "plainly on the site". Settings are unreachable without an
 // account, so every signed-out surface that asks the visitor for something repeats it verbatim.
@@ -706,7 +728,7 @@ describe("App live question synchronization", () => {
 				currentDeck: [],
 			});
 		});
-		fireEvent.click(screen.getByRole("button", {name: "Connect an MCP client"}));
+		fireEvent.click(screen.getByRole("button", {name: "Connect Claude Code or Codex"}));
 		expect(await screen.findByText("No connected MCP clients.")).toBeDefined();
 		fetchAccountDevices.mockResolvedValue({
 			browserSessions: [],
@@ -860,11 +882,62 @@ describe("App live question synchronization", () => {
 
 		expect(screen.getByRole("heading", {name: "Install first"})).toBeDefined();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
-		expect(screen.getByText(CODEX_ADD_COMMAND)).toBeDefined();
+		expect(setupCommands(screen.getByRole("region", {name: "Connected MCP clients"}))).toStrictEqual(
+			SETUP_COMMANDS,
+		);
 		expect(document.body.textContent.toLowerCase()).not.toContain("pair");
 	});
 
-	it("shows and copies current Codex remote MCP setup commands", async () => {
+	it("sends the AFK empty state straight to the per-client instructions", async () => {
+		fetchAccountDevices.mockResolvedValue({browserSessions: [], connectedMcpClients: [], pushDevices: []});
+		render(<App />);
+		await waitFor(() => {
+			expect(publishApplicationState).toBeTypeOf("function");
+		});
+		act(() => {
+			publishApplicationState?.({afk: false, connectedMcpClientCount: 0, currentDeck: []});
+		});
+
+		fireEvent.click(screen.getByRole("button", {name: "Connect Claude Code or Codex"}));
+
+		const panel = await screen.findByRole("region", {name: "Connected MCP clients"});
+		const heading = within(panel).getByRole("heading", {name: "Connected MCP clients"});
+		expect({
+			focused: document.activeElement === heading,
+			commands: setupCommands(panel),
+		}).toStrictEqual({
+			focused: true,
+			commands: SETUP_COMMANDS,
+		});
+	});
+
+	it("documents setup for every supported client instead of Codex alone", async () => {
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+
+		const panel = screen.getByRole("region", {name: "Connected MCP clients"});
+		expect({
+			clients: within(panel)
+				.getAllByRole("heading", {level: 4})
+				.map((heading) => heading.textContent),
+			commands: setupCommands(panel),
+			docsUrls: within(panel)
+				.getAllByRole("link")
+				.map((link) => link.getAttribute("href")),
+		}).toStrictEqual({
+			clients: ["Claude Code", "Codex"],
+			commands: SETUP_COMMANDS,
+			docsUrls: ["https://docs.claude.com/en/docs/claude-code/mcp", "https://developers.openai.com/codex/mcp/"],
+		});
+	});
+
+	it("copies the setup command of whichever client the reader picks", async () => {
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
@@ -876,22 +949,26 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		const copyButtons = screen.getAllByRole("button", {name: "Copy"});
+		const panel = screen.getByRole("region", {name: "Connected MCP clients"});
+		const copyButtons = within(panel).getAllByRole("button", {name: "Copy"});
 		fireEvent.click(copyButtons[0] ?? document.body);
-		fireEvent.click(copyButtons[1] ?? document.body);
+		fireEvent.click(copyButtons[4] ?? document.body);
 		await waitFor(() => {
-			expect(writeText.mock.calls).toStrictEqual([[CODEX_ADD_COMMAND], [CODEX_LOGIN_COMMAND]]);
+			expect(writeText.mock.calls).toStrictEqual([
+				[CLAUDE_CODE_MARKETPLACE_COMMAND],
+				[CODEX_MARKETPLACE_COMMAND],
+			]);
 		});
 		expect({
-			addCommand: screen.getByText(CODEX_ADD_COMMAND).tagName,
-			loginCommand: screen.getByText(CODEX_LOGIN_COMMAND).tagName,
-			copiedButtons: screen.getAllByRole("button", {name: "Copied"}).length,
-			docsUrl: screen.getByRole("link", {name: "Open the official Codex MCP instructions"}).getAttribute("href"),
+			copyButtons: copyButtons.length,
+			claudeCodeCommand: screen.getByText(CLAUDE_CODE_MARKETPLACE_COMMAND).tagName,
+			codexCommand: screen.getByText(CODEX_MARKETPLACE_COMMAND).tagName,
+			copiedButtons: within(panel).getAllByRole("button", {name: "Copied"}).length,
 		}).toStrictEqual({
-			addCommand: "CODE",
-			loginCommand: "CODE",
+			copyButtons: SETUP_COMMANDS.length,
+			claudeCodeCommand: "CODE",
+			codexCommand: "CODE",
 			copiedButtons: 2,
-			docsUrl: "https://developers.openai.com/codex/mcp/",
 		});
 	});
 
@@ -915,10 +992,10 @@ describe("App live question synchronization", () => {
 		});
 		expect({
 			copyCalls: writeText.mock.calls,
-			command: screen.getByText(CODEX_ADD_COMMAND).textContent,
+			command: screen.getByText(CLAUDE_CODE_MARKETPLACE_COMMAND).textContent,
 		}).toStrictEqual({
-			copyCalls: [[CODEX_ADD_COMMAND]],
-			command: CODEX_ADD_COMMAND,
+			copyCalls: [[CLAUDE_CODE_MARKETPLACE_COMMAND]],
+			command: CLAUDE_CODE_MARKETPLACE_COMMAND,
 		});
 	});
 

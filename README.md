@@ -25,7 +25,7 @@ somewhere.
    Signing in on a second browser does not enrol it, and
    **Settings -> Signed-in browsers** lists the ones that are.
 4. Install the agent integration below, then turn **AFK** on from the deck. The
-   toggle reads `Connect an MCP client` and does nothing until one is
+   toggle reads `Connect Claude Code or Codex` and does nothing until one is
    authorized, because routing questions to a phone means nothing with nothing
    to route.
 
@@ -96,12 +96,22 @@ copied between windows, no token is pasted into a config file, and the
 authorization appears under **Settings -> Connected MCP clients** where it can be
 revoked.
 
-To register the connection by hand instead of through the plugin:
+To register the connection by hand instead of through the plugin, in Claude
+Code:
+
+```sh
+claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp
+```
+
+Then run `/mcp`, select `yepnope`, and authorize in the browser. In Codex:
 
 ```sh
 codex mcp add yepnope --url https://yepnope.app/mcp
 codex mcp login yepnope
 ```
+
+**Settings -> Connected MCP clients** in the app repeats all of these commands
+for both clients, so the phone is enough to finish setup.
 
 The call may block for hours by design. When the client sends a progress token
 with the call, the server emits an MCP progress notification every 15 seconds,

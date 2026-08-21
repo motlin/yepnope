@@ -91,10 +91,17 @@ interface AfkToggleProps {
 	afk: boolean | null;
 	connectedMcpClientCount: number | null;
 	onOpenSettings: () => void;
+	onConnectClient: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({afk, connectedMcpClientCount, onOpenSettings, onToggle}: AfkToggleProps): ReactElement {
+function AfkToggle({
+	afk,
+	connectedMcpClientCount,
+	onOpenSettings,
+	onConnectClient,
+	onToggle,
+}: AfkToggleProps): ReactElement {
 	if (connectedMcpClientCount === null) {
 		return (
 			<button type="button" className="account-status" disabled>
@@ -106,8 +113,8 @@ function AfkToggle({afk, connectedMcpClientCount, onOpenSettings, onToggle}: Afk
 		connectedMcpClientCount === 1 ? "1 MCP client authorized" : `${connectedMcpClientCount} MCP clients authorized`;
 	if (connectedMcpClientCount === 0) {
 		return (
-			<button type="button" className="account-status" onClick={onOpenSettings}>
-				Connect an MCP client
+			<button type="button" className="account-status" onClick={onConnectClient}>
+				Connect Claude Code or Codex
 			</button>
 		);
 	}
@@ -136,6 +143,8 @@ function AfkToggle({afk, connectedMcpClientCount, onOpenSettings, onToggle}: Afk
 interface SettingsProps {
 	session: AuthenticationUser | null;
 	connectedMcpClientCount: number | null;
+	/** Set when the reader arrived here to connect a client, so the instructions are what they land on. */
+	focusConnectedClients: boolean;
 	theme: Theme;
 	onBack: () => void;
 	onSignIn: () => void;
@@ -267,8 +276,66 @@ function followOAuthRedirect(url: string): boolean {
 	return true;
 }
 
-const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
-const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
+interface SetupStep {
+	readonly label: string;
+	readonly command: string;
+}
+
+interface McpClientSetup {
+	readonly name: string;
+	/** The plugin install, which registers the MCP server and both skills in one step. */
+	readonly pluginSteps: readonly SetupStep[];
+	readonly authorization: string;
+	/** The same connection registered by hand, for anyone who does not want the plugin. */
+	readonly manualSteps: readonly SetupStep[];
+	readonly docsLabel: string;
+	readonly docsUrl: string;
+}
+
+// 🧭 Every supported client is spelled out, because the browser cannot tell which one is asking and
+// guessing wrong strands the reader on instructions for somebody else's CLI.
+const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
+	{
+		name: "Claude Code",
+		pluginSteps: [
+			{label: "1. Add the YepNope marketplace", command: "claude plugin marketplace add motlin/yepnope"},
+			{label: "2. Install the plugin", command: "claude plugin install yepnope@yepnope"},
+		],
+		authorization:
+			"Start a new Claude Code session. It opens YepNope in your browser for account sign-in and consent. " +
+			"If authorization does not open automatically, run /mcp, select yepnope, and authorize there. No token " +
+			"or browser cookie belongs in Claude Code configuration.",
+		manualSteps: [
+			{
+				label: "Without the plugin: register the server",
+				command: "claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp",
+			},
+			{label: "Without the plugin: authorize it", command: "/mcp"},
+		],
+		docsLabel: "Open the official Claude Code MCP instructions",
+		docsUrl: "https://docs.claude.com/en/docs/claude-code/mcp",
+	},
+	{
+		name: "Codex",
+		pluginSteps: [
+			{label: "1. Add the YepNope marketplace", command: "codex plugin marketplace add motlin/yepnope"},
+			{label: "2. Install the plugin", command: "codex plugin add yepnope@yepnope"},
+		],
+		authorization:
+			"Start a new Codex session. It opens YepNope in your browser for account sign-in and consent. If " +
+			"authorization does not open automatically, run the login command. No token or browser cookie belongs " +
+			"in Codex configuration.",
+		manualSteps: [
+			{
+				label: "Without the plugin: register the server",
+				command: "codex mcp add yepnope --url https://yepnope.app/mcp",
+			},
+			{label: "Without the plugin: authorize it", command: "codex mcp login yepnope"},
+		],
+		docsLabel: "Open the official Codex MCP instructions",
+		docsUrl: "https://developers.openai.com/codex/mcp/",
+	},
+];
 
 interface AccountRouteProps {
 	onNavigate: (view: AppView) => void;
@@ -1850,6 +1917,7 @@ function AppearancePanel({theme}: AppearancePanelProps): ReactElement {
 function Settings({
 	session,
 	connectedMcpClientCount,
+	focusConnectedClients,
 	theme,
 	onBack,
 	onSignIn,
@@ -1857,6 +1925,7 @@ function Settings({
 	onSignedOut,
 }: SettingsProps): ReactElement {
 	const requiresIosInstall = isIos() && !isStandalone();
+	const connectedClientsHeading = useRef<HTMLHeadingElement | null>(null);
 	const [accountError, setAccountError] = useState<string | null>(null);
 	const [accountDevices, setAccountDevices] = useState<AccountDevices | null>(null);
 	const [devicesError, setDevicesError] = useState<string | null>(null);
@@ -1891,6 +1960,12 @@ function Settings({
 	useEffect(() => {
 		void reloadDevices();
 	}, [connectedMcpClientCount, reloadDevices]);
+
+	useEffect(() => {
+		if (focusConnectedClients) {
+			connectedClientsHeading.current?.focus();
+		}
+	}, [focusConnectedClients]);
 
 	async function runDeviceAction(action: () => Promise<void>): Promise<void> {
 		setDevicesError(null);
@@ -1948,22 +2023,33 @@ function Settings({
 			</div>
 			{session !== null && <SignInMethodsPanel onSignedOut={onSignedOut} />}
 			<AppearancePanel theme={theme} />
-			<div className="hint connected-clients">
-				<h3>Connected MCP clients</h3>
+			<div className="hint connected-clients" role="region" aria-label="Connected MCP clients">
+				<h3 ref={connectedClientsHeading} tabIndex={-1}>
+					Connected MCP clients
+				</h3>
 				<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>
-				<div className="install-steps">
-					<InstallCommand command={CODEX_ADD_COMMAND} label="1. Add YepNope to Codex" />
-					<InstallCommand command={CODEX_LOGIN_COMMAND} label="2. Sign in when Codex requests it" />
-				</div>
-				<p>
-					Codex opens YepNope in your browser for account sign-in and consent. If authorization does not open
-					automatically, run the login command. No token or browser cookie belongs in Codex configuration.
-				</p>
-				<p>
-					<a href="https://developers.openai.com/codex/mcp/" target="_blank" rel="noreferrer">
-						Open the official Codex MCP instructions
-					</a>
-				</p>
+				<p>Follow the steps for the client you run. Nothing here detects it for you.</p>
+				{MCP_CLIENT_SETUPS.map((client) => (
+					<div key={client.name} className="client-setup">
+						<h4>{client.name}</h4>
+						<div className="install-steps">
+							{client.pluginSteps.map((step) => (
+								<InstallCommand key={step.command} command={step.command} label={step.label} />
+							))}
+						</div>
+						<p>{client.authorization}</p>
+						<div className="install-steps">
+							{client.manualSteps.map((step) => (
+								<InstallCommand key={step.command} command={step.command} label={step.label} />
+							))}
+						</div>
+						<p>
+							<a href={client.docsUrl} target="_blank" rel="noreferrer">
+								{client.docsLabel}
+							</a>
+						</p>
+					</div>
+				))}
 				{session === null ? (
 					<>
 						<p>Sign in before authorizing a client.</p>
@@ -2115,6 +2201,7 @@ export function App(): ReactElement {
 	const [afk, setAfkState] = useState<boolean | null>(null);
 	const [connectedMcpClientCount, setConnectedMcpClientCount] = useState<number | null>(null);
 	const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
+	const [connectingClient, setConnectingClient] = useState(false);
 	const [registrationEmail, setRegistrationEmail] = useState("");
 	const [verificationDelivery, setVerificationDelivery] = useState<VerificationDelivery>("idle");
 	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
@@ -2155,6 +2242,9 @@ export function App(): ReactElement {
 		const target = `${pathForView(nextView)}${preserveOAuthQuery ? `?${oauthQuery}` : deviceHandoffQuery(nextView)}`;
 		if (`${window.location.pathname}${window.location.search}` !== target) {
 			window.history.pushState({}, "", target);
+		}
+		if (nextView !== "settings") {
+			setConnectingClient(false);
 		}
 		setView(nextView);
 	}
@@ -2346,6 +2436,7 @@ export function App(): ReactElement {
 					<Settings
 						session={session}
 						connectedMcpClientCount={connectedMcpClientCount}
+						focusConnectedClients={connectingClient}
 						theme={theme}
 						onBack={() => {
 							navigate("deck");
@@ -2457,6 +2548,10 @@ export function App(): ReactElement {
 								afk={afk}
 								connectedMcpClientCount={connectedMcpClientCount}
 								onOpenSettings={() => {
+									navigate("settings");
+								}}
+								onConnectClient={() => {
+									setConnectingClient(true);
 									navigate("settings");
 								}}
 								onToggle={onToggleAfk}
