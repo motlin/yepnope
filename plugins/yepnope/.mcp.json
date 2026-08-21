@@ -2,7 +2,9 @@
 	"mcpServers": {
 		"yepnope": {
 			"type": "http",
-			"url": "https://yepnope.app/mcp"
+			"url": "https://yepnope.app/mcp",
+			"timeout": 691200000,
+			"tool_timeout_sec": 691200
 		}
 	}
 }

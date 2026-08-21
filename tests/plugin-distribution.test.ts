@@ -1,4 +1,9 @@
 import {existsSync, readFileSync} from "node:fs";
+import {RETENTION_MILLISECONDS} from "../worker/validation";
+
+interface PluginMcpConfig {
+	mcpServers: {yepnope: {timeout: number; tool_timeout_sec: number; type: string; url: string}};
+}
 
 function readJson(path: string): unknown {
 	return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
@@ -36,6 +41,8 @@ describe("YepNope plugin distribution", () => {
 				yepnope: {
 					type: "http",
 					url: "https://yepnope.app/mcp",
+					timeout: 691_200_000,
+					tool_timeout_sec: 691_200,
 				},
 			},
 		});
@@ -52,6 +59,25 @@ describe("YepNope plugin distribution", () => {
 			keywords: ["claude-code", "codex", "mcp", "yes-no"],
 			skills: ["./skills/yepnope", "./skills/yepnope-setup"],
 			mcpServers: "./.mcp.json",
+		});
+	});
+
+	// ⏳ `ask_yep_nope` blocks until a human answers, so whichever side gives up first decides the
+	// outcome. A client that gives up first sends `notifications/cancelled`, the Worker retracts the
+	// batch, and the cards vanish off the phone mid-answer while the agent collects a timeout instead
+	// of a yep. Both clients therefore have to outlast the answer window the server itself enforces.
+	it("ships a tool timeout that outlasts the server's own answer window", () => {
+		const {yepnope} = (readJson("../plugins/yepnope/.mcp.json") as PluginMcpConfig).mcpServers;
+		expect({
+			claudeCodeMilliseconds: yepnope.timeout,
+			codexSeconds: yepnope.tool_timeout_sec,
+			clientsAgree: yepnope.timeout === yepnope.tool_timeout_sec * 1000,
+			outlastsAnswerWindow: yepnope.timeout > RETENTION_MILLISECONDS,
+		}).toStrictEqual({
+			claudeCodeMilliseconds: 691_200_000,
+			codexSeconds: 691_200,
+			clientsAgree: true,
+			outlastsAnswerWindow: true,
 		});
 	});
 
@@ -119,6 +145,19 @@ describe("YepNope plugin distribution", () => {
 			codexPlugin: true,
 			localInstaller: true,
 			npxBothSkills: true,
+		});
+	});
+
+	it("documents the timeout the plugin ships instead of one the reader must set", () => {
+		const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+		expect({
+			staleTwelveHourAdvice: readme.includes("43200000"),
+			namesClaudeCodeKey: readme.includes('"timeout": 691200000'),
+			namesCodexKey: readme.includes('"tool_timeout_sec": 691200'),
+		}).toStrictEqual({
+			staleTwelveHourAdvice: false,
+			namesClaudeCodeKey: true,
+			namesCodexKey: true,
 		});
 	});
 

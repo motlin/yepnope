@@ -113,13 +113,27 @@ codex mcp login yepnope
 **Settings -> Connected MCP clients** in the app repeats all of these commands
 for both clients, so the phone is enough to finish setup.
 
-The call may block for hours by design. When the client sends a progress token
-with the call, the server emits an MCP progress notification every 15 seconds,
-and harnesses that implement progress notifications reset their tool timeout on
-each one, so the wait survives. For harnesses that time the call out anyway,
-raise the timeout explicitly — in Claude Code set `MCP_TOOL_TIMEOUT`
-(milliseconds, e.g. `MCP_TOOL_TIMEOUT=43200000` for 12 hours) in the
-environment; other harnesses have equivalents.
+The call may block for hours by design, and two separate client limits can cut
+it short. The first is an idle window: Claude Code aborts a tool call that has
+sent neither a response nor a progress notification for five minutes. When the
+client sends a progress token the server emits a progress notification every 15
+seconds, which holds that window open indefinitely. The second is a wall-clock
+limit on the call as a whole, and progress notifications do **not** extend it —
+Claude Code's own per-server `timeout` says so in as many words.
+
+So the plugin ships the wall-clock limit rather than asking for it. Its
+`.mcp.json` carries `"timeout": 691200000` for Claude Code and
+`"tool_timeout_sec": 691200` for Codex; each client honors its own key and
+ignores the other's. Eight days is one day longer than the seven-day window the
+server itself waits before giving up, so the server's graceful timeout always
+wins the race. Installing the plugin is the whole configuration: a per-server
+value outranks `MCP_TOOL_TIMEOUT` and raises the idle window to match it, so
+nothing in the environment can cut a blocking question short.
+
+Losing that race is destructive, which is why the margin exists. A client that
+gives up first sends `notifications/cancelled`, the server retracts the batch,
+and the cards vanish off the phone while the user is mid-answer — and the agent
+collects a timeout instead of a yep.
 
 While the call blocks, the server heartbeats the answer stream. If the agent
 process dies the heartbeats stop, the batch is retracted, and the cards
