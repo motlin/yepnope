@@ -1,6 +1,5 @@
 import {defineConfig} from "playwright/test";
-
-const serverOrigin = "https://localhost:4173";
+import {BROWSER_TEST_SERVE_COMMAND, SERVER_ORIGIN} from "./scripts/browser-test-harness.ts";
 
 export default defineConfig({
 	testDir: "./tests/browser",
@@ -12,7 +11,7 @@ export default defineConfig({
 	expect: {timeout: 10_000},
 	reporter: [["line"]],
 	use: {
-		baseURL: serverOrigin,
+		baseURL: SERVER_ORIGIN,
 		browserName: "chromium",
 		headless: true,
 		ignoreHTTPSErrors: true,
@@ -21,9 +20,11 @@ export default defineConfig({
 		screenshot: "off",
 		video: "off",
 	},
+	// 🖥️ The local suite. `vp run test:browser` builds the client and migrates the database first,
+	// so this timeout only has to cover `wrangler dev` binding the port, not a cold build.
 	webServer: {
-		command: "node scripts/browser-test-server.ts",
-		url: serverOrigin,
+		command: BROWSER_TEST_SERVE_COMMAND,
+		url: SERVER_ORIGIN,
 		gracefulShutdown: {signal: "SIGTERM", timeout: 5_000},
 		ignoreHTTPSErrors: true,
 		reuseExistingServer: false,

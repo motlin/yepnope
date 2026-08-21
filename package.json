@@ -17,7 +17,7 @@
 		"fallow:ci": "fallow dead-code",
 		"typecheck": "wrangler types && tsc --noEmit && tsc -p worker/tsconfig.json && tsc -p cli/tsconfig.json",
 		"test": "node node_modules/vitest/dist/cli.js",
-		"test:browser": "node node_modules/playwright/cli.js test --config playwright.config.ts",
+		"test:browser": "node --experimental-strip-types scripts/browser-test-prepare.ts && node node_modules/playwright/cli.js test --config playwright.config.ts",
 		"test:ui": "node node_modules/vitest/dist/cli.js --ui",
 		"proof:oauth-mcp": "node --experimental-strip-types tests/oauth-mcp-proof/codex-proof-server.ts",
 		"storybook": "storybook dev -p 6006",

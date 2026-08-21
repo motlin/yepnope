@@ -11,6 +11,7 @@
 		"public/sw.js",
 		"scripts/generate-icons.mjs",
 		"scripts/admin-storage.ts",
+		"scripts/browser-test-prepare.ts",
 		"scripts/browser-test-server.ts",
 		"worker/admin.ts",
 		"worker/browser-e2e.ts",

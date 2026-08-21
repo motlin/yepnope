@@ -1,91 +1,26 @@
-import {spawn, spawnSync, type ChildProcess} from "node:child_process";
-import {generateKeyPairSync, randomBytes} from "node:crypto";
-import {mkdirSync, rmSync, writeFileSync} from "node:fs";
-import {resolve} from "node:path";
+import {spawn, type ChildProcess} from "node:child_process";
+import {
+	removeTestState,
+	repositoryDirectory,
+	requirePreparedBrowserTests,
+	SERVE_COMMAND,
+} from "./browser-test-harness.ts";
 
-const repositoryDirectory = resolve(import.meta.dirname, "..");
-const stateDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-state");
-const environmentFile = resolve(repositoryDirectory, ".llm/browser-e2e.env");
-const testVapidPrivateJwk = JSON.stringify(
-	generateKeyPairSync("ec", {namedCurve: "P-256"}).privateKey.export({format: "jwk"}),
-);
-
-function removeTestState(): void {
-	rmSync(stateDirectory, {force: true, recursive: true});
-	rmSync(environmentFile, {force: true});
-}
-
-function run(command: string, arguments_: string[]): void {
-	const result = spawnSync(command, arguments_, {
-		cwd: repositoryDirectory,
-		encoding: "utf8",
-		env: {...process.env, CI: "true", VITE_APPLICATION_VERSION: "browser-version-n"},
-	});
-	if (result.status !== 0) {
-		throw new Error(`${command} failed while preparing the browser test server`);
-	}
-}
+// 🚀 The Playwright web server. It assumes `scripts/browser-test-prepare.ts` already built the
+// client and migrated the database, so all Playwright's start-up timeout has to cover is
+// `wrangler dev` binding its port.
 
 function stopServer(server: ChildProcess, signal: NodeJS.Signals): void {
 	server.kill(signal);
 }
 
-try {
-	removeTestState();
-	mkdirSync(stateDirectory, {recursive: true});
-	writeFileSync(
-		environmentFile,
-		[
-			`BETTER_AUTH_SECRET=${randomBytes(32).toString("base64url")}`,
-			`VAPID_PRIVATE_JWK='${testVapidPrivateJwk}'`,
-			"",
-		].join("\n"),
-		{mode: 0o600},
-	);
+requirePreparedBrowserTests();
 
-	run("vp", ["build"]);
-	run("vp", [
-		"exec",
-		"wrangler",
-		"d1",
-		"migrations",
-		"apply",
-		"DB",
-		"--config",
-		"wrangler.e2e.jsonc",
-		"--local",
-		"--persist-to",
-		stateDirectory,
-	]);
-} catch (error) {
-	removeTestState();
-	throw error;
-}
-
-const server = spawn(
-	"vp",
-	[
-		"exec",
-		"wrangler",
-		"dev",
-		"--config",
-		"wrangler.e2e.jsonc",
-		"--local",
-		"--persist-to",
-		stateDirectory,
-		"--port",
-		"4173",
-		"--local-protocol",
-		"https",
-		"--env-file",
-		environmentFile,
-		"--log-level",
-		"error",
-		"--show-interactive-dev-session",
-		"false",
-	],
-	{cwd: repositoryDirectory, env: {...process.env, CI: "true"}, stdio: "ignore"},
-);
+const server = spawn(SERVE_COMMAND.command, [...SERVE_COMMAND.arguments_], {
+	cwd: repositoryDirectory,
+	env: {...process.env, CI: "true"},
+	stdio: "ignore",
+});
 
 let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
