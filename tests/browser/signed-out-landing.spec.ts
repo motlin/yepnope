@@ -2,6 +2,10 @@ import {expect, test, type Page, type WebSocketRoute} from "playwright/test";
 import {fulfillJson} from "./helpers";
 
 const signedOutCopy = "Sign in to answer questions from your coding agents, or create an account to get started.";
+// §13.2 asks for the no-E2EE disclosure "plainly on the site", which includes the front door a
+// visitor reaches before they have an account.
+const signedOutPrivacyCopy =
+	"YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies and answers are deleted seven days after each batch is created.";
 
 async function assertSignedOutLanding(page: Page): Promise<void> {
 	expect(
@@ -26,7 +30,7 @@ async function assertSignedOutLanding(page: Page): Promise<void> {
 		applicationClass: "app",
 		authenticatedShells: 0,
 		headings: ["YepNope"],
-		paragraphs: [signedOutCopy],
+		paragraphs: [signedOutCopy, signedOutPrivacyCopy],
 	});
 }
 

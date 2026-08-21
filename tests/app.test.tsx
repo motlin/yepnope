@@ -989,7 +989,10 @@ describe("Better Auth account routes", () => {
 				{className: "secondary", text: "Create account", type: "button"},
 			],
 			applicationText:
-				"YepNopeSign in to answer questions from your coding agents, or create an account to get started.Sign inCreate account",
+				"YepNopeSign in to answer questions from your coding agents, or create an account to get started." +
+				"YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. " +
+				"Question bodies and answers are deleted seven days after each batch is created." +
+				"Sign inCreate account",
 			authenticatedShell: 0,
 			openedStream: false,
 			settingsControls: 0,

@@ -299,6 +299,10 @@ function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement {
 	return (
 		<AccountPanel title="YepNope">
 			<p>Sign in to answer questions from your coding agents, or create an account to get started.</p>
+			<p className="signed-out-privacy">
+				YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question
+				bodies and answers are deleted seven days after each batch is created.
+			</p>
 			<div className="signed-out-actions">
 				<button
 					type="button"

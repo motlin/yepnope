@@ -126,34 +126,55 @@ the process arguments, or in a shell history:
 	"hooks": {
 		"PermissionRequest": [
 			{
-				"hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" hook"}]
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" hook",
+						"timeout": 3600
+					}
+				]
 			}
 		],
 		"PreToolUse": [
 			{
 				"matcher": "AskUserQuestion",
-				"hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" hook"}]
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" hook",
+						"timeout": 3600
+					}
+				]
 			}
 		]
 	}
 }
 ```
 
-While AFK mode is on (the default, toggled in the app), permission prompts
-become swipe cards and `AskUserQuestion` is redirected to `ask_yep_nope`. While
-it is off, both hooks abstain and everything runs natively. Hook decisions do
-not bypass permission rules, and the default ten-minute hook timeout means an
-abandoned card falls through to the terminal prompt.
+While AFK mode is on, permission prompts become swipe cards and
+`AskUserQuestion` is redirected to `ask_yep_nope`. While it is off, both hooks
+abstain and everything runs natively. A new account starts with AFK off, because
+routing questions to a phone means nothing until an MCP client is connected, and
+revoking the last client turns it off again; the app toggle and `afk on` below
+are how it goes back on. Hook decisions do not bypass permission rules.
+
+The hook sets no timeout of its own, deliberately: a card can sit on a phone for
+hours, and the request stays open for exactly as long as you take to swipe it.
+Claude Code's own per-hook timeout is therefore the only cutoff, and its default
+is far shorter than that, so set `timeout` explicitly as above — in seconds, and
+long enough that you would rather answer late than answer in the terminal. When
+it does expire the card is abandoned and the prompt falls through to the
+terminal, which is the same safe outcome as an abstention.
 
 The hook abstains rather than failing whenever it cannot get an answer — no
 credential, a revoked credential, an unreachable service — and says why on
 stderr. A laptop that is offline falls back to the native prompt instead of
 stranding the agent.
 
-`yepnope logout` revokes the credential and removes it from the keychain.
-Revoking the client under **Settings -> Connected MCP clients** does the same
-thing from the other end and takes effect on the hook's very next call, even
-though its access token has not expired yet.
+`node "$PWD/cli/dist/yepnope.cjs" logout` revokes the credential and removes it
+from the keychain. Revoking the client under **Settings -> Connected MCP
+clients** does the same thing from the other end and takes effect on the hook's
+very next call, even though its access token has not expired yet.
 
 ## AFK mode and optional status output
 
@@ -170,7 +191,12 @@ node "$PWD/cli/dist/yepnope.cjs" afk off      # use native prompts for new quest
 Changes apply to the next question only. Turning AFK mode off does not retract
 cards already on the phone or strand agents waiting for those answers.
 
-`yepnope afk statusline` is a one-shot command that prints `📱 YepNope: ON` or
+`afk on` is refused with `Authorize an MCP host or OAuth CLI client before
+turning AFK on.` while no MCP client is connected, and AFK reads as off whenever
+the last one goes away. Routing questions to a phone is meaningless with nothing
+to route, so connect a client first; the app toggle behaves the same way.
+
+`afk statusline` is a one-shot command that prints `📱 YepNope: ON` or
 `💻 YepNope: OFF`; a missing authorization or a server failure produces a warning
 within a 1.5-second deadline. It does not start a server or install a timer.
 
@@ -255,7 +281,9 @@ disappears from the sign-in page and is rejected by the API.
     wrangler secret put GOOGLE_CLIENT_SECRET
     ```
 
-3. Redeploy with `npm run deploy`, then confirm the provider is advertised:
+3. Redeploy with `just release` (see
+   [Releasing to production](#releasing-to-production)), then confirm the provider
+   is advertised:
 
     ```sh
     curl -s https://yepnope.app/api/v1/auth-methods
@@ -294,15 +322,16 @@ replaces none of them.
    [the Turnstile dashboard](https://dash.cloudflare.com/?to=/:account/turnstile)
    in **Managed** mode.
 2. Store both halves as Wrangler secrets. The site key is public, but keeping the
-   pair together means `npm run deploy` cannot drop one of them:
+   pair together means a deploy cannot drop one of them:
 
     ```sh
     wrangler secret put TURNSTILE_SITE_KEY
     wrangler secret put TURNSTILE_SECRET_KEY
     ```
 
-3. Redeploy with `npm run deploy`, then confirm the browser is being told to draw
-   the widget:
+3. Redeploy with `just release` (see
+   [Releasing to production](#releasing-to-production)), then confirm the browser
+   is being told to draw the widget:
 
     ```sh
     curl -s https://yepnope.app/api/v1/auth-methods
@@ -475,9 +504,9 @@ cron's job alone.
 ## Development
 
 ```sh
-just install   # install toolchain and dependencies
+just install   # install dependencies
 just dev       # run the dev server
-just verify    # format, lint, typecheck, build, test
+just verify    # check, build, dead-code sweep, pre-commit hooks, tests
 just release   # verify, tag, deploy to production, push the tag
 ```
 

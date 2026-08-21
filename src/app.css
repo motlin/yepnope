@@ -612,6 +612,11 @@ body {
 	padding: 11px 14px;
 }
 
+.account-panel > p.signed-out-privacy {
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
 .signed-out-actions {
 	display: grid;
 	gap: 10px;
