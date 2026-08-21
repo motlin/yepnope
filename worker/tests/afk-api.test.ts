@@ -2,7 +2,7 @@ import {env} from "cloudflare:workers";
 import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
 import {API_ORIGIN, createVerifiedBrowserSession, nextMessage, required, worker} from "./helpers";
-import {seedOAuthMcpClient} from "./oauth-client-helpers";
+import {authorizeMcpHostClient, seedOAuthMcpClient} from "./oauth-client-helpers";
 
 async function putAfk(cookie: string, afk: boolean): Promise<Response> {
 	return worker.fetch(`${API_ORIGIN}/api/v1/afk`, {
@@ -40,7 +40,10 @@ describe("AFK mode", () => {
 		expect(response.status).toBe(401);
 	});
 
-	it("rejects AFK enablement until an OAuth MCP host or CLI client is authorized", async () => {
+	// 🔗 The grant is the real one, start to finish, because the rows Better Auth writes are the
+	// only ones the gate will ever read in production. A seeded consent row would prove the gate
+	// reads its own fixture rather than the product.
+	it("rejects AFK enablement until a real OAuth authorization completes", async () => {
 		const session = await createVerifiedBrowserSession("afk-authorization-alice@example.com");
 		const denied = await putAfk(session.cookie, true);
 		expect({body: await denied.json(), status: denied.status}).toStrictEqual({
@@ -51,7 +54,7 @@ describe("AFK mode", () => {
 			status: 409,
 		});
 
-		await seedOAuthMcpClient(session.userId, "afk-authorized");
+		await authorizeMcpHostClient(session.cookie, "AFK authorization test host");
 		const enabled = await putAfk(session.cookie, true);
 		expect({body: await enabled.json(), status: enabled.status}).toStrictEqual({
 			body: {afk: true},

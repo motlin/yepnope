@@ -63,6 +63,111 @@ export async function seedOAuthMcpClient(
 	};
 }
 
+// 🌐 The browser authorization-code grant an MCP host performs, driven end to end against the real
+// endpoints. Nothing about the grant is hand-written, so a test that authorizes this way reads only
+// the rows Better Auth itself stores — including the RFC 8707 resource the gates match on.
+
+const ISSUER = `${API_ORIGIN}/api/auth`;
+const HOST_REDIRECT_URI = "http://127.0.0.1:45678/callback/oauth-client-helpers";
+const HOST_CODE_VERIFIER = "oauth-client-helpers-verifier-0000000000000000000000000000";
+
+export interface AuthorizedMcpHostClient {
+	accessToken: string;
+	clientId: string;
+	refreshToken: string;
+}
+
+async function hostCodeChallenge(): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(HOST_CODE_VERIFIER));
+	return btoa(String.fromCharCode(...new Uint8Array(digest)))
+		.replaceAll("+", "-")
+		.replaceAll("/", "_")
+		.replaceAll("=", "");
+}
+
+async function redirectUrl(response: Response): Promise<string> {
+	const location = response.headers.get("location");
+	if (location !== null) {
+		return location;
+	}
+	const body: unknown = await response.json();
+	if (typeof body !== "object" || body === null || !("url" in body) || typeof body.url !== "string") {
+		throw new Error("OAuth response returned no redirect URL");
+	}
+	return body.url;
+}
+
+export async function authorizeMcpHostClient(cookie: string, name: string): Promise<AuthorizedMcpHostClient> {
+	const scope = OAUTH_SCOPES.join(" ");
+	const registration = await exports.default.fetch(`${ISSUER}/oauth2/register`, {
+		method: "POST",
+		headers: {"Content-Type": "application/json"},
+		body: JSON.stringify({
+			application_type: "native",
+			client_name: name,
+			grant_types: ["authorization_code", "refresh_token"],
+			redirect_uris: [HOST_REDIRECT_URI],
+			response_types: ["code"],
+			scope,
+			token_endpoint_auth_method: "none",
+		}),
+	});
+	if (!registration.ok) {
+		throw new Error(`expected MCP host registration to succeed, got ${registration.status}`);
+	}
+	const registered = await registration.json<{client_id?: string}>();
+	const clientId = registered.client_id;
+	if (clientId === undefined) {
+		throw new Error("OAuth registration returned no client id");
+	}
+	const authorizationQuery = new URLSearchParams({
+		client_id: clientId,
+		code_challenge: await hostCodeChallenge(),
+		code_challenge_method: "S256",
+		prompt: "consent",
+		redirect_uri: HOST_REDIRECT_URI,
+		resource: MCP_RESOURCE,
+		response_type: "code",
+		scope,
+		state: "oauth-client-helpers-state-00000000",
+	});
+	const authorization = await exports.default.fetch(`${ISSUER}/oauth2/authorize?${authorizationQuery.toString()}`, {
+		headers: {Accept: "text/html", Cookie: cookie},
+		redirect: "manual",
+	});
+	const consentUrl = new URL(await redirectUrl(authorization), API_ORIGIN);
+	const consent = await exports.default.fetch(`${ISSUER}/oauth2/consent`, {
+		method: "POST",
+		headers: {"Content-Type": "application/json", Cookie: cookie, Origin: API_ORIGIN},
+		body: JSON.stringify({accept: true, oauth_query: consentUrl.searchParams.toString()}),
+		redirect: "manual",
+	});
+	if (!consent.ok) {
+		throw new Error(`expected OAuth consent to succeed, got ${consent.status}`);
+	}
+	const code = new URL(await redirectUrl(consent)).searchParams.get("code");
+	if (code === null) {
+		throw new Error("OAuth consent returned no authorization code");
+	}
+	const exchanged = await exports.default.fetch(`${ISSUER}/oauth2/token`, {
+		method: "POST",
+		headers: {"Content-Type": "application/x-www-form-urlencoded"},
+		body: new URLSearchParams({
+			client_id: clientId,
+			code,
+			code_verifier: HOST_CODE_VERIFIER,
+			grant_type: "authorization_code",
+			redirect_uri: HOST_REDIRECT_URI,
+			resource: MCP_RESOURCE,
+		}),
+	});
+	if (!exchanged.ok) {
+		throw new Error(`expected the MCP host token exchange to succeed, got ${exchanged.status}`);
+	}
+	const tokens = await exchanged.json<{access_token: string; refresh_token: string}>();
+	return {accessToken: tokens.access_token, clientId, refreshToken: tokens.refresh_token};
+}
+
 // 📟 The device grant, driven end to end against the real endpoints. Only the human tap is
 // simulated, and it is simulated by calling the same function the browser route calls, so a test
 // that authenticates this way is holding a token the deployment actually minted.

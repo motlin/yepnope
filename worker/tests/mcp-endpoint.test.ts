@@ -12,11 +12,10 @@ import {
 	TOOL_INPUT_SCHEMA,
 } from "../ask-tool";
 import {API_ORIGIN, createVerifiedBrowserSession, required, worker} from "./helpers";
+import {authorizeMcpHostClient} from "./oauth-client-helpers";
 
 const ISSUER = `${API_ORIGIN}/api/auth`;
 const RESOURCE = `${API_ORIGIN}${MCP_RESOURCE_PATH}`;
-const REDIRECT_URI = "http://127.0.0.1:45678/callback/mcp-endpoint-test";
-const CODE_VERIFIER = "mcp-endpoint-verifier-000000000000000000000000000000000000000000";
 const TEST_TIMING: RemoteMcpTiming = {
 	answerTimeoutMilliseconds: 500,
 	heartbeatMilliseconds: 20,
@@ -25,11 +24,6 @@ const TEST_TIMING: RemoteMcpTiming = {
 	progressMilliseconds: 20,
 	reconnectDelayMilliseconds: 5,
 };
-
-interface OAuthTokenResponse {
-	access_token: string;
-	refresh_token: string;
-}
 
 interface IssuedGrant {
 	accessToken: string;
@@ -49,95 +43,10 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-async function codeChallenge(): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(CODE_VERIFIER));
-	return btoa(String.fromCharCode(...new Uint8Array(digest)))
-		.replaceAll("+", "-")
-		.replaceAll("/", "_")
-		.replaceAll("=", "");
-}
-
-async function redirectUrl(response: Response): Promise<string> {
-	const location = response.headers.get("location");
-	if (location !== null) {
-		return location;
-	}
-	const body: unknown = await response.json();
-	if (typeof body !== "object" || body === null || !("url" in body) || typeof body.url !== "string") {
-		throw new Error("OAuth response returned no redirect URL");
-	}
-	return body.url;
-}
-
-async function issueGrant(email: string, scopes: readonly string[] = OAUTH_SCOPES): Promise<IssuedGrant> {
+async function issueGrant(email: string): Promise<IssuedGrant> {
 	const {cookie, userId} = await createVerifiedBrowserSession(email);
-	const registration = await worker.fetch(`${ISSUER}/oauth2/register`, {
-		method: "POST",
-		headers: {"Content-Type": "application/json"},
-		body: JSON.stringify({
-			application_type: "native",
-			client_name: "MCP endpoint test client",
-			grant_types: ["authorization_code", "refresh_token"],
-			redirect_uris: [REDIRECT_URI],
-			response_types: ["code"],
-			scope: scopes.join(" "),
-			token_endpoint_auth_method: "none",
-		}),
-	});
-	const registered: unknown = await registration.json();
-	if (
-		typeof registered !== "object" ||
-		registered === null ||
-		!("client_id" in registered) ||
-		typeof registered.client_id !== "string"
-	) {
-		throw new Error("OAuth registration returned no client id");
-	}
-	const clientId = registered.client_id;
-	const authorizationQuery = new URLSearchParams({
-		client_id: clientId,
-		code_challenge: await codeChallenge(),
-		code_challenge_method: "S256",
-		prompt: "consent",
-		redirect_uri: REDIRECT_URI,
-		resource: RESOURCE,
-		response_type: "code",
-		scope: scopes.join(" "),
-		state: "mcp-endpoint-state-00000000",
-	});
-	const authorization = await worker.fetch(`${ISSUER}/oauth2/authorize?${authorizationQuery}`, {
-		headers: {Accept: "text/html", Cookie: cookie},
-		redirect: "manual",
-	});
-	const consentUrl = new URL(await redirectUrl(authorization), API_ORIGIN);
-	const consent = await worker.fetch(`${ISSUER}/oauth2/consent`, {
-		method: "POST",
-		headers: {"Content-Type": "application/json", Cookie: cookie, Origin: API_ORIGIN},
-		body: JSON.stringify({accept: true, oauth_query: consentUrl.searchParams.toString()}),
-		redirect: "manual",
-	});
-	const callback = new URL(await redirectUrl(consent));
-	const code = callback.searchParams.get("code");
-	if (code === null) {
-		throw new Error("OAuth consent returned no authorization code");
-	}
-	const tokenResponse = await worker.fetch(`${ISSUER}/oauth2/token`, {
-		method: "POST",
-		headers: {"Content-Type": "application/x-www-form-urlencoded"},
-		body: new URLSearchParams({
-			client_id: clientId,
-			code,
-			code_verifier: CODE_VERIFIER,
-			grant_type: "authorization_code",
-			redirect_uri: REDIRECT_URI,
-			resource: RESOURCE,
-		}),
-	});
-	if (!tokenResponse.ok) {
-		throw new Error(`OAuth token exchange failed with status ${String(tokenResponse.status)}`);
-	}
-	const tokens = await tokenResponse.json<OAuthTokenResponse>();
-	return {accessToken: tokens.access_token, clientId, refreshToken: tokens.refresh_token, userId};
+	const {accessToken, clientId, refreshToken} = await authorizeMcpHostClient(cookie, "MCP endpoint test client");
+	return {accessToken, clientId, refreshToken, userId};
 }
 
 function mcpRequest(
