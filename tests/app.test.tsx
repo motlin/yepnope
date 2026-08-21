@@ -41,6 +41,13 @@ const alice: AuthenticationUser = {
 const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
 const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
 
+// §13.2 asks for the privacy position "plainly on the site". Settings are unreachable without an
+// account, so every signed-out surface that asks the visitor for something repeats it verbatim.
+const SIGNED_OUT_PRIVACY_COPY =
+	"YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. " +
+	"Question bodies and answers are deleted seven days after each batch is created. Signing in and " +
+	"creating an account send this browser through a Cloudflare Turnstile check.";
+
 const fetchSession = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser | null>>());
 const ApiResponseError = vi.hoisted(
 	() =>
@@ -990,13 +997,27 @@ describe("Better Auth account routes", () => {
 			],
 			applicationText:
 				"YepNopeSign in to answer questions from your coding agents, or create an account to get started." +
-				"YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. " +
-				"Question bodies and answers are deleted seven days after each batch is created." +
+				SIGNED_OUT_PRIVACY_COPY +
 				"Sign inCreate account",
 			authenticatedShell: 0,
 			openedStream: false,
 			settingsControls: 0,
 			storedCredentials: [],
+		});
+	});
+
+	it("repeats the privacy position on the sign-in and account-creation surfaces", async () => {
+		fetchSession.mockResolvedValue(null);
+		const {container} = render(<App />);
+
+		fireEvent.click(await screen.findByRole("button", {name: "Sign in"}));
+		const signIn = [...container.querySelectorAll(".signed-out-privacy")].map((note) => note.textContent);
+		fireEvent.click(screen.getByRole("button", {name: "Create an account"}));
+		const register = [...container.querySelectorAll(".signed-out-privacy")].map((note) => note.textContent);
+
+		expect({register, signIn}).toStrictEqual({
+			register: [SIGNED_OUT_PRIVACY_COPY],
+			signIn: [SIGNED_OUT_PRIVACY_COPY],
 		});
 	});
 

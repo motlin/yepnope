@@ -506,6 +506,11 @@ encryption is not part of the MVP. Question bodies and answers are deleted seven
 days after each batch is created. Content-free counters are retained after that
 content is deleted.
 
+The app says the same thing before anyone signs up: the signed-out landing, the
+sign-in form, and the account-creation form each carry that paragraph, along
+with the disclosure that submitting either form sends the browser through a
+Cloudflare Turnstile check. Account settings repeat it once signed in.
+
 A nightly Worker cron (`0 4 * * *`) sweeps expired records and logs one
 count-only line, `scheduled_cleanup_completed`. Part of that sweep reclaims
 abandoned OAuth clients: Dynamic Client Registration lets an MCP client register

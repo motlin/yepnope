@@ -295,14 +295,29 @@ function AccountPanel({children, title}: AccountPanelProps): ReactElement {
 	);
 }
 
+/**
+ * The §13.2 privacy position, stated where the decision is actually made.
+ *
+ * The signed-in settings page carries the same sentences, but a visitor weighing whether to hand
+ * YepNope anything cannot reach settings yet, so every signed-out surface that asks them for
+ * something repeats it. The closing sentence is Cloudflare's Turnstile disclosure, said here before
+ * the widget appears rather than only beside it on the form.
+ */
+function SignedOutPrivacy(): ReactElement {
+	return (
+		<p className="signed-out-privacy">
+			YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies
+			and answers are deleted seven days after each batch is created. Signing in and creating an account send this
+			browser through a Cloudflare Turnstile check.
+		</p>
+	);
+}
+
 function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement {
 	return (
 		<AccountPanel title="YepNope">
 			<p>Sign in to answer questions from your coding agents, or create an account to get started.</p>
-			<p className="signed-out-privacy">
-				YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question
-				bodies and answers are deleted seven days after each batch is created.
-			</p>
+			<SignedOutPrivacy />
 			<div className="signed-out-actions">
 				<button
 					type="button"
@@ -573,6 +588,7 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 					? "Sign in to recover your questions and settings on this browser."
 					: "Sign in with your verified YepNope account to continue authorizing this MCP client."}
 			</p>
+			<SignedOutPrivacy />
 			<form className="account-form" onSubmit={(event) => void submit(event)}>
 				<label>
 					Email
@@ -689,6 +705,7 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 	return (
 		<AccountPanel title="Create an account">
 			<p>Your verified email is how you recover this account on another browser.</p>
+			<SignedOutPrivacy />
 			<form className="account-form" onSubmit={(event) => void submit(event)}>
 				<label>
 					Email

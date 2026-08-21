@@ -3,9 +3,17 @@ import {fulfillJson} from "./helpers";
 
 const signedOutCopy = "Sign in to answer questions from your coding agents, or create an account to get started.";
 // §13.2 asks for the no-E2EE disclosure "plainly on the site", which includes the front door a
-// visitor reaches before they have an account.
+// visitor reaches before they have an account and the two forms that front door leads to. The
+// closing sentence is the Turnstile disclosure, on the landing before the widget itself appears.
 const signedOutPrivacyCopy =
-	"YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies and answers are deleted seven days after each batch is created.";
+	"YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies and answers are deleted seven days after each batch is created. Signing in and creating an account send this browser through a Cloudflare Turnstile check.";
+
+async function assertSignedOutPrivacy(page: Page): Promise<void> {
+	const notes = await page
+		.locator(".signed-out-privacy")
+		.evaluateAll((found) => found.map((note) => note.textContent));
+	expect(notes).toStrictEqual([signedOutPrivacyCopy]);
+}
 
 async function assertSignedOutLanding(page: Page): Promise<void> {
 	expect(
@@ -94,6 +102,7 @@ test("signed-out auth routes always return to the landing without flashing a dec
 		});
 
 		await page.getByRole("button", {name: "Sign in"}).click();
+		await assertSignedOutPrivacy(page);
 		await page.getByRole("textbox", {name: "Email"}).fill("alice@example.com");
 		await page.getByLabel("Password").fill("wrong-password");
 		await page.getByRole("button", {name: "Sign in", exact: true}).click();
@@ -106,6 +115,7 @@ test("signed-out auth routes always return to the landing without flashing a dec
 
 		await page.getByRole("button", {name: "Create account"}).click();
 		await expect(page).toHaveURL(/\/register$/);
+		await assertSignedOutPrivacy(page);
 		await page.goBack();
 		await expect(page).toHaveURL(/\/$/);
 		await assertSignedOutLanding(page);
