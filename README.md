@@ -8,6 +8,27 @@ left is nope, down is skip. Every swipe is held for five seconds behind an undo
 button (keyboard shortcut `u`), including the last card of a batch, so a
 mis-swipe can be taken back. The agent blocks until every card is answered.
 
+## Set up the phone
+
+Installing the agent integration is only half of it; the questions have to land
+somewhere.
+
+1. Open <https://yepnope.app> on the phone and create an account. Email and
+   password, an emailed sign-in link, a passkey, and any configured social
+   provider all reach the same account; see
+   [Sign-in methods](#sign-in-methods).
+2. On iPhone, install the app before anything else: tap **Share**, choose
+   **Add to Home Screen**, leave **Open as Web App** on, then open YepNope from
+   its Home Screen icon. iOS delivers web push only to an installed PWA.
+3. Turn on **Settings -> Browser notifications**. That registers this browser's
+   push subscription and nothing else: one notification per batch of questions.
+   Signing in on a second browser does not enrol it, and
+   **Settings -> Signed-in browsers** lists the ones that are.
+4. Install the agent integration below, then turn **AFK** on from the deck. The
+   toggle reads `Connect an MCP client` and does nothing until one is
+   authorized, because routing questions to a phone means nothing with nothing
+   to route.
+
 ## Install the agent integration
 
 This repository is the distribution source; YepNope does not need a separate
@@ -38,8 +59,9 @@ To install from a local checkout while developing the plugin, run:
 ```
 
 Pass `claude` or `codex` instead of `all` to update only one client. The local
-installer registers this checkout as the `yepnope` marketplace, refreshes the
-plugin cache, and leaves status-line settings untouched.
+installer needs `jq` and the client CLI it is installing for. It registers this
+checkout as the `yepnope` marketplace, reinstalls the plugin to refresh the
+cache, and leaves status-line settings untouched.
 
 For a lightweight skill-only installation without the bundled MCP connection,
 use the open Agent Skills installer:
@@ -81,12 +103,13 @@ codex mcp add yepnope --url https://yepnope.app/mcp
 codex mcp login yepnope
 ```
 
-The call may block for hours by design. The server emits an MCP progress
-notification every 15 seconds, and harnesses that implement progress
-notifications reset their tool timeout on each one, so the wait survives. For
-harnesses that time the call out anyway, raise the timeout explicitly — in
-Claude Code set `MCP_TOOL_TIMEOUT` (milliseconds, e.g. `MCP_TOOL_TIMEOUT=43200000`
-for 12 hours) in the environment; other harnesses have equivalents.
+The call may block for hours by design. When the client sends a progress token
+with the call, the server emits an MCP progress notification every 15 seconds,
+and harnesses that implement progress notifications reset their tool timeout on
+each one, so the wait survives. For harnesses that time the call out anyway,
+raise the timeout explicitly — in Claude Code set `MCP_TOOL_TIMEOUT`
+(milliseconds, e.g. `MCP_TOOL_TIMEOUT=43200000` for 12 hours) in the
+environment; other harnesses have equivalents.
 
 While the call blocks, the server heartbeats the answer stream. If the agent
 process dies the heartbeats stop, the batch is retracted, and the cards
