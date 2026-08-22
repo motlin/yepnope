@@ -27,10 +27,22 @@ export class ApiResponseError extends Error {
 const HUMAN_VERIFICATION_REQUIRED_CODE = "HUMAN_VERIFICATION_REQUIRED";
 const HUMAN_VERIFICATION_HEADER = "CF-Turnstile-Response";
 
+// The route and the status are what an operator needs and what a reader must never be handed, so a
+// transport failure states them here and nowhere else.
+function reportTransportFailure(method: string, path: string, status: number): void {
+	console.warn(`${method} ${path} failed with ${status}`);
+}
+
+/**
+ * A refusal the Worker states in JSON is copy written for that situation, so it reaches the reader
+ * as written. Anything else — an overloaded Worker's HTML page, a proxy's plain-text refusal, a
+ * truncated body — carries no copy at all, and the caller's own non-committal line stands in for it.
+ */
 async function requestJson<Schema extends z.ZodType>(
 	path: string,
 	init: RequestInit,
 	schema: Schema,
+	fallbackMessage: string,
 ): Promise<z.infer<Schema>> {
 	const response = await fetch(path, {credentials: "same-origin", ...init});
 	if (!response.ok) {
@@ -40,8 +52,11 @@ async function requestJson<Schema extends z.ZodType>(
 				.json()
 				.catch(() => null),
 		);
+		if (!error.success) {
+			reportTransportFailure(init.method ?? "GET", path, response.status);
+		}
 		throw new ApiResponseError(
-			error.success ? error.data.message : `${init.method ?? "GET"} ${path} failed with ${response.status}`,
+			error.success ? error.data.message : fallbackMessage,
 			response.status,
 			error.success ? (error.data.code ?? null) : null,
 		);
@@ -84,7 +99,12 @@ export type AuthenticationUser = z.infer<typeof authenticationUserSchema>;
 const sessionResponseSchema = z.object({user: authenticationUserSchema}).nullable();
 
 export async function fetchSession(): Promise<AuthenticationUser | null> {
-	const session = await requestJson("/api/auth/get-session", {cache: "no-store"}, sessionResponseSchema);
+	const session = await requestJson(
+		"/api/auth/get-session",
+		{cache: "no-store"},
+		sessionResponseSchema,
+		"Your sign-in status could not be confirmed. Try again in a moment.",
+	);
 	return session?.user ?? null;
 }
 
@@ -97,7 +117,12 @@ async function requestSignIn<Schema extends z.ZodType>(
 	schema: Schema,
 ): Promise<z.infer<Schema>> {
 	try {
-		return await requestJson("/api/auth/sign-in/email", verifiedJsonRequest(body, humanVerificationToken), schema);
+		return await requestJson(
+			"/api/auth/sign-in/email",
+			verifiedJsonRequest(body, humanVerificationToken),
+			schema,
+			PUBLIC_SIGN_IN_FAILURE_MESSAGE,
+		);
 	} catch (caught) {
 		if (caught instanceof ApiResponseError && caught.code === HUMAN_VERIFICATION_REQUIRED_CODE) {
 			// An unredeemable token says nothing about the credentials, so it must not be
@@ -154,6 +179,7 @@ export async function resumeOAuthAuthorization(oauthQuery: string): Promise<stri
 		`/api/auth/oauth2/authorize?${oauthQuery}`,
 		{headers: {Accept: "application/json"}},
 		oauthRedirectResponseSchema,
+		"The authorization request could not be resumed. Start the connection again from your client.",
 	);
 	return normalizedOAuthRedirectUrl(result.url);
 }
@@ -175,6 +201,7 @@ export async function fetchOAuthClient(clientId: string): Promise<OAuthClientSum
 		`/api/auth/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`,
 		{},
 		oauthClientResponseSchema,
+		"This MCP client could not be verified. Start the connection again from the client.",
 	);
 	return {id: result.client_id, name: result.client_name ?? "MCP client", uri: result.client_uri ?? null};
 }
@@ -184,6 +211,7 @@ export async function submitOAuthConsent(oauthQuery: string, accept: boolean): P
 		"/api/auth/oauth2/consent",
 		jsonRequest({accept, oauth_query: oauthQuery}),
 		oauthRedirectResponseSchema,
+		"Your answer could not be recorded. Start the connection again from your client.",
 	);
 	return normalizedOAuthRedirectUrl(result.url);
 }
@@ -198,6 +226,7 @@ export async function registerAccount(
 		"/api/auth/sign-up/email",
 		verifiedJsonRequest({email, password, callbackURL}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
+		"Account creation could not be completed. Try again in a moment.",
 	);
 }
 
@@ -218,6 +247,7 @@ export async function sendVerificationEmail(
 		"/api/auth/send-verification-email",
 		verifiedJsonRequest({email, callbackURL}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
+		"Verification could not be requested. Try again in a moment.",
 	);
 }
 
@@ -226,11 +256,17 @@ export async function requestPasswordReset(email: string, humanVerificationToken
 		"/api/auth/request-password-reset",
 		verifiedJsonRequest({email, redirectTo: "/reset-password"}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
+		"Recovery could not be requested. Try again in a moment.",
 	);
 }
 
 export async function consumePasswordResetToken(token: string, newPassword: string): Promise<void> {
-	await requestJson("/api/auth/reset-password", jsonRequest({token, newPassword}), successResponseSchema);
+	await requestJson(
+		"/api/auth/reset-password",
+		jsonRequest({token, newPassword}),
+		successResponseSchema,
+		"Your password could not be reset. Request a new recovery email.",
+	);
 }
 
 // 🔑 Alternative sign-in methods. Which of these a deployment can complete depends on its
@@ -266,7 +302,12 @@ function knownSocialProvider(value: string): value is SocialProvider {
 
 export async function fetchAuthenticationMethods(): Promise<AuthenticationMethods> {
 	// Deployment configuration, identical for every visitor, so the browser cache may reuse it.
-	const methods = await requestJson("/api/v1/auth-methods", {}, authenticationMethodsResponseSchema);
+	const methods = await requestJson(
+		"/api/v1/auth-methods",
+		{},
+		authenticationMethodsResponseSchema,
+		"Sign-in options could not be loaded. Try again in a moment.",
+	);
 	return {
 		emailPassword: methods.email_password,
 		magicLink: methods.magic_link,
@@ -286,6 +327,7 @@ export async function sendMagicLink(
 		"/api/auth/sign-in/magic-link",
 		verifiedJsonRequest({email, callbackURL}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
+		"The sign-in link could not be requested. Try again in a moment.",
 	);
 }
 
@@ -294,6 +336,7 @@ export async function startSocialSignIn(provider: SocialProvider, callbackURL = 
 		"/api/auth/sign-in/social",
 		jsonRequest({provider, callbackURL, errorCallbackURL: "/sign-in"}),
 		oauthRedirectResponseSchema,
+		"That sign-in provider is unavailable right now. Try again in a moment.",
 	);
 	return normalizedOAuthRedirectUrl(result.url);
 }
@@ -303,6 +346,7 @@ export async function linkSocialAccount(provider: SocialProvider, callbackURL = 
 		"/api/auth/link-social",
 		jsonRequest({provider, callbackURL, errorCallbackURL: "/settings"}),
 		oauthRedirectResponseSchema,
+		"That account could not be linked. Try again in a moment.",
 	);
 	return normalizedOAuthRedirectUrl(result.url);
 }
@@ -315,12 +359,22 @@ export interface LinkedAccount {
 const linkedAccountsResponseSchema = z.array(z.object({id: z.string(), providerId: z.string()}));
 
 export async function fetchLinkedAccounts(): Promise<LinkedAccount[]> {
-	const accounts = await requestJson("/api/auth/list-accounts", {cache: "no-store"}, linkedAccountsResponseSchema);
+	const accounts = await requestJson(
+		"/api/auth/list-accounts",
+		{cache: "no-store"},
+		linkedAccountsResponseSchema,
+		"Your linked accounts could not be loaded. Try again in a moment.",
+	);
 	return accounts.map((account) => ({id: account.id, provider: account.providerId}));
 }
 
 export async function unlinkAccount(accountId: string): Promise<void> {
-	await requestJson("/api/auth/unlink-account", jsonRequest({accountId}), successResponseSchema);
+	await requestJson(
+		"/api/auth/unlink-account",
+		jsonRequest({accountId}),
+		successResponseSchema,
+		"That account could not be unlinked. Try again in a moment.",
+	);
 }
 
 export interface RegisteredPasskey {
@@ -350,6 +404,7 @@ const passkeyListResponseSchema = z.array(
 );
 
 const PASSKEY_CANCELLED_MESSAGE = "Passkey sign-in was cancelled.";
+const PASSKEY_SIGN_IN_FAILURE_MESSAGE = "Passkey sign-in failed. Try again, or use another way to sign in.";
 const PASSKEY_REGISTRATION_CANCELLED_MESSAGE = "Passkey setup was cancelled.";
 
 // A ceremony the browser or the person declined is a normal outcome, not a fault to surface raw:
@@ -363,6 +418,7 @@ export async function registerPasskey(name: string): Promise<void> {
 		"/api/auth/passkey/generate-register-options",
 		{cache: "no-store"},
 		passkeyRegistrationOptionsSchema,
+		"Passkey setup could not be started. Try again in a moment.",
 	);
 	let attestation: unknown;
 	try {
@@ -374,6 +430,7 @@ export async function registerPasskey(name: string): Promise<void> {
 		"/api/auth/passkey/verify-registration",
 		jsonRequest({response: attestation, name}),
 		z.object({id: z.string()}).loose(),
+		"That passkey could not be saved. Try again in a moment.",
 	);
 }
 
@@ -382,6 +439,7 @@ export async function signInWithPasskey(): Promise<AuthenticationUser> {
 		"/api/auth/passkey/generate-authenticate-options",
 		{cache: "no-store"},
 		passkeyAuthenticationOptionsSchema,
+		PASSKEY_SIGN_IN_FAILURE_MESSAGE,
 	);
 	let assertion: unknown;
 	try {
@@ -393,6 +451,7 @@ export async function signInWithPasskey(): Promise<AuthenticationUser> {
 		"/api/auth/passkey/verify-authentication",
 		jsonRequest({response: assertion}),
 		authenticatedResponseSchema,
+		PASSKEY_SIGN_IN_FAILURE_MESSAGE,
 	);
 	return result.user;
 }
@@ -402,6 +461,7 @@ export async function fetchPasskeys(): Promise<RegisteredPasskey[]> {
 		"/api/auth/passkey/list-user-passkeys",
 		{cache: "no-store"},
 		passkeyListResponseSchema,
+		"Your passkeys could not be loaded. Try again in a moment.",
 	);
 	return passkeys.map((passkey) => ({
 		id: passkey.id,
@@ -411,11 +471,21 @@ export async function fetchPasskeys(): Promise<RegisteredPasskey[]> {
 }
 
 export async function deletePasskey(id: string): Promise<void> {
-	await requestJson("/api/auth/passkey/delete-passkey", jsonRequest({id}), successResponseSchema);
+	await requestJson(
+		"/api/auth/passkey/delete-passkey",
+		jsonRequest({id}),
+		successResponseSchema,
+		"That passkey could not be removed. Try again in a moment.",
+	);
 }
 
 export async function signOut(): Promise<void> {
-	await requestJson("/api/auth/sign-out", jsonRequest({}), z.object({success: z.literal(true)}));
+	await requestJson(
+		"/api/auth/sign-out",
+		jsonRequest({}),
+		z.object({success: z.literal(true)}),
+		"Sign-out could not be completed. Try again in a moment.",
+	);
 }
 
 const managedConnectedMcpClientSchema = z.object({
@@ -481,7 +551,12 @@ export interface AccountDevices {
 }
 
 export async function fetchAccountDevices(): Promise<AccountDevices> {
-	const body = await requestJson("/api/v1/account/devices", {}, accountDevicesResponseSchema);
+	const body = await requestJson(
+		"/api/v1/account/devices",
+		{},
+		accountDevicesResponseSchema,
+		"Your devices could not be loaded. Try again in a moment.",
+	);
 	return {
 		browserSessions: body.browser_sessions.map((browserSession) => ({
 			id: browserSession.id,
@@ -518,6 +593,7 @@ export async function revokeConnectedMcpClient(connectedMcpClientId: string): Pr
 		`/api/v1/account/connected-mcp-clients/${connectedMcpClientId}`,
 		{method: "DELETE"},
 		revokeConnectedMcpClientResponseSchema,
+		"That client could not be disconnected. Try again in a moment.",
 	);
 	return body.connected_mcp_client_count;
 }
@@ -527,11 +603,17 @@ export async function renamePushDevice(deviceId: string, label: string): Promise
 		`/api/v1/account/push-devices/${deviceId}`,
 		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({label})},
 		okResponseSchema,
+		"That device could not be renamed. Try again in a moment.",
 	);
 }
 
 export async function revokePushDevice(deviceId: string): Promise<void> {
-	await requestJson(`/api/v1/account/push-devices/${deviceId}`, {method: "DELETE"}, okResponseSchema);
+	await requestJson(
+		`/api/v1/account/push-devices/${deviceId}`,
+		{method: "DELETE"},
+		okResponseSchema,
+		"That device could not be removed. Try again in a moment.",
+	);
 }
 
 const DEVICE_AUTHORIZATION_PATH = "/api/v1/device-authorization";
@@ -585,6 +667,7 @@ async function deviceAuthorizationFailure<Schema extends z.ZodType>(
 	method: string,
 	response: Response,
 	schema: Schema,
+	fallbackMessage: string,
 ): Promise<z.infer<Schema>> {
 	const failure = schema.safeParse(
 		await response
@@ -593,10 +676,8 @@ async function deviceAuthorizationFailure<Schema extends z.ZodType>(
 			.catch(() => null),
 	);
 	if (!failure.success) {
-		throw new ApiResponseError(
-			`${method} ${DEVICE_AUTHORIZATION_PATH} failed with ${response.status}`,
-			response.status,
-		);
+		reportTransportFailure(method, DEVICE_AUTHORIZATION_PATH, response.status);
+		throw new ApiResponseError(fallbackMessage, response.status);
 	}
 	return failure.data;
 }
@@ -606,7 +687,12 @@ export async function fetchDeviceAuthorization(userCode: string): Promise<Device
 		credentials: "same-origin",
 	});
 	if (!response.ok) {
-		return deviceAuthorizationFailure("GET", response, deviceAuthorizationLookupFailureSchema);
+		return deviceAuthorizationFailure(
+			"GET",
+			response,
+			deviceAuthorizationLookupFailureSchema,
+			"The device request could not be loaded. Start again from your terminal.",
+		);
 	}
 	const pending = pendingDeviceAuthorizationSchema.parse(await response.json());
 	return {
@@ -628,7 +714,12 @@ export async function decideDeviceAuthorization(
 		...jsonRequest({user_code: userCode}),
 	});
 	if (!response.ok) {
-		const failure = await deviceAuthorizationFailure("POST", response, deviceAuthorizationDecisionFailureSchema);
+		const failure = await deviceAuthorizationFailure(
+			"POST",
+			response,
+			deviceAuthorizationDecisionFailureSchema,
+			"Your answer could not be recorded. Start again from your terminal.",
+		);
 		// A refused decision reports the same "decided" the accepted one does, so it is renamed here
 		// to keep the recorded answer distinguishable from someone else's.
 		return failure.status === "decided" ? {status: "already_decided"} : {status: failure.status};
@@ -966,13 +1057,19 @@ export async function submitAnswer(questionId: string, disposition: Disposition)
 			body: JSON.stringify({answers: [{question_id: questionId, disposition}]}),
 		},
 		okResponseSchema,
+		"Your answer could not be sent. Try again in a moment.",
 	);
 }
 
 const afkResponseSchema = z.object({afk: z.boolean()});
 
 export async function fetchAfk(): Promise<boolean> {
-	const body = await requestJson("/api/v1/afk", {}, afkResponseSchema);
+	const body = await requestJson(
+		"/api/v1/afk",
+		{},
+		afkResponseSchema,
+		"Your away status could not be loaded. Try again in a moment.",
+	);
 	return body.afk;
 }
 
@@ -981,6 +1078,7 @@ export async function updateAfk(afk: boolean): Promise<boolean> {
 		"/api/v1/afk",
 		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({afk})},
 		afkResponseSchema,
+		"Your away status could not be changed. Try again in a moment.",
 	);
 	return body.afk;
 }
@@ -988,7 +1086,12 @@ export async function updateAfk(afk: boolean): Promise<boolean> {
 const publicKeyResponseSchema = z.object({public_key: z.string()});
 
 export async function fetchVapidPublicKey(): Promise<string> {
-	const body = await requestJson("/api/v1/push/public-key", {}, publicKeyResponseSchema);
+	const body = await requestJson(
+		"/api/v1/push/public-key",
+		{},
+		publicKeyResponseSchema,
+		"Push notifications could not be set up. Try again in a moment.",
+	);
 	return body.public_key;
 }
 
@@ -997,5 +1100,6 @@ export async function registerPushSubscription(subscription: unknown): Promise<v
 		"/api/v1/push/subscribe",
 		{method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(subscription)},
 		okResponseSchema,
+		"Push notifications could not be enabled. Try again in a moment.",
 	);
 }

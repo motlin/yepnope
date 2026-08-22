@@ -6,16 +6,27 @@ import {
 	CurrentDeckConnectionState,
 	decideDeviceAuthorization,
 	fetchAccountDevices,
+	fetchAfk,
+	fetchAuthenticationMethods,
 	fetchDeviceAuthorization,
+	fetchLinkedAccounts,
 	fetchOAuthClient,
+	fetchPasskeys,
+	fetchSession,
 	openCurrentDeckStream,
 	registerAccount,
 	requestPasswordReset,
 	resumeOAuthAuthorization,
+	sendMagicLink,
 	sendVerificationEmail,
 	signIn,
 	signInForOAuth,
+	signInWithPasskey,
+	signOut,
+	startSocialSignIn,
+	submitAnswer,
 	submitOAuthConsent,
+	unlinkAccount,
 	type LiveApplicationState,
 } from "../src/api";
 import {APPLICATION_UPDATE_EVENT} from "../src/application-updates";
@@ -107,6 +118,7 @@ beforeEach(() => {
 afterEach(() => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 });
 
 describe("account registration", () => {
@@ -509,6 +521,97 @@ describe("device authorization", () => {
 
 		await expect(fetchDeviceAuthorization("WDJBMJHT")).rejects.toBeInstanceOf(ApiResponseError);
 		await expect(decideDeviceAuthorization("WDJBMJHT", "approved")).rejects.toBeInstanceOf(ApiResponseError);
+	});
+});
+
+describe("unreadable transport failures", () => {
+	async function failureMessage(attempt: () => Promise<unknown>): Promise<string> {
+		try {
+			await attempt();
+		} catch (caught) {
+			return caught instanceof Error ? caught.message : String(caught);
+		}
+		return "resolved without an error";
+	}
+
+	it("renders surface copy rather than the route and status when the body carries no failure", async () => {
+		// An overloaded Worker, a proxy, or a cache answers with an HTML page, not the {code, message}
+		// JSON every deliberate refusal carries.
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(
+				new Response("<!doctype html><title>503 Service Unavailable</title>", {
+					headers: {"Content-Type": "text/html"},
+					status: 503,
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		expect({
+			accountDevices: await failureMessage(fetchAccountDevices),
+			afk: await failureMessage(fetchAfk),
+			answer: await failureMessage(async () => submitAnswer("question-id", "yep")),
+			authenticationMethods: await failureMessage(fetchAuthenticationMethods),
+			deviceAuthorizationDecision: await failureMessage(async () =>
+				decideDeviceAuthorization("WDJBMJHT", "approved"),
+			),
+			deviceAuthorizationLookup: await failureMessage(async () => fetchDeviceAuthorization("WDJBMJHT")),
+			linkedAccounts: await failureMessage(fetchLinkedAccounts),
+			magicLink: await failureMessage(async () => sendMagicLink("alice@example.com", null)),
+			oauthClient: await failureMessage(async () => fetchOAuthClient("oauth-client")),
+			oauthConsent: await failureMessage(async () => submitOAuthConsent("client_id=oauth-client", true)),
+			oauthResume: await failureMessage(async () => resumeOAuthAuthorization("client_id=oauth-client")),
+			passkeyList: await failureMessage(fetchPasskeys),
+			passkeySignIn: await failureMessage(signInWithPasskey),
+			passwordReset: await failureMessage(async () => consumePasswordResetToken("token", "replacement")),
+			recovery: await failureMessage(async () => requestPasswordReset("alice@example.com", null)),
+			registration: await failureMessage(async () =>
+				registerAccount("alice@example.com", "example-password", null),
+			),
+			session: await failureMessage(fetchSession),
+			signIn: await failureMessage(async () => signIn("alice@example.com", "example-password", null)),
+			signOut: await failureMessage(signOut),
+			socialSignIn: await failureMessage(async () => startSocialSignIn("github")),
+			unlink: await failureMessage(async () => unlinkAccount("account-github")),
+			verification: await failureMessage(async () => sendVerificationEmail("alice@example.com", null)),
+		}).toStrictEqual({
+			accountDevices: "Your devices could not be loaded. Try again in a moment.",
+			afk: "Your away status could not be loaded. Try again in a moment.",
+			answer: "Your answer could not be sent. Try again in a moment.",
+			authenticationMethods: "Sign-in options could not be loaded. Try again in a moment.",
+			deviceAuthorizationDecision: "Your answer could not be recorded. Start again from your terminal.",
+			deviceAuthorizationLookup: "The device request could not be loaded. Start again from your terminal.",
+			linkedAccounts: "Your linked accounts could not be loaded. Try again in a moment.",
+			magicLink: "The sign-in link could not be requested. Try again in a moment.",
+			oauthClient: "This MCP client could not be verified. Start the connection again from the client.",
+			oauthConsent: "Your answer could not be recorded. Start the connection again from your client.",
+			oauthResume: "The authorization request could not be resumed. Start the connection again from your client.",
+			passkeyList: "Your passkeys could not be loaded. Try again in a moment.",
+			passkeySignIn: "Passkey sign-in failed. Try again, or use another way to sign in.",
+			passwordReset: "Your password could not be reset. Request a new recovery email.",
+			recovery: "Recovery could not be requested. Try again in a moment.",
+			registration: "Account creation could not be completed. Try again in a moment.",
+			session: "Your sign-in status could not be confirmed. Try again in a moment.",
+			signIn: "Sign-in failed. Check your email and password, or recover your account.",
+			signOut: "Sign-out could not be completed. Try again in a moment.",
+			socialSignIn: "That sign-in provider is unavailable right now. Try again in a moment.",
+			unlink: "That account could not be unlinked. Try again in a moment.",
+			verification: "Verification could not be requested. Try again in a moment.",
+		});
+	});
+
+	it("hands the route and status to the console so an operator can still debug", async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () =>
+			Promise.resolve(new Response("upstream connect error", {status: 503})),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		expect(await failureMessage(async () => signIn("alice@example.com", "example-password", null))).toBe(
+			"Sign-in failed. Check your email and password, or recover your account.",
+		);
+		expect(warn.mock.calls).toStrictEqual([["POST /api/auth/sign-in/email failed with 503"]]);
 	});
 });
 
