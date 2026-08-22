@@ -8,8 +8,12 @@ const applicationVersion =
 	process.env["VITE_APPLICATION_VERSION"] ??
 	execFileSync("git", ["rev-parse", "HEAD"], {cwd: import.meta.dirname, encoding: "utf8"}).trim();
 
+// 📦 `dist` unless a caller asks for somewhere else. The browser suite builds the version it
+// upgrades to into its own directory, so that build never disturbs the one the server is serving.
+const outputDirectory = process.env["VITE_BUILD_OUT_DIR"] ?? "dist";
+
 function versionServiceWorker(): void {
-	const serviceWorkerPath = resolve(import.meta.dirname, "dist/sw.js");
+	const serviceWorkerPath = resolve(import.meta.dirname, outputDirectory, "sw.js");
 	const source = readFileSync(serviceWorkerPath, "utf8");
 	const placeholder = "__SERVICE_WORKER_VERSION__";
 	if (!source.includes(placeholder)) {
@@ -351,7 +355,7 @@ export default defineConfig({
 	base: process.env["VITE_BASE_PATH"] ?? "/",
 	root: ".",
 	build: {
-		outDir: "dist",
+		outDir: outputDirectory,
 		rolldownOptions: {
 			input: {
 				main: resolve(import.meta.dirname, "index.html"),

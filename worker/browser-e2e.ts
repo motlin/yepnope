@@ -16,6 +16,19 @@ type ApplicationEnvironment = Parameters<typeof application.fetch>[1];
 
 const mailbox = new Map<string, CapturedEmail[]>();
 
+// 🆔 Which Worker instance is answering. `wrangler dev` reloads whenever the directory it serves
+// changes, and a reload builds a fresh module scope: the mailbox below empties, human verification
+// reverts to waived, and whatever request was in flight comes back as a plain-text 503. None of
+// that belongs to a spec that did not ask for it, so a spec that changes the served client watches
+// this value until it holds still before handing the server on.
+let instanceId: string | null = null;
+
+function instanceResponse(): Response {
+	// Lazily, because workerd refuses to hand out random values while modules are still evaluating.
+	instanceId ??= crypto.randomUUID();
+	return Response.json({instance_id: instanceId});
+}
+
 // 📮 Recipients Cloudflare Email Service would refuse. Any address in this shape stands in for the
 // production failure the browser cannot see: the request is accepted, the message never leaves.
 const UNDELIVERABLE_RECIPIENT_PREFIX = "undeliverable-";
@@ -203,6 +216,9 @@ async function authorizeMcpClientResponse(request: Request, environment: Applica
 export default {
 	async fetch(request, environment, executionContext): Promise<Response> {
 		const url = new URL(request.url);
+		if (url.pathname === "/api/__e2e__/instance" && request.method === "GET") {
+			return instanceResponse();
+		}
 		if (url.pathname === "/api/__e2e__/mailbox" && request.method === "GET") {
 			return mailboxResponse(url);
 		}

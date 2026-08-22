@@ -13,6 +13,8 @@
 		"scripts/admin-storage.ts",
 		"scripts/browser-test-prepare.ts",
 		"scripts/browser-test-server.ts",
+		// Playwright loads its reporters from a path string, which fallow cannot follow.
+		"scripts/browser-test-reporter.ts",
 		"worker/admin.ts",
 		"worker/browser-e2e.ts",
 		"tests/browser/**/*.spec.ts",

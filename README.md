@@ -699,6 +699,41 @@ just release   # verify, tag, deploy to production, push the tag
 Card layout mockups live in `mockups/index.html` — a self-contained page used to
 measure title/body character limits at iPhone dimensions.
 
+### Reading a failed browser run
+
+The browser suite runs 47 specs, in file-name order, against one `wrangler dev`
+that lives for the whole run. That one server is shared state, so a spec can
+fail for something another spec did to it, or for something the server did to
+itself. Two files exist to tell those apart from a real regression:
+
+- `.llm/browser-e2e-server.log` — everything `wrangler dev` said, one
+  ISO-timestamped line each: every request it served, every reload, and the
+  reason it gave if it died.
+- `.llm/playwright-report.json` — when each spec started and how long it took.
+
+Line up the timestamps before believing a failure. Two patterns are the server
+rather than the code:
+
+- **`⎔ Reloading local server...`** — the Worker was replaced mid-run. A reload
+  builds a fresh module scope, so the e2e Worker's captured mailbox empties and
+  human verification reverts to waived, and any request in flight comes back as
+  a `503` whose body is prose rather than JSON. Only
+  `service-worker-upgrade.spec.ts` is allowed to cause one, and it waits for the
+  reload to settle before it finishes; a reload anywhere else means something
+  wrote into `dist/`, which is the directory the server serves and watches.
+- **`the browser test server exited on its own`** — `wrangler dev` died, and
+  every spec after that point failed on a refused connection rather than on
+  anything it was testing. The run is reported as failed for that reason and
+  says so in those words. In `~/Library/Preferences/.wrangler/logs/` it appears
+  as `Error inside ProxyWorker … Network connection lost.`: `wrangler dev`
+  escalating a severed connection between its proxy and the Worker into a fatal
+  error. Both occurrences measured so far landed in
+  `oauth-mcp-lifecycle.spec.ts`, the one spec that holds a **blocking**
+  `ask_yep_nope` call open through that proxy while the browser answers it,
+  which is the place to start if it is ever chased further. Roughly one run in
+  seven; nothing in this repository has been found to prevent it, so what
+  matters is that it is never mistaken for a regression.
+
 ### Collapsing the migrations
 
 There are two migration sets and they are not governed the same way.

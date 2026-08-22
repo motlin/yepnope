@@ -9,7 +9,10 @@ export default defineConfig({
 	retries: 0,
 	timeout: 90_000,
 	expect: {timeout: 10_000},
-	reporter: [["line"]],
+	// The JSON report is the other half of the timestamped server log: it says when each spec ran,
+	// so a failure can be read against what `wrangler dev` was doing at that moment. The third
+	// reporter reads that log back and says when the server, not the product, is what failed.
+	reporter: [["line"], ["json", {outputFile: ".llm/playwright-report.json"}], ["./scripts/browser-test-reporter.ts"]],
 	use: {
 		baseURL: SERVER_ORIGIN,
 		browserName: "chromium",

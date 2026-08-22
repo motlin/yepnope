@@ -1,20 +1,17 @@
-import {spawnSync} from "node:child_process";
-import {resolve} from "node:path";
 import {expect, test, type Page} from "playwright/test";
-import {fulfillJson} from "./helpers";
+import {
+	INITIAL_APPLICATION_VERSION,
+	serveUpgradedClient,
+	UPGRADED_APPLICATION_VERSION,
+} from "../../scripts/browser-test-harness";
+import {fulfillJson, waitForServerToSettle} from "./helpers";
 
-const repositoryDirectory = resolve(import.meta.dirname, "../..");
-
-function buildApplicationVersion(version: string): void {
-	const result = spawnSync("vp", ["build"], {
-		cwd: repositoryDirectory,
-		encoding: "utf8",
-		env: {...process.env, CI: "true", VITE_APPLICATION_VERSION: version},
-	});
-	if (result.status !== 0) {
-		throw new Error(`version ${version} build failed\n${result.stdout}\n${result.stderr}`);
-	}
-}
+// 🔁 The upgrade this spec proves is a directory swap, not a build. Both versions were built before
+// Playwright started, so the only thing that happens mid-suite is the swap itself — and this spec
+// waits for the reload that follows it, rather than letting it land on a later spec.
+test.afterEach(async ({request}) => {
+	await waitForServerToSettle(request);
+});
 
 async function routeAuthenticatedApplication(page: Page): Promise<void> {
 	await page.route("**/api/auth/get-session", async (route) =>
@@ -29,7 +26,7 @@ async function routeAuthenticatedApplication(page: Page): Promise<void> {
 	await page.route("**/api/v1/afk", async (route) => fulfillJson(route, {afk: false}));
 }
 
-test("activates version N+1 and stops version N JavaScript and its socket", async ({page}) => {
+test("activates version N+1 and stops version N JavaScript and its socket", async ({page, request}) => {
 	await routeAuthenticatedApplication(page);
 	let oldJavaScriptTicks = 0;
 	await page.exposeFunction("recordOldJavaScriptTick", () => {
@@ -59,7 +56,7 @@ test("activates version N+1 and stops version N JavaScript and its socket", asyn
 	});
 
 	await page.goto("/");
-	await expect(page.locator("html")).toHaveAttribute("data-application-version", "browser-version-n");
+	await expect(page.locator("html")).toHaveAttribute("data-application-version", INITIAL_APPLICATION_VERSION);
 	await expect
 		.poll(async () => page.evaluate(async () => (await navigator.serviceWorker.getRegistration()) !== undefined))
 		.toBe(true);
@@ -71,7 +68,13 @@ test("activates version N+1 and stops version N JavaScript and its socket", asyn
 	});
 	await expect.poll(() => oldJavaScriptTicks).toBeGreaterThan(2);
 
-	buildApplicationVersion("browser-version-n-plus-one");
+	serveUpgradedClient();
+	// The server reloads onto the new client on its own schedule, and a service worker that goes
+	// looking before it has finds the old files and keeps them. So wait for the reload, and say out
+	// loud that the new client is the one being served before asking the page to notice.
+	await waitForServerToSettle(request);
+	expect(await (await request.get("/sw.js")).text()).toContain(UPGRADED_APPLICATION_VERSION);
+
 	await page.evaluate(async () => {
 		const registration = await navigator.serviceWorker.getRegistration();
 		if (registration === undefined) {
@@ -81,7 +84,7 @@ test("activates version N+1 and stops version N JavaScript and its socket", asyn
 		document.dispatchEvent(new Event("visibilitychange"));
 	});
 
-	await expect(page.locator("html")).toHaveAttribute("data-application-version", "browser-version-n-plus-one");
+	await expect(page.locator("html")).toHaveAttribute("data-application-version", UPGRADED_APPLICATION_VERSION);
 	await expect.poll(() => socketConnections).toBe(2);
 	await expect.poll(() => closedSocketNumbers.has(1)).toBe(true);
 	await page.waitForTimeout(100);
