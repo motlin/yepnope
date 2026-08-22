@@ -725,14 +725,35 @@ rather than the code:
   every spec after that point failed on a refused connection rather than on
   anything it was testing. The run is reported as failed for that reason and
   says so in those words. In `~/Library/Preferences/.wrangler/logs/` it appears
-  as `Error inside ProxyWorker … Network connection lost.`: `wrangler dev`
-  escalating a severed connection between its proxy and the Worker into a fatal
-  error. Both occurrences measured so far landed in
-  `oauth-mcp-lifecycle.spec.ts`, the one spec that holds a **blocking**
-  `ask_yep_nope` call open through that proxy while the browser answers it,
-  which is the place to start if it is ever chased further. Roughly one run in
-  seven; nothing in this repository has been found to prevent it, so what
-  matters is that it is never mistaken for a regression.
+  as `Error inside ProxyWorker … Network connection lost.`
+
+    This is the dev server, not the Worker. `wrangler dev` serves through a proxy
+    Worker that pools its connections to yours, those connections are dropped at
+    five seconds idle, and a request timed to arrive on that boundary is written
+    into a socket that is already gone. Because the Worker's URL has not changed
+    the proxy calls that fatal, rather than returning the `503` it returns after a
+    reload, and the process exits. A Worker whose entire body is
+    `return new Response("ok")` dies the same way when one request follows another
+    by 4997 ms, with no Durable Object, no held-open response and no MCP call in
+    it anywhere.
+
+    It surfaces in `oauth-mcp-lifecycle.spec.ts` because that spec is the only
+    place in the suite that goes quiet for exactly five seconds. A swipe both
+    flushes the previously held answer and starts a fresh
+    `UNDO_WINDOW_MILLISECONDS`, so the last answer of a batch is posted one undo
+    window — 5000 ms — after the one before it, with nothing else touching the
+    server in between. The request that dies is that `POST /api/v1/answers`, and
+    it never reaches the Worker at all; the blocking `ask_yep_nope` call it would
+    have released is a bystander rather than the cause. Nothing here can prevent
+    it and retrying it would only hide it, so what matters is that it is never
+    mistaken for a regression.
+
+    Measured over 22 runs that reached that spec: 3 died this way, near enough one
+    in seven. A run of 12 back-to-back `vp run test:browser` saw none of them,
+    because the machine was loaded enough to push the answer `POST` past the
+    boundary it has to hit — the same load failed 5 of those 12 on unrelated 90
+    second `toBeVisible()` timeouts, which is its own reason not to read one red
+    run as a verdict.
 
 ### Collapsing the migrations
 
