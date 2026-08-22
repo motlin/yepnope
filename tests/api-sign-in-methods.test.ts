@@ -84,6 +84,40 @@ describe("passwordless email sign-in", () => {
 			],
 		]);
 	});
+
+	// ✉️ Better Auth decodes this callback a second time before it validates and follows it, so the
+	// query has to arrive encoded to survive the round trip. A signed authorization request is
+	// dense with percent-encoded colons and slashes, and one decode too many turns it into a URL
+	// the Worker refuses to redirect to — stranding the MCP client that sent the visitor here.
+	it("encodes the pending authorization the emailed link has to survive", async () => {
+		const fetchMock = respondWith(() => ({
+			message: "If the request can be completed, check your inbox for next steps.",
+			status: true,
+		}));
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: "https://yepnope.example/mcp",
+			scope: "openid offline_access yepnope:questions",
+			sig: "signed-authorization-request",
+		}).toString();
+
+		await sendMagicLink("alice@example.com", null, `/sign-in?${oauthQuery}`);
+
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/auth/sign-in/magic-link",
+				{
+					credentials: "same-origin",
+					method: "POST",
+					headers: {"Content-Type": "application/json"},
+					body: JSON.stringify({
+						email: "alice@example.com",
+						callbackURL: `/sign-in?${encodeURIComponent(oauthQuery)}`,
+					}),
+				},
+			],
+		]);
+	});
 });
 
 describe("social sign-in", () => {

@@ -318,6 +318,19 @@ export async function fetchAuthenticationMethods(): Promise<AuthenticationMethod
 	};
 }
 
+/**
+ * Better Auth decodes the emailed link's callback a second time before it validates and follows it,
+ * so the query has to leave here encoded to survive the round trip. A signed authorization request
+ * is dense with percent-encoded colons and slashes; one decode too many turns it into a URL the
+ * Worker refuses to redirect to, which strands the MCP client that sent the visitor to sign in.
+ */
+function magicLinkCallbackURL(callbackURL: string): string {
+	const query = callbackURL.indexOf("?");
+	return query === -1
+		? callbackURL
+		: `${callbackURL.slice(0, query)}?${encodeURIComponent(callbackURL.slice(query + 1))}`;
+}
+
 export async function sendMagicLink(
 	email: string,
 	humanVerificationToken: string | null,
@@ -325,7 +338,7 @@ export async function sendMagicLink(
 ): Promise<void> {
 	await requestJson(
 		"/api/auth/sign-in/magic-link",
-		verifiedJsonRequest({email, callbackURL}, humanVerificationToken),
+		verifiedJsonRequest({email, callbackURL: magicLinkCallbackURL(callbackURL)}, humanVerificationToken),
 		publicAuthenticationAcceptedResponseSchema,
 		"The sign-in link could not be requested. Try again in a moment.",
 	);

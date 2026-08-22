@@ -119,7 +119,11 @@ const fetchAuthenticationMethods = vi.hoisted(() =>
 		}),
 	),
 );
-const sendMagicLink = vi.hoisted(() => vi.fn<(_email: string) => Promise<void>>(async () => Promise.resolve()));
+const sendMagicLink = vi.hoisted(() =>
+	vi.fn<(_email: string, _humanVerificationToken: string | null, _callbackURL: string) => Promise<void>>(async () =>
+		Promise.resolve(),
+	),
+);
 const startSocialSignIn = vi.hoisted(() => vi.fn<(_provider: SocialProvider) => Promise<string>>());
 const linkSocialAccount = vi.hoisted(() => vi.fn<(_provider: SocialProvider) => Promise<string>>());
 const fetchLinkedAccounts = vi.hoisted(() => vi.fn<() => Promise<LinkedAccount[]>>(async () => Promise.resolve([])));
@@ -362,6 +366,41 @@ describe("OAuth consent continuity", () => {
 				["alice@example.com", "example-password", oauthQuery, null],
 			]);
 			expect(screen.getByRole("heading", {name: "Authorize MCP client"})).toBeDefined();
+		});
+	});
+
+	// ✉️ An emailed link is a sign-in like any other, so it has to carry the pending authorization
+	// the way the provider buttons beside it already do. A link that lands on the deck instead
+	// leaves the visitor looking signed in while the MCP client that sent them waits forever.
+	it("carries the authorization into an emailed sign-in link from the sign-in and recovery pages", async () => {
+		const oauthQuery = new URLSearchParams({
+			client_id: "oauth-client",
+			resource: `${window.location.origin}/mcp`,
+			scope: "openid offline_access yepnope:questions",
+			sig: "signed-magic-link-authorization",
+		}).toString();
+		fetchSession.mockResolvedValue(null);
+		window.history.replaceState({}, "", `/sign-in?${oauthQuery}`);
+
+		render(<App />);
+
+		fireEvent.change(await screen.findByRole("textbox", {name: "Email"}), {
+			target: {value: "alice@example.com"},
+		});
+		await submitAccountForm("Email me a sign-in link");
+		await waitFor(() => {
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", null, `/sign-in?${oauthQuery}`]]);
+		});
+
+		fireEvent.click(screen.getByRole("button", {name: "Forgot password?"}));
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		await submitAccountForm("Email me a sign-in link");
+
+		await waitFor(() => {
+			expect(sendMagicLink.mock.calls).toStrictEqual([
+				["alice@example.com", null, `/sign-in?${oauthQuery}`],
+				["alice@example.com", null, `/sign-in?${oauthQuery}`],
+			]);
 		});
 	});
 
@@ -1411,7 +1450,7 @@ describe("Better Auth account routes", () => {
 		await submitAccountForm("Email me a sign-in link");
 
 		await waitFor(() => {
-			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", null]]);
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", null, "/"]]);
 		});
 		expect((await screen.findByRole("status")).textContent).toBe(
 			"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.",
@@ -1718,7 +1757,7 @@ describe("Alternative sign-in methods", () => {
 		await submitAccountForm("Email me a sign-in link");
 
 		await waitFor(() => {
-			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", null]]);
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", null, "/"]]);
 		});
 		expect((await screen.findByRole("status")).textContent).toBe(
 			"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.",
@@ -1938,7 +1977,7 @@ describe("Gated public authentication", () => {
 		await submitAccountForm("Email me a sign-in link");
 
 		await waitFor(() => {
-			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", "magic-link-token"]]);
+			expect(sendMagicLink.mock.calls).toStrictEqual([["alice@example.com", "magic-link-token", "/"]]);
 		});
 	});
 

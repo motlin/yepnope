@@ -260,8 +260,13 @@ function passwordResetOAuthQuery(): string | null {
 	return oauthQuery;
 }
 
-function oauthCallbackPath(oauthQuery: string): string {
-	return `/sign-in?${oauthQuery}`;
+/**
+ * Where an authentication step that leaves the page — a provider, an emailed link, a verification
+ * message — sends the visitor back to. An authorization waiting on them outranks `fallback`, which
+ * is where the same step lands when nobody is waiting.
+ */
+function authenticationCallbackPath(oauthQuery: string | null, fallback: string): string {
+	return oauthQuery === null ? fallback : `/sign-in?${oauthQuery}`;
 }
 
 /** Returns true when the browser leaves YepNope for the requesting client. */
@@ -517,6 +522,11 @@ function passkeysUsable(methods: AuthenticationMethods): boolean {
 }
 
 interface EmailedSignInLinkProps {
+	/**
+	 * Where the emailed link lands once it has signed the visitor in: the deck, or the signed
+	 * authorization request that sent them here in the first place.
+	 */
+	callbackURL: string;
 	/** Whatever the surrounding page's own email field holds; the link goes nowhere else. */
 	email: string;
 	disabled: boolean;
@@ -529,10 +539,17 @@ interface EmailedSignInLinkProps {
  * an alternative and on the recovery page as the path for an account that never had a password to
  * reset, so both pages offer it in the same words and send it the same way.
  *
- * The link always lands on the deck. It carries no callback, so an authorization in flight is not
- * resumed by following one — the same as before this button was shared between the two pages.
+ * The link carries the same callback a provider button would, so an authorization waiting on this
+ * visitor resumes when they follow it out of their inbox instead of stranding the client that
+ * started it behind a deck that looks perfectly signed in.
  */
-function EmailedSignInLink({disabled, email, onError, verificationToken}: EmailedSignInLinkProps): ReactElement {
+function EmailedSignInLink({
+	callbackURL,
+	disabled,
+	email,
+	onError,
+	verificationToken,
+}: EmailedSignInLinkProps): ReactElement {
 	const [status, setStatus] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -546,7 +563,7 @@ function EmailedSignInLink({disabled, email, onError, verificationToken}: Emaile
 		setStatus(null);
 		onError(null);
 		try {
-			await sendMagicLink(email, await verificationToken());
+			await sendMagicLink(email, await verificationToken(), callbackURL);
 			setStatus(MAGIC_LINK_SENT_MESSAGE);
 		} catch (caught) {
 			onError(errorMessage(caught));
@@ -642,6 +659,7 @@ function AlternativeSignIn({
 			)}
 			{methods.magicLink && (
 				<EmailedSignInLink
+					callbackURL={callbackURL}
 					disabled={busy || verificationBlocked}
 					email={email}
 					onError={onError}
@@ -734,7 +752,7 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 				</button>
 			</form>
 			<AlternativeSignIn
-				callbackURL={oauthQuery === null ? "/" : oauthCallbackPath(oauthQuery)}
+				callbackURL={authenticationCallbackPath(oauthQuery, "/")}
 				email={email}
 				methods={methods}
 				onAuthenticated={onAuthenticated}
@@ -792,7 +810,7 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 		setSubmitting(true);
 		setError(null);
 		try {
-			const callbackURL = oauthQuery === null ? "/verify-email" : oauthCallbackPath(oauthQuery);
+			const callbackURL = authenticationCallbackPath(oauthQuery, "/verify-email");
 			await registerAccount(email, password, await verification.consume(), callbackURL);
 			try {
 				// 🎟️ Creating the account spent the first token, so the message that follows it
@@ -894,7 +912,7 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 		setDelivery("idle");
 		setResendCompleted(false);
 		try {
-			const callbackURL = oauthQuery === null ? "/verify-email" : oauthCallbackPath(oauthQuery);
+			const callbackURL = authenticationCallbackPath(oauthQuery, "/verify-email");
 			await sendVerificationEmail(email, await verification.consume(), callbackURL);
 			setDelivery("accepted");
 			setResendCompleted(true);
@@ -1056,6 +1074,7 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 					    straight back in is offered here, on the same address and the same widget. */}
 					<p className="sign-in-alternatives-divider">Or</p>
 					<EmailedSignInLink
+						callbackURL={authenticationCallbackPath(oauthQuery, "/")}
 						disabled={blocked}
 						email={email}
 						onError={setError}

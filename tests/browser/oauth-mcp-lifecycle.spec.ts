@@ -22,14 +22,20 @@ const scopes = ["openid", "offline_access", "yepnope:questions"] as const;
 const redirectUri = "http://127.0.0.1:45678/callback/oauth-browser-client";
 const secondRedirectUri = "http://127.0.0.1:45679/callback/oauth-browser-client";
 const recoveryRedirectUri = "http://127.0.0.1:45680/callback/oauth-browser-client";
+const magicLinkRedirectUri = "http://127.0.0.1:45681/callback/oauth-browser-client";
 const codeVerifier = "oauth-browser-verifier-00000000000000000000000000000000000000000000";
 const secondCodeVerifier = "oauth-browser-verifier-11111111111111111111111111111111111111111111";
 const recoveryCodeVerifier = "oauth-browser-verifier-22222222222222222222222222222222222222222222";
+const magicLinkCodeVerifier = "oauth-browser-verifier-33333333333333333333333333333333333333333333";
 const oauthState = "oauth-browser-state-00000000";
 const secondOauthState = "oauth-browser-state-11111111";
 const recoveryOauthState = "oauth-browser-state-22222222";
+const magicLinkOauthState = "oauth-browser-state-33333333";
 const recoveryPassword = "oauth-browser-recovery-password";
 const resetSubject = "Reset your YepNope password";
+const magicLinkSubject = "Sign in to YepNope";
+const magicLinkSentMessage =
+	"If the request can be completed, check your inbox for a sign-in link. It expires in 15 minutes.";
 const failedPkceVerifier = "oauth-browser-pkce-verifier-00000000000000000000000000000000000000000";
 const failedPkceState = "oauth-browser-pkce-state-00000000";
 const routedQuestions = [
@@ -598,6 +604,33 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			body: {error: "invalid_grant", error_description: "invalid refresh token"},
 			status: 400,
 		});
+
+		// ✉️ The emailed sign-in link is the one way in that asks for no password, no passkey, and no
+		// provider, so it is the path an account made that way has to take. It has to carry the
+		// pending authorization the way the provider buttons beside it do: a link that lands on the
+		// deck signs the visitor in while the client that sent them here waits forever.
+		const magicLinkClientId = await registerClient(
+			request,
+			"Magic link browser OAuth MCP client",
+			magicLinkRedirectUri,
+		);
+		await secondPage.getByRole("button", {name: "Sign out"}).click();
+		await secondPage.goto(
+			await authorizationUrl(magicLinkClientId, magicLinkRedirectUri, magicLinkCodeVerifier, magicLinkOauthState),
+		);
+		await expect(secondPage).toHaveURL(/\/sign-in\?.*client_id=.*sig=/);
+		await secondPage.getByRole("textbox", {name: "Email"}).fill(email);
+		await secondPage.getByRole("button", {name: "Email me a sign-in link"}).click();
+		await expect(secondPage.getByRole("status")).toHaveText(magicLinkSentMessage);
+		await secondPage.goto(await mailboxLink(request, magicLinkSubject, email));
+		await expect(secondPage.getByRole("heading", {name: "Authorize MCP client"})).toBeVisible();
+		await expect(secondPage.getByText("Magic link browser OAuth MCP client")).toBeVisible();
+		const magicLinkCallback = await captureConsentCallback(secondPage, magicLinkRedirectUri, "Cancel");
+		expect({
+			error: magicLinkCallback.searchParams.get("error"),
+			state: magicLinkCallback.searchParams.get("state"),
+		}).toStrictEqual({error: "access_denied", state: magicLinkOauthState});
+		await secondPage.goto("/settings");
 
 		const recoveryClientId = await registerClient(
 			request,
