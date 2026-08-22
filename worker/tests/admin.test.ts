@@ -139,8 +139,6 @@ describe("admin storage diagnostics and cleanup", () => {
 							{name: "answers", rows: 0},
 							{name: "batches", rows: 1},
 							{name: "devices", rows: 1},
-							{name: "identity_merge_lock", rows: 0},
-							{name: "identity_merges", rows: 0},
 							{name: "question_activity", rows: 1},
 							{name: "questions", rows: 1},
 							{name: "state", rows: 1},

@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "f34181c7-4418-4b4a-8b12-d6cad9a7d25b",
+	"id": "9aaf5078-e829-4fbe-b422-c667b2193863",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"answers": {
@@ -76,13 +76,6 @@
 					"notNull": false,
 					"autoincrement": false
 				},
-				"worktree": {
-					"name": "worktree",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": false,
-					"autoincrement": false
-				},
 				"directory": {
 					"name": "directory",
 					"type": "text",
@@ -138,54 +131,6 @@
 				},
 				"created_at": {
 					"name": "created_at",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				}
-			},
-			"indexes": {},
-			"foreignKeys": {},
-			"compositePrimaryKeys": {},
-			"uniqueConstraints": {},
-			"checkConstraints": {}
-		},
-		"identity_merge_lock": {
-			"name": "identity_merge_lock",
-			"columns": {
-				"id": {
-					"name": "id",
-					"type": "integer",
-					"primaryKey": true,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"destination_user_id": {
-					"name": "destination_user_id",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				}
-			},
-			"indexes": {},
-			"foreignKeys": {},
-			"compositePrimaryKeys": {},
-			"uniqueConstraints": {},
-			"checkConstraints": {}
-		},
-		"identity_merges": {
-			"name": "identity_merges",
-			"columns": {
-				"source_user_id": {
-					"name": "source_user_id",
-					"type": "text",
-					"primaryKey": true,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"imported_at": {
-					"name": "imported_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,

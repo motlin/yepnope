@@ -10,7 +10,6 @@ CREATE TABLE `batches` (
 	`project` text NOT NULL,
 	`repo` text,
 	`branch` text,
-	`worktree` text,
 	`directory` text,
 	`created_at` integer NOT NULL,
 	`last_heartbeat_at` integer NOT NULL
@@ -21,16 +20,6 @@ CREATE TABLE `devices` (
 	`label` text DEFAULT 'Browser notifications' NOT NULL,
 	`push_subscription` text NOT NULL,
 	`created_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE `identity_merge_lock` (
-	`id` integer PRIMARY KEY NOT NULL,
-	`destination_user_id` text NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE `identity_merges` (
-	`source_user_id` text PRIMARY KEY NOT NULL,
-	`imported_at` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `question_activity` (

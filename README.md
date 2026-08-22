@@ -699,6 +699,62 @@ just release   # verify, tag, deploy to production, push the tag
 Card layout mockups live in `mockups/index.html` — a self-contained page used to
 measure title/body character limits at iPhone dimensions.
 
+### Collapsing the migrations
+
+There are two migration sets and they are not governed the same way.
+
+`worker/migrations/d1` is an ordinary forward chain. Change
+`worker/db/d1-schema.ts`, run
+`npx drizzle-kit generate --config drizzle-d1.config.ts --name <name>`, rename
+the file and its journal tag to the next `NNN_` number, and apply it. Nothing
+about that needs a wipe.
+
+`worker/migrations/do` is a single immutable baseline.
+`UserDurableObject.initialize()` asserts the bundle holds exactly one migration,
+stamps its hash into `__drizzle_migrations`, and refuses to serve an object
+whose ledger records anything else — so a live object can never adopt a rewritten
+baseline. Changing `worker/db/do-schema.ts` therefore means regenerating that one
+file **and deleting every Durable Object**, in the same operation. That is what
+collapsing the chain in 2026-08 did, and it is the only reason the dead
+`identity_merges`, `identity_merge_lock`, and `batches.worktree` could finally go.
+
+The wipe deletes every account, question, answer, push subscription, OAuth
+client, and consent. Every connected client — the Claude Code plugin and the
+permission hook included — has to authorize again afterwards. Do not start it
+without deciding to finish it: between the wipe and the redeploy the deployment
+is serving a baseline no stored object matches.
+
+```sh
+just verify                                        # the baselines are proven locally first
+
+# 1. Wipe D1, migration ledger included, then apply the single migration.
+vp exec wrangler d1 execute yepnope --remote --json --command \
+  "SELECT name FROM sqlite_master WHERE type = 'table'
+   AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'"
+#    write one `DROP TABLE` per name above, `d1_migrations` included, into a
+#    scratch file under .llm/ and run it; nothing destructive is kept in the repo
+vp exec wrangler d1 execute yepnope --remote --file .llm/wipe.sql
+vp exec wrangler d1 migrations apply yepnope --remote
+
+# 2. Wipe the Durable Objects. With no accounts left in D1 every stored object
+#    is an orphan, which is exactly what cleanup deletes.
+npm run admin:storage -- cleanup                   # dry run; read the orphan count
+npm run admin:storage -- cleanup --confirm --expected-count <count>
+
+# 3. Redeploy, so the baseline the code carries is the one objects apply.
+just release
+
+# 4. Prove it. Expect the 17 schema tables plus d1_migrations and nothing else,
+#    no object with stored data, and a question answered end to end.
+vp exec wrangler d1 execute yepnope --remote --command \
+  "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+npm run admin:storage -- diagnostics
+just check-deployment
+```
+
+Then create the account in a browser, follow the verification link, and
+re-authorize each client.
+
 ### Storage administration
 
 The storage administration Worker is deployed separately on

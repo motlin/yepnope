@@ -3,7 +3,7 @@ import m0000 from "./001_initial.sql";
 
 export default {
 	hashes: {
-		m0000: "2e4223d7ead73ec26d2d0ca3f451e255532950d4c002730176fd0fd32e61cdcb",
+		m0000: "c56b72aefa553e9ca0f8c2c4dafb2fecde595b6cbb87c044d4d876ef2cc53e4c",
 	},
 	journal,
 	migrations: {
