@@ -173,7 +173,7 @@ export interface CreatedBatchResponse {
 	question_ids: string[];
 }
 
-export type BatchGitContext = Pick<CreateBatchRequest, "repo" | "branch" | "directory">;
+export type BatchGitContext = Pick<CreateBatchRequest, "repo" | "branch" | "worktree" | "directory">;
 
 export async function createBatchOverHttp(
 	token: string,

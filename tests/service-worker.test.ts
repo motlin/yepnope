@@ -188,6 +188,7 @@ const singleQuestionResponse = {
 					created_at: 946_684_800_000,
 					repo: null,
 					branch: null,
+					worktree: null,
 					directory: null,
 				},
 			],

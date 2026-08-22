@@ -37,6 +37,15 @@ const routedQuestions = [
 	{title: "Reject the OAuth browser risk?", body: "Exercise the real MCP Nope outcome."},
 	{title: "Defer the OAuth browser option?", body: "Exercise the real MCP Skip outcome."},
 ] as const;
+// 🧭 The chips the card renders, supplied the only way a remote server can learn them: as tool
+// arguments. Two worktrees of one repo share a repo and a branch and differ only in their paths,
+// so a card that names them is the difference between answering for this tree and answering blind.
+const routedContext = {
+	repo: "github.com/acme/rocket",
+	branch: "migrate-build",
+	worktree: "/w/rocket-migrate-build",
+	directory: "/w/rocket-migrate-build/core",
+} as const;
 const routedAnswer =
 	"Approve the OAuth browser change? -> YEP\n" +
 	"Reject the OAuth browser risk? -> NOPE\n" +
@@ -497,10 +506,16 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 
 		const answerPromise = secondClient.callTool({
 			name: "ask_yep_nope",
-			arguments: {project: "OAuth browser test", questions: routedQuestions},
+			arguments: {project: "OAuth browser test", questions: routedQuestions, ...routedContext},
 		});
 		for (const deckPage of [page, secondPage]) {
 			await expect(deckPage.getByRole("heading", {name: routedQuestions[0].title})).toBeVisible();
+			await expect(deckPage.locator(".chip")).toHaveText([
+				routedContext.repo,
+				routedContext.branch,
+				routedContext.worktree,
+				routedContext.directory,
+			]);
 		}
 		await secondPage.getByRole("button", {name: "Yep →"}).click();
 		await expect(secondPage.getByRole("heading", {name: routedQuestions[1].title})).toBeVisible();

@@ -28,6 +28,7 @@ export interface CurrentQuestion {
 	project: string;
 	repo: string | null;
 	branch: string | null;
+	worktree: string | null;
 	directory: string | null;
 	questionId: string;
 	position: number;
@@ -41,6 +42,7 @@ export interface CurrentQuestionPayload {
 	project: string;
 	repo: string | null;
 	branch: string | null;
+	worktree: string | null;
 	directory: string | null;
 	question_id: string;
 	position: number;
@@ -172,6 +174,7 @@ export class UserDurableObject extends DurableObject<Env> {
 					project: request.project,
 					repo: request.repo ?? null,
 					branch: request.branch ?? null,
+					worktree: request.worktree ?? null,
 					directory: request.directory ?? null,
 					createdAt: now,
 					lastHeartbeatAt: now,
@@ -278,6 +281,7 @@ export class UserDurableObject extends DurableObject<Env> {
 				project: batches.project,
 				repo: batches.repo,
 				branch: batches.branch,
+				worktree: batches.worktree,
 				directory: batches.directory,
 				questionId: questions.id,
 				position: questions.position,
@@ -307,6 +311,7 @@ export class UserDurableObject extends DurableObject<Env> {
 				project: question.project,
 				repo: question.repo,
 				branch: question.branch,
+				worktree: question.worktree,
 				directory: question.directory,
 				question_id: question.questionId,
 				position: question.position,

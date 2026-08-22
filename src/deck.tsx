@@ -20,6 +20,7 @@ export interface DeckQuestion {
 	// hook-sourced and non-git batches.
 	repo: string | null;
 	branch: string | null;
+	worktree: string | null;
 	directory: string | null;
 	title: string;
 	body: string;
@@ -116,6 +117,7 @@ function CardChips({card}: CardChipsProps): ReactElement | null {
 	const chips = [
 		{field: "repo", value: card.repo},
 		{field: "branch", value: card.branch},
+		{field: "worktree", value: card.worktree},
 		{field: "directory", value: card.directory},
 	].filter((chip) => chip.value !== null);
 	if (chips.length === 0) {

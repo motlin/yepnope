@@ -12,6 +12,7 @@ const QUESTIONS: DeckQuestion[] = [
 		body: "It has been **unused** for a year.",
 		repo: "github.com/acme/rocket",
 		branch: "migrate-build",
+		worktree: "/w/rocket",
 		directory: "/w/rocket/core",
 	},
 	{
@@ -22,6 +23,7 @@ const QUESTIONS: DeckQuestion[] = [
 		body: "Runs `git rebase -i` for you.",
 		repo: "github.com/acme/rocket",
 		branch: "migrate-build",
+		worktree: "/w/rocket",
 		directory: "/w/rocket/core",
 	},
 ];
@@ -71,7 +73,7 @@ function undoCountdown(): string {
 	return countdown.textContent;
 }
 
-function cardWithChips(chips: Pick<DeckQuestion, "repo" | "branch" | "directory">): DeckQuestion {
+function cardWithChips(chips: Pick<DeckQuestion, "repo" | "branch" | "worktree" | "directory">): DeckQuestion {
 	return {questionId: "b2:0", batchId: "b2", project: "demo", title: "Ship it?", body: "", ...chips};
 }
 
@@ -161,17 +163,24 @@ describe("Deck", () => {
 		expect(screen.getByText("Squash the branch?")).toBeDefined();
 	});
 
-	it("shows repo, branch, and directory chips on the card", () => {
-		expect(chipTexts(renderDeck(QUESTIONS))).toEqual(["github.com/acme/rocket", "migrate-build", "/w/rocket/core"]);
+	it("shows repo, branch, worktree, and directory chips on the card", () => {
+		expect(chipTexts(renderDeck(QUESTIONS))).toEqual([
+			"github.com/acme/rocket",
+			"migrate-build",
+			"/w/rocket",
+			"/w/rocket/core",
+		]);
 	});
 
 	it("shows only the chips that have values", () => {
-		const container = renderDeck([cardWithChips({repo: null, branch: "migrate-build", directory: null})]);
+		const container = renderDeck([
+			cardWithChips({repo: null, branch: "migrate-build", worktree: null, directory: null}),
+		]);
 		expect(chipTexts(container)).toEqual(["migrate-build"]);
 	});
 
 	it("renders no chip row when the batch has no git context", () => {
-		const container = renderDeck([cardWithChips({repo: null, branch: null, directory: null})]);
+		const container = renderDeck([cardWithChips({repo: null, branch: null, worktree: null, directory: null})]);
 		expect(container.querySelector(".chip-row")).toBeNull();
 	});
 

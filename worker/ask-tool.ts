@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {BODY_MAX_CHARACTERS, TITLE_MAX_CHARACTERS, type Disposition} from "./validation";
+import {BODY_MAX_CHARACTERS, CONTEXT_MAX_CHARACTERS, TITLE_MAX_CHARACTERS, type Disposition} from "./validation";
 
 export const TOOL_NAME = "ask_yep_nope";
 
@@ -8,8 +8,15 @@ export const NATIVE_QUESTION_FALLBACK_TEXT =
 
 export const NATIVE_QUESTION_FALLBACK = {reason: "afk_off", route: "native"} as const;
 
+// 🧭 The card's chips. A remote MCP server cannot see the caller's filesystem, so the only way
+// these ever reach a card is as tool arguments the agent fills in — which it will not do unless
+// the schema and the description below ask for them by name.
 const ASK_YEP_NOPE_ARGUMENTS_SCHEMA = z.object({
 	project: z.string().min(1),
+	repo: z.string().optional(),
+	branch: z.string().optional(),
+	worktree: z.string().optional(),
+	directory: z.string().optional(),
 	questions: z.array(z.object({title: z.string(), body: z.string()})).min(1),
 });
 
@@ -39,7 +46,8 @@ export function formatAskYepNopeResult(
 		.join("\n");
 }
 
-// 🗣️ Verbatim from the spec (appendix A.2 step 0); iterate against real sessions, not in review.
+// 🗣️ From the spec (appendix A.2 step 0), plus the context paragraph the chips need; iterate
+// against real sessions, not in review.
 export const TOOL_DESCRIPTION =
 	"Before using the client's native question flow for a blocking yes/no decision, call this tool. " +
 	"It atomically checks the user's app-controlled phone-routing state. When routing is off, it " +
@@ -55,13 +63,40 @@ export const TOOL_DESCRIPTION =
 	"few minutes of rework. You may stack any number of questions; they are delivered as one " +
 	"notification. The user may also skip a question, which means they declined to decide: " +
 	"leave that item alone and report it rather than choosing for them. This call blocks until " +
-	"every question is dispositioned, which may take hours.";
+	"every question is dispositioned, which may take hours. " +
+	"Whenever you are working in a git repository, fill in repo, branch, worktree, and directory " +
+	"as well; they render on the card as the context the user needs to tell one of your sessions " +
+	"from another. Derive them yourself from the shell, do not ask the user for them, and omit " +
+	"any you cannot determine.";
 
 export const TOOL_INPUT_SCHEMA = {
 	type: "object",
 	required: ["project", "questions"],
 	properties: {
 		project: {type: "string", description: "Human-readable label for the work"},
+		repo: {
+			type: "string",
+			maxLength: CONTEXT_MAX_CHARACTERS,
+			description: "Repository the work is in, `owner/name` style, from `git remote get-url origin`",
+		},
+		branch: {
+			type: "string",
+			maxLength: CONTEXT_MAX_CHARACTERS,
+			description: "Checked-out branch, from `git rev-parse --abbrev-ref HEAD`",
+		},
+		worktree: {
+			type: "string",
+			maxLength: CONTEXT_MAX_CHARACTERS,
+			description:
+				"Absolute path of the worktree root, from `git rev-parse --show-toplevel`. Several " +
+				"worktrees of one repository are often checked out at once and share a repo and often " +
+				"a branch, so this is what tells the user which of them is asking",
+		},
+		directory: {
+			type: "string",
+			maxLength: CONTEXT_MAX_CHARACTERS,
+			description: "Absolute path of your current working directory",
+		},
 		questions: {
 			type: "array",
 			minItems: 1,

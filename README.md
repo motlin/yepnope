@@ -751,7 +751,8 @@ whose ledger records anything else — so a live object can never adopt a rewrit
 baseline. Changing `worker/db/do-schema.ts` therefore means regenerating that one
 file **and deleting every Durable Object**, in the same operation. That is what
 collapsing the chain in 2026-08 did, and it is the only reason the dead
-`identity_merges`, `identity_merge_lock`, and `batches.worktree` could finally go.
+`identity_merges` and `identity_merge_lock` could finally go. Restoring
+`batches.worktree` rides on that same unreleased wipe.
 
 The wipe deletes every account, question, answer, push subscription, OAuth
 client, and consent. Every connected client — the Claude Code plugin and the

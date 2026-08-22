@@ -75,6 +75,10 @@ function askRequest(accessToken: string, signal?: AbortSignal): Request {
 		{
 			arguments: {
 				project: "Example project",
+				repo: "github.com/acme/rocket",
+				branch: "migrate-build",
+				worktree: "/w/rocket-migrate-build",
+				directory: "/w/rocket-migrate-build/core",
 				questions: [
 					{body: "The release candidate passed validation.", title: "Ship it?"},
 					{body: "The legacy path is still in use.", title: "Delete it?"},
@@ -214,8 +218,10 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		const responsePromise = remoteResponse(askRequest(bob.accessToken));
 		const questions = await waitForQuestionCount(bob.userId, 3);
 		expect(await env.USER_DO.getByName(alice.userId).getCurrentQuestions()).toStrictEqual([]);
+		// 🧭 The chips the phone renders come from tool arguments, so the only proof they are
+		// reachable is a real ask_yep_nope call carrying them all the way to a stored question.
 		expect(
-			questions.map(({body, branch, directory, position, project, repo, title}) => ({
+			questions.map(({body, branch, directory, position, project, repo, title, worktree}) => ({
 				body,
 				branch,
 				directory,
@@ -223,34 +229,38 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 				project,
 				repo,
 				title,
+				worktree,
 			})),
 		).toStrictEqual([
 			{
 				body: "The release candidate passed validation.",
-				branch: null,
-				directory: null,
+				branch: "migrate-build",
+				directory: "/w/rocket-migrate-build/core",
 				position: 0,
 				project: "Example project",
-				repo: null,
+				repo: "github.com/acme/rocket",
 				title: "Ship it?",
+				worktree: "/w/rocket-migrate-build",
 			},
 			{
 				body: "The legacy path is still in use.",
-				branch: null,
-				directory: null,
+				branch: "migrate-build",
+				directory: "/w/rocket-migrate-build/core",
 				position: 1,
 				project: "Example project",
-				repo: null,
+				repo: "github.com/acme/rocket",
 				title: "Delete it?",
+				worktree: "/w/rocket-migrate-build",
 			},
 			{
 				body: "The optional migration can wait.",
-				branch: null,
-				directory: null,
+				branch: "migrate-build",
+				directory: "/w/rocket-migrate-build/core",
 				position: 2,
 				project: "Example project",
-				repo: null,
+				repo: "github.com/acme/rocket",
 				title: "Migrate it?",
+				worktree: "/w/rocket-migrate-build",
 			},
 		]);
 		await bobStub.submitAnswers([

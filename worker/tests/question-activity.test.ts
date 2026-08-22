@@ -63,6 +63,7 @@ describe("current deck and durable question activity", () => {
 						question_id: outstanding.question_ids[0],
 						repo: null,
 						title: "Answer this?",
+						worktree: null,
 					},
 				],
 			},

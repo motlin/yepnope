@@ -10,6 +10,7 @@ CREATE TABLE `batches` (
 	`project` text NOT NULL,
 	`repo` text,
 	`branch` text,
+	`worktree` text,
 	`directory` text,
 	`created_at` integer NOT NULL,
 	`last_heartbeat_at` integer NOT NULL

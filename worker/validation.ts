@@ -25,13 +25,14 @@ export type QuestionInput = z.infer<typeof questionInputSchema>;
 // hook-sourced and non-git batches, so every field is optional. Malformed values are
 // dropped, never rejected: chips are cosmetic and the model cannot fix a caller-derived
 // path, so a 400 here would block the question over data nobody chose.
-const CONTEXT_MAX_CHARACTERS = 256;
+export const CONTEXT_MAX_CHARACTERS = 256;
 const contextFieldSchema = z.string().min(1).max(CONTEXT_MAX_CHARACTERS).optional().catch(undefined);
 
 export const createBatchRequestSchema = z.object({
 	project: z.string().min(1).max(TITLE_MAX_CHARACTERS),
 	repo: contextFieldSchema,
 	branch: contextFieldSchema,
+	worktree: contextFieldSchema,
 	directory: contextFieldSchema,
 	questions: z.array(questionInputSchema).min(1),
 });

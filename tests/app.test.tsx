@@ -26,6 +26,7 @@ const streamedQuestions: DeckQuestion[] = [
 		project: "MCP test stream",
 		repo: null,
 		branch: null,
+		worktree: null,
 		directory: null,
 		title: "Deploy the streamed test change?",
 		body: "Delivered through the mocked current-deck stream.",

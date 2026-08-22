@@ -46,14 +46,23 @@ describe("Durable Object migration baseline", () => {
 		database.exec("COMMIT");
 
 		expect({
-			// 🪦 `identity_merges` and `identity_merge_lock` backed the legacy claim flow, and
-			// `worktree` never reached a card — the layout picked repo, branch, and directory.
+			// 🪦 `identity_merges` and `identity_merge_lock` backed the legacy claim flow and are gone.
+			// The four context columns are the card's chips, so all four stay.
 			batchColumns: rows(database, "PRAGMA table_info(batches)").map((column) => column["name"]),
 			tables: rows(database, "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name").map((row) =>
 				String(row["name"]),
 			),
 		}).toStrictEqual({
-			batchColumns: ["id", "project", "repo", "branch", "directory", "created_at", "last_heartbeat_at"],
+			batchColumns: [
+				"id",
+				"project",
+				"repo",
+				"branch",
+				"worktree",
+				"directory",
+				"created_at",
+				"last_heartbeat_at",
+			],
 			tables: ["answers", "batches", "devices", "question_activity", "questions", "state"],
 		});
 

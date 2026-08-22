@@ -24,6 +24,8 @@ If the tool returns `route: native` with `reason: afk_off`, immediately ask the 
 
 Preserve the user's exact decision boundary and include enough context for the question to make sense on a phone.
 
+Fill in the `repo`, `branch`, `worktree`, and `directory` arguments whenever the session is inside a git repository. Derive them from the shell rather than asking the user, and omit any you cannot determine. They render as chips on the card, and they are how the user tells one of your sessions from another when several worktrees of the same repository are open at once.
+
 Do not use YepNope for open-ended input, credentials, secrets, or choices that require more than two answers.
 
 ## Preserve client ownership
