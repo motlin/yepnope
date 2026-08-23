@@ -213,7 +213,12 @@ async function signInWithAutomationPasskey(context: BrowserContext): Promise<Pag
 			isResidentCredential: true,
 			privateKey: target.passkey.privateKey,
 			rpId: target.passkey.rpId,
-			signCount: target.passkey.signCount,
+			// 🔢 WebAuthn's clone detection refuses an assertion whose counter does not exceed the one
+			// the deployment stored, and the deployment raises that stored counter on every sign-in.
+			// The enrolled `signCount` is therefore stale the moment it is first used — replaying it
+			// would authenticate once and refuse forever after. Seconds since the epoch is monotonic
+			// across runs, so each sign-in presents a counter comfortably above the last.
+			signCount: Math.floor(Date.now() / 1000),
 			userHandle: target.passkey.userHandle,
 		},
 	});

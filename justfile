@@ -1,3 +1,7 @@
+# Credentials a release needs but a repository must never carry — `YEPNOPE_DEPLOYMENT_PASSKEY` above
+# all — live in a gitignored `.env`. Loading it here is what lets `just release` run unattended.
+set dotenv-load := true
+
 # `just --list --unsorted`
 [group('default')]
 default:
@@ -85,8 +89,9 @@ deploy-staging: build
 check-deployment origin="": install
     {{ if origin != "" { "YEPNOPE_DEPLOYMENT_ORIGIN=" + origin } else { "" } }} node --experimental-strip-types scripts/deployment-check.ts
 
-# Enroll the passkey the deployed core-loop check signs in with; opens a browser for you to sign in
+# Enroll the passkey the deployed core-loop check signs in with; pass a session to skip the browser
 [group('release')]
 [arg("origin", help="Deployment to enroll on; defaults to $YEPNOPE_DEPLOYMENT_ORIGIN")]
-enroll-deployment-passkey origin="": install
-    {{ if origin != "" { "YEPNOPE_DEPLOYMENT_ORIGIN=" + origin } else { "" } }} node --experimental-strip-types scripts/deployment-check.ts --enroll
+[arg("session", help="better-auth.session_token from your own signed-in browser; omit to open one")]
+enroll-deployment-passkey origin="" session="": install
+    {{ if origin != "" { "YEPNOPE_DEPLOYMENT_ORIGIN=" + origin } else { "" } }} {{ if session != "" { "YEPNOPE_DEPLOYMENT_SESSION=" + session } else { "" } }} node --experimental-strip-types scripts/deployment-check.ts --enroll

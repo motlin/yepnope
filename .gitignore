@@ -50,3 +50,6 @@ worker-configuration.d.ts
 
 # CLI bundle
 /cli/dist
+
+# Local credentials, never committed
+.env

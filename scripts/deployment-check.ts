@@ -39,6 +39,18 @@ export const DEPLOYMENT_ORIGIN_VARIABLE = "YEPNOPE_DEPLOYMENT_ORIGIN";
 /** The enrolled automation passkey, base64 of the JSON `enroll-deployment-passkey` printed. */
 export const DEPLOYMENT_PASSKEY_VARIABLE = "YEPNOPE_DEPLOYMENT_PASSKEY";
 
+/**
+ * A session established by hand, so enrollment needs no browser window. Turnstile is meant to refuse
+ * an automated browser, so a person signs in normally in their own and hands the cookie over.
+ */
+export const DEPLOYMENT_SESSION_VARIABLE = "YEPNOPE_DEPLOYMENT_SESSION";
+
+/**
+ * The cookie Better Auth carries a session in. Over HTTPS it sets the `__Secure-` prefixed name, and
+ * a deployment is always HTTPS, so the bare name authenticates nothing here.
+ */
+const SESSION_COOKIE_NAME = "__Secure-better-auth.session_token";
+
 /** Set to `1` to run the check against production, which answers real questions on the real deck. */
 export const DEPLOYMENT_PRODUCTION_OVERRIDE_VARIABLE = "YEPNOPE_DEPLOYMENT_ALLOW_PRODUCTION";
 
@@ -175,11 +187,27 @@ async function runPlaywright(target: DeploymentTarget): Promise<number> {
  * Turnstile challenge and, the first time, following the emailed verification link — and this
  * registers a passkey against a virtual authenticator and prints the credential to store.
  */
-async function enrollPasskey(origin: string): Promise<void> {
+async function enrollPasskey(origin: string, sessionToken: string | undefined): Promise<void> {
 	const {chromium} = await import("playwright");
-	const browser = await chromium.launch({headless: false});
+	// A session handed in was established in a person's own browser, where Turnstile passes, so the
+	// ceremony needs no window and no one to watch it. Without one, a window has to open, and only
+	// the paths outside `HUMAN_VERIFICATION_ACTIONS` — social and passkey — can complete in it.
+	const browser = await chromium.launch({headless: sessionToken !== undefined});
 	try {
 		const context = await browser.newContext();
+		if (sessionToken !== undefined) {
+			await context.addCookies([
+				{
+					domain: new URL(origin).hostname,
+					httpOnly: true,
+					name: SESSION_COOKIE_NAME,
+					path: "/",
+					sameSite: "Lax",
+					secure: true,
+					value: sessionToken,
+				},
+			]);
+		}
 		const page = await context.newPage();
 		const client = await context.newCDPSession(page);
 		await client.send("WebAuthn.enable");
@@ -193,14 +221,18 @@ async function enrollPasskey(origin: string): Promise<void> {
 				transport: "internal",
 			},
 		});
-		await page.goto(`${origin}/sign-in`);
-		process.stderr.write(
-			"Sign in to the deployment in the window that just opened, then leave it alone.\n" +
-				"If this account does not exist yet, create it here and follow the verification link first.\n",
-		);
-		await page.waitForURL((url) => !url.pathname.startsWith("/sign-in") && !url.pathname.startsWith("/register"), {
-			timeout: 15 * 60 * 1000,
-		});
+		if (sessionToken === undefined) {
+			await page.goto(`${origin}/sign-in`);
+			process.stderr.write(
+				"Sign in to the deployment in the window that just opened, then leave it alone.\n" +
+					"Turnstile refuses an automated browser, so use a social button rather than the password form.\n" +
+					"If this account does not exist yet, create it here and follow the verification link first.\n",
+			);
+			await page.waitForURL(
+				(url) => !url.pathname.startsWith("/sign-in") && !url.pathname.startsWith("/register"),
+				{timeout: 15 * 60 * 1000},
+			);
+		}
 		await page.goto(`${origin}/settings`);
 		await page
 			.getByRole("region", {name: "Sign-in methods"})
@@ -233,7 +265,11 @@ async function enrollPasskey(origin: string): Promise<void> {
 
 async function main(): Promise<void> {
 	if (process.argv.includes("--enroll")) {
-		await enrollPasskey(deploymentOrigin(process.env[DEPLOYMENT_ORIGIN_VARIABLE]).origin);
+		const session = process.env[DEPLOYMENT_SESSION_VARIABLE]?.trim();
+		await enrollPasskey(
+			deploymentOrigin(process.env[DEPLOYMENT_ORIGIN_VARIABLE]).origin,
+			session === undefined || session === "" ? undefined : session,
+		);
 		return;
 	}
 	process.exitCode = await runPlaywright(resolveDeploymentTarget(process.env));
