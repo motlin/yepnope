@@ -124,6 +124,32 @@ codex mcp login yepnope
 **Settings -> Connected MCP clients** in the app repeats all of these commands
 for both clients, so the phone is enough to finish setup.
 
+### Migrate a pre-OAuth installation
+
+An old local stdio registration cannot be upgraded in place: its bearer
+credential cannot become an OAuth grant. Remove that client entry, register the
+remote URL, and authorize the existing YepNope account in the browser.
+
+For Claude Code installations that used the former local-scope setup:
+
+```sh
+claude mcp remove --scope local yepnope
+claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp
+```
+
+Then run `/mcp`, select `yepnope`, and authorize. For Codex:
+
+```sh
+codex mcp remove yepnope
+codex mcp add yepnope --url https://yepnope.app/mcp
+codex mcp login yepnope
+```
+
+After the OAuth connection succeeds, remove the old local shim bundle and its
+bearer-credential setting. This changes only the client installation: browser
+sessions, the account, questions, push subscriptions, and the account's Durable
+Object stay where they are.
+
 The call may block for hours by design, and two separate client limits can cut
 it short. The first is an idle window: Claude Code aborts a tool call that has
 sent neither a response nor a progress notification for five minutes. When the

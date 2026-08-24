@@ -210,6 +210,26 @@ describe("YepNope plugin distribution", () => {
 		});
 	});
 
+	it("migrates pre-OAuth client registrations without restoring the stdio shim", () => {
+		const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+		expect({
+			claudeMigration:
+				readme.includes("claude mcp remove --scope local yepnope") &&
+				readme.includes("claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp"),
+			codexMigration:
+				readme.includes("codex mcp remove yepnope") &&
+				readme.includes("codex mcp add yepnope --url https://yepnope.app/mcp") &&
+				readme.includes("codex mcp login yepnope"),
+			legacyShimCommand: readme.includes("yepnope-mcp"),
+			legacyShimPath: readme.includes("shim/dist"),
+		}).toStrictEqual({
+			claudeMigration: true,
+			codexMigration: true,
+			legacyShimCommand: false,
+			legacyShimPath: false,
+		});
+	});
+
 	it("documents the timeout the plugin ships instead of one the reader must set", () => {
 		const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 		expect({

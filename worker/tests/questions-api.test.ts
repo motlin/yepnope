@@ -12,7 +12,7 @@ import {
 } from "./helpers";
 
 describe("POST /api/v1/questions", () => {
-	it("rejects requests without a machine token", async () => {
+	it("rejects requests without authorization", async () => {
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 			method: "POST",
 			body: JSON.stringify({project: "demo", questions: [{title: "Ship it?", body: ""}]}),
@@ -20,7 +20,7 @@ describe("POST /api/v1/questions", () => {
 		expect(response.status).toBe(401);
 	});
 
-	it("rejects unknown machine tokens", async () => {
+	it("rejects invalid OAuth access tokens", async () => {
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/questions`, {
 			method: "GET",
 			headers: {Authorization: "Bearer nope"},
