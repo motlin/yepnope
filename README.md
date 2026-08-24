@@ -50,7 +50,9 @@ claude plugin install yepnope@yepnope
 ```
 
 Start a new agent session after installation and complete OAuth when the client
-prompts you. The plugin does not create or replace a status line.
+prompts you. In Codex, review and trust the packaged question-routing hook with
+`/hooks`; Codex skips new or changed plugin hooks until they are trusted. The
+plugin does not create or replace a status line.
 
 To install from a local checkout while developing the plugin, run:
 
@@ -79,13 +81,22 @@ npx skills add motlin/yepnope \
 That command installs both skills. Run `/yepnope-setup` in Claude Code or
 `$yepnope-setup` in Codex to add and authenticate the remote MCP connection.
 The skill-only path does not install project settings, status-line settings, or
-background polling.
+background polling. It also cannot install the Codex question-routing hook that
+the plugin bundles.
 
-For every blocking yes-or-no decision, the agent calls `ask_yep_nope` first.
-That call atomically reads the AFK state controlled by the app: it routes the
-question to the phone when AFK is on and tells the agent to use its native
-question flow when AFK is off. The remote MCP cannot change AFK state and does
-not make a separate status request before each question.
+Before every user-facing yes-or-no question, the agent calls `ask_yep_nope`
+first, without applying an importance or rework-cost threshold. That call
+atomically reads the AFK state controlled by the app: it routes the question to
+the phone when AFK is on and tells the agent to use its native question flow
+when AFK is off. The remote MCP cannot change AFK state and does not make a
+separate status request before each question.
+
+The Codex plugin reinforces that rule as developer context on every user turn,
+blocks supported native question tools until a YepNope attempt occurs, and
+checks final assistant text once for a question that bypassed a tool. The hook
+stores only per-turn routing outcomes in the plugin data directory; it does not
+store prompts or question text. Codex hooks cannot cover every specialized tool
+path, so the skill and MCP descriptions remain the primary routing contract.
 
 ## MCP install (`ask_yep_nope`)
 

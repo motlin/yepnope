@@ -49,7 +49,8 @@ export function formatAskYepNopeResult(
 // 🗣️ From the spec (appendix A.2 step 0), plus the context paragraph the chips need; iterate
 // against real sessions, not in review.
 export const TOOL_DESCRIPTION =
-	"Before using the client's native question flow for a blocking yes/no decision, call this tool. " +
+	"Before asking the user a yes/no question through any native or text flow, always call this tool " +
+	"first. Route every yes/no decision through this tool regardless of its size, importance, or cost. " +
 	"It atomically checks the user's app-controlled phone-routing state. When routing is off, it " +
 	"returns a native fallback instruction; immediately ask the same question through the client's " +
 	"native user-question tool without asking the user to change routing. When routing is on, the user " +
@@ -59,8 +60,7 @@ export const TOOL_DESCRIPTION =
 	"Prefer phrasing where the expected answer is yes, but never use a negation in the title to " +
 	"achieve it; a clear question with an expected no beats a confusing one with an expected " +
 	"yes. Test each question against 'Yes means I will ______.' If that cannot be completed " +
-	"with one concrete action, rewrite it. Ask only when guessing wrong would cost more than a " +
-	"few minutes of rework. You may stack any number of questions; they are delivered as one " +
+	"with one concrete action, rewrite it. You may stack any number of questions; they are delivered as one " +
 	"notification. The user may also skip a question, which means they declined to decide: " +
 	"leave that item alone and report it rather than choosing for them. This call blocks until " +
 	"every question is dispositioned, which may take hours. " +

@@ -1,7 +1,7 @@
 {
 	"name": "yepnope",
 	"version": "0.1.0",
-	"description": "Route brief yes-or-no coding-agent questions to your phone.",
+	"description": "Route every yes-or-no coding-agent question to your phone first.",
 	"author": {
 		"name": "YepNope"
 	},
@@ -13,14 +13,15 @@
 	"interface": {
 		"displayName": "YepNope",
 		"shortDescription": "Answer coding-agent questions from your phone",
-		"longDescription": "Connect YepNope and route brief yes-or-no coding-agent questions to your phone without taking over a status line.",
+		"longDescription": "Connect YepNope and try every yes-or-no coding-agent question on your phone before falling back to the native question flow.",
 		"developerName": "YepNope",
 		"category": "Productivity",
-		"capabilities": ["Skills", "MCP"],
+		"capabilities": ["Skills", "MCP", "Hooks"],
 		"defaultPrompt": [
-			"Use YepNope first for a blocking yes-or-no question, with native fallback.",
+			"Use YepNope before every user-facing yes-or-no question and fall back natively only after trying it.",
 			"Check whether YepNope is connected."
 		]
 	},
+	"hooks": "./codex-hooks/hooks.json",
 	"mcpServers": "./.mcp.json"
 }

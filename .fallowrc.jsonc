@@ -15,6 +15,8 @@
 		"scripts/browser-test-server.ts",
 		// Playwright loads its reporters from a path string, which fallow cannot follow.
 		"scripts/browser-test-reporter.ts",
+		// Codex loads plugin hook commands from hooks.json, which fallow cannot follow.
+		"plugins/yepnope/codex-hooks/route-questions.cjs",
 		"worker/admin.ts",
 		"worker/browser-e2e.ts",
 		"tests/browser/**/*.spec.ts",

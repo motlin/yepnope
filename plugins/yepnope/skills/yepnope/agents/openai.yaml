@@ -1,4 +1,4 @@
 interface:
   display_name: "YepNope"
-  short_description: "Route binary questions with native fallback"
-  default_prompt: "Use $yepnope to route a blocking yes or no question with native fallback."
+  short_description: "Try every binary question on the phone first"
+  default_prompt: "Use $yepnope before every user-facing yes-or-no question and fall back natively only after trying it."

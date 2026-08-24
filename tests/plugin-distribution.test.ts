@@ -14,7 +14,7 @@ describe("YepNope plugin distribution", () => {
 		expect(readJson("../plugins/yepnope/.codex-plugin/plugin.json")).toStrictEqual({
 			name: "yepnope",
 			version: "0.1.0",
-			description: "Route brief yes-or-no coding-agent questions to your phone.",
+			description: "Route every yes-or-no coding-agent question to your phone first.",
 			author: {name: "YepNope"},
 			homepage: "https://yepnope.app",
 			repository: "https://github.com/motlin/yepnope",
@@ -25,16 +25,78 @@ describe("YepNope plugin distribution", () => {
 				displayName: "YepNope",
 				shortDescription: "Answer coding-agent questions from your phone",
 				longDescription:
-					"Connect YepNope and route brief yes-or-no coding-agent questions to your phone without taking over a status line.",
+					"Connect YepNope and try every yes-or-no coding-agent question on your phone before falling back to the native question flow.",
 				developerName: "YepNope",
 				category: "Productivity",
-				capabilities: ["Skills", "MCP"],
+				capabilities: ["Skills", "MCP", "Hooks"],
 				defaultPrompt: [
-					"Use YepNope first for a blocking yes-or-no question, with native fallback.",
+					"Use YepNope before every user-facing yes-or-no question and fall back natively only after trying it.",
 					"Check whether YepNope is connected.",
 				],
 			},
+			hooks: "./codex-hooks/hooks.json",
 			mcpServers: "./.mcp.json",
+		});
+		expect(readJson("../plugins/yepnope/codex-hooks/hooks.json")).toStrictEqual({
+			description: "Try YepNope before Codex asks the user a question.",
+			hooks: {
+				UserPromptSubmit: [
+					{
+						hooks: [
+							{
+								type: "command",
+								command: 'node "$PLUGIN_ROOT/codex-hooks/route-questions.cjs"',
+								timeout: 5,
+							},
+						],
+					},
+				],
+				PreToolUse: [
+					{
+						matcher: "(^|__)ask_yep_nope$",
+						hooks: [
+							{
+								type: "command",
+								command: 'node "$PLUGIN_ROOT/codex-hooks/route-questions.cjs"',
+								timeout: 5,
+							},
+						],
+					},
+					{
+						matcher: "^(request_user_input|AskUserQuestion)$",
+						hooks: [
+							{
+								type: "command",
+								command: 'node "$PLUGIN_ROOT/codex-hooks/route-questions.cjs"',
+								timeout: 5,
+							},
+						],
+					},
+				],
+				PostToolUse: [
+					{
+						matcher: "(^|__)ask_yep_nope$",
+						hooks: [
+							{
+								type: "command",
+								command: 'node "$PLUGIN_ROOT/codex-hooks/route-questions.cjs"',
+								timeout: 5,
+							},
+						],
+					},
+				],
+				Stop: [
+					{
+						hooks: [
+							{
+								type: "command",
+								command: 'node "$PLUGIN_ROOT/codex-hooks/route-questions.cjs"',
+								timeout: 5,
+							},
+						],
+					},
+				],
+			},
 		});
 		expect(readJson("../plugins/yepnope/.mcp.json")).toStrictEqual({
 			mcpServers: {
