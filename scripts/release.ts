@@ -116,6 +116,15 @@ export async function runRelease(dependencies: ReleaseDependencies): Promise<Rel
 		throw new Error(`\`just verify\` failed with exit code ${verify.code}`);
 	}
 
+	// 🧱 Browser tests deliberately replace dist/ with version-stamped fixtures. Build again after
+	// verification so staging receives this release tree rather than whatever artifact a test left.
+	const stagingBuild = await run("vp", ["build"]);
+	if (stagingBuild.code !== 0) {
+		throw new Error(
+			`building the staging artifact failed with exit code ${stagingBuild.code}, so nothing was deployed`,
+		);
+	}
+
 	// 🎭 Everything above is green in a process on this machine. The product is a question that
 	// leaves an agent, crosses Cloudflare, lands on a phone, and comes back as an answer, and no
 	// local suite can tell whether that still happens. So this tree is deployed to staging and the

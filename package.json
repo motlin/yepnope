@@ -15,7 +15,7 @@
 		"fmt:ci": "vp fmt --check",
 		"fallow": "fallow fix --yes",
 		"fallow:ci": "fallow dead-code",
-		"typecheck": "wrangler types && tsc --noEmit && tsc -p worker/tsconfig.json && tsc -p cli/tsconfig.json",
+		"typecheck": "wrangler types --env-file /dev/null && tsc --noEmit && tsc -p worker/tsconfig.json && tsc -p cli/tsconfig.json",
 		"test": "node node_modules/vitest/dist/cli.js",
 		"test:browser": "node --experimental-strip-types scripts/browser-test-prepare.ts && node node_modules/playwright/cli.js test --config playwright.config.ts",
 		"test:ui": "node node_modules/vitest/dist/cli.js --ui",

@@ -1,5 +1,6 @@
 import {Client} from "@modelcontextprotocol/sdk/client/index.js";
 import {StreamableHTTPClientTransport, StreamableHTTPError} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {isDeepStrictEqual} from "node:util";
 import {expect, test, type APIRequestContext, type BrowserContext, type CDPSession, type Page} from "playwright/test";
 import {z} from "zod";
 import {resolveDeploymentTarget} from "../../scripts/deployment-check.ts";
@@ -29,6 +30,7 @@ const scopes = ["openid", "offline_access", "yepnope:questions"] as const;
 // The deck holds every swipe before it reaches the server; see UNDO_WINDOW_MILLISECONDS in
 // `src/deck.tsx`. The assertion is a lower bound, so a longer window still passes.
 const UNDO_WINDOW_LOWER_BOUND_MILLISECONDS = 4_000;
+const CLEANUP_TIMEOUT_MILLISECONDS = 5_000;
 
 const runId = crypto.randomUUID().slice(0, 8);
 const firstClientName = `Deployed core-loop client ${runId}`;
@@ -173,9 +175,21 @@ async function authorizeClient(
 		tokenType: "Bearer",
 	});
 	const transport = new StreamableHTTPClientTransport(new URL(resource), {
+		fetch: async (input, init) => {
+			const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+			process.stderr.write(`[deployed core loop] MCP ${method} ${resource}\n`);
+			const response = await fetch(input, init);
+			process.stderr.write(
+				`[deployed core loop] MCP ${method} ${resource} -> ${String(response.status)} ${response.headers.get("content-type") ?? "without content type"}\n`,
+			);
+			return response;
+		},
 		requestInit: {headers: {Authorization: `Bearer ${tokens.access_token}`}},
 	});
 	const client = new Client({name, version: "1.0.0"});
+	client.onerror = (error) => {
+		process.stderr.write(`[deployed core loop] ${name} MCP error: ${error.message}\n`);
+	};
 	try {
 		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
 	} catch (error) {
@@ -250,8 +264,18 @@ function settlementTracker<Result>(call: Promise<Result>): {promise: Promise<Res
 
 async function revokeClient(page: Page, name: string): Promise<void> {
 	const row = page.getByRole("listitem").filter({has: page.getByText(name, {exact: true})});
-	await row.getByRole("button", {name: "Revoke"}).click();
-	await expect(row).toContainText("revoked");
+	if ((await row.count()) === 0) {
+		return;
+	}
+	await row.getByRole("button", {name: "Revoke"}).click({timeout: CLEANUP_TIMEOUT_MILLISECONDS});
+	await expect(row).toContainText("revoked", {timeout: CLEANUP_TIMEOUT_MILLISECONDS});
+}
+
+async function deploymentStep<Result>(name: string, body: () => Promise<Result>): Promise<Result> {
+	process.stderr.write(`[deployed core loop] ${name}\n`);
+	const result = await test.step(name, body);
+	process.stderr.write(`[deployed core loop] ${name} complete\n`);
+	return result;
 }
 
 test("a deployed YepNope answers an authorized MCP client's blocking question from the deck", async ({
@@ -262,127 +286,168 @@ test("a deployed YepNope answers an authorized MCP client's blocking question fr
 	let context: BrowserContext | null = null;
 	let settingsPage: Page | null = null;
 	try {
-		const [authorizationMetadataResponse, protectedResourceMetadataResponse] = await Promise.all([
-			request.get(`${target.origin}/.well-known/oauth-authorization-server/api/auth`),
-			request.get(`${target.origin}/.well-known/oauth-protected-resource/mcp`),
-		]);
-		const authorizationMetadata = authorizationMetadataSchema.parse(await authorizationMetadataResponse.json());
-		const protectedResourceMetadata = protectedResourceMetadataSchema.parse(
-			await protectedResourceMetadataResponse.json(),
-		);
-		expect({
-			authorizationEndpoint: authorizationMetadata.authorization_endpoint,
-			authorizationServers: protectedResourceMetadata.authorization_servers,
-			codeChallengeMethods: authorizationMetadata.code_challenge_methods_supported,
-			issuer: authorizationMetadata.issuer,
-			registrationEndpoint: authorizationMetadata.registration_endpoint,
-			resource: protectedResourceMetadata.resource,
-			scopesSupported: protectedResourceMetadata.scopes_supported,
-			tokenEndpoint: authorizationMetadata.token_endpoint,
-		}).toStrictEqual({
-			authorizationEndpoint: `${issuer}/oauth2/authorize`,
-			authorizationServers: [issuer],
-			codeChallengeMethods: ["S256"],
-			issuer,
-			registrationEndpoint: `${issuer}/oauth2/register`,
-			resource,
-			scopesSupported: ["yepnope:questions"],
-			tokenEndpoint: `${issuer}/oauth2/token`,
+		await deploymentStep("validate OAuth discovery metadata", async () => {
+			const [authorizationMetadataResponse, protectedResourceMetadataResponse] = await Promise.all([
+				request.get(`${target.origin}/.well-known/oauth-authorization-server/api/auth`),
+				request.get(`${target.origin}/.well-known/oauth-protected-resource/mcp`),
+			]);
+			const authorizationMetadata = authorizationMetadataSchema.parse(await authorizationMetadataResponse.json());
+			const protectedResourceMetadata = protectedResourceMetadataSchema.parse(
+				await protectedResourceMetadataResponse.json(),
+			);
+			expect({
+				authorizationEndpoint: authorizationMetadata.authorization_endpoint,
+				authorizationServers: protectedResourceMetadata.authorization_servers,
+				codeChallengeMethods: authorizationMetadata.code_challenge_methods_supported,
+				issuer: authorizationMetadata.issuer,
+				registrationEndpoint: authorizationMetadata.registration_endpoint,
+				resource: protectedResourceMetadata.resource,
+				scopesSupported: protectedResourceMetadata.scopes_supported,
+				tokenEndpoint: authorizationMetadata.token_endpoint,
+			}).toStrictEqual({
+				authorizationEndpoint: `${issuer}/oauth2/authorize`,
+				authorizationServers: [issuer],
+				codeChallengeMethods: ["S256"],
+				issuer,
+				registrationEndpoint: `${issuer}/oauth2/register`,
+				resource,
+				scopesSupported: ["yepnope:questions"],
+				tokenEndpoint: `${issuer}/oauth2/token`,
+			});
 		});
 
-		context = await browser.newContext();
-		settingsPage = await signInWithAutomationPasskey(context);
+		const signedInSettingsPage = await deploymentStep("sign in with the deployment passkey", async () => {
+			context = await browser.newContext();
+			return signInWithAutomationPasskey(context);
+		});
+		settingsPage = signedInSettingsPage;
 
-		const firstClient = await authorizeClient(request, settingsPage, firstClientName, firstRedirectUri);
+		const firstClient = await deploymentStep("authorize and connect the first MCP client", async () =>
+			authorizeClient(request, signedInSettingsPage, firstClientName, firstRedirectUri),
+		);
 		clients.push(firstClient);
-		expect(await firstClient.listTools()).toStrictEqual(expectedTools);
+		await deploymentStep("list tools on the first MCP client", async () => {
+			const tools = await firstClient.listTools();
+			if (!isDeepStrictEqual(tools, expectedTools)) {
+				throw new Error("the deployment's MCP tool contract does not match this checkout");
+			}
+		});
 
 		// 📱 Routing to the deck is the account's own switch, and the deployment starts wherever the
 		// last run left it, so this asserts the state it puts the account into rather than the one
 		// it found.
-		const deckPage = await context.newPage();
-		await deckPage.goto("/");
-		const afkToggle = deckPage.getByRole("button", {name: /^AFK (on|off)$/});
-		await expect(afkToggle).toBeEnabled();
-		if ((await afkToggle.getAttribute("aria-pressed")) !== "true") {
-			await afkToggle.click();
-		}
-		await expect(afkToggle).toHaveAttribute("aria-pressed", "true");
+		const deckPage = await deploymentStep("open the deck and enable AFK routing", async () => {
+			if (context === null) {
+				throw new Error("the browser context was not created during passkey sign-in");
+			}
+			const page = await context.newPage();
+			await page.goto("/");
+			const afkToggle = page.getByRole("button", {name: /^AFK (on|off)$/});
+			await expect(afkToggle).toBeEnabled();
+			if ((await afkToggle.getAttribute("aria-pressed")) !== "true") {
+				await afkToggle.click();
+			}
+			await expect(afkToggle).toHaveAttribute("aria-pressed", "true");
+			await expect
+				.poll(async () => {
+					const response = await page.request.get(`${target.origin}/api/v1/afk`);
+					return {body: await response.json(), status: response.status()};
+				})
+				.toStrictEqual({body: {afk: true}, status: 200});
+			return page;
+		});
 
-		const batchCall = settlementTracker(
-			firstClient.callTool({
-				name: "ask_yep_nope",
-				arguments: {project: `Deployed core loop ${runId}`, questions: batch},
-			}),
-		);
-		await expect(deckPage.getByRole("heading", {name: batch[0].title})).toBeVisible();
-		await deckPage.getByRole("button", {name: "Yep →"}).click();
-		await expect(deckPage.getByRole("heading", {name: batch[1].title})).toBeVisible();
-		await deckPage.getByRole("button", {name: "← Nope"}).click();
-		await expect(deckPage.getByRole("heading", {name: batch[2].title})).toBeVisible();
-		await deckPage.getByRole("button", {name: "↓ Skip"}).click();
-		const lastSwipeAt = Date.now();
+		await deploymentStep("answer the first MCP client's three-question batch", async () => {
+			const batchCall = settlementTracker(
+				firstClient.callTool({
+					name: "ask_yep_nope",
+					arguments: {project: `Deployed core loop ${runId}`, questions: batch},
+				}),
+			);
+			await expect(deckPage.getByRole("heading", {name: batch[0].title})).toBeVisible();
+			await deckPage.getByRole("button", {name: "Yep →"}).click();
+			await expect(deckPage.getByRole("heading", {name: batch[1].title})).toBeVisible();
+			await deckPage.getByRole("button", {name: "← Nope"}).click();
+			await expect(deckPage.getByRole("heading", {name: batch[2].title})).toBeVisible();
+			await deckPage.getByRole("button", {name: "↓ Skip"}).click();
+			const lastSwipeAt = Date.now();
 
-		// ↩️ The last swipe of a batch waits out the undo window like every other one, so the call
-		// is still blocking while the deck offers to take the swipe back.
-		await expect(deckPage.getByRole("button", {name: "Undo skip"})).toBeVisible();
-		expect(batchCall.settled()).toBe(false);
-		expect(await batchCall.promise).toStrictEqual({content: [{text: batchAnswer, type: "text"}]});
-		expect(Date.now() - lastSwipeAt).toBeGreaterThanOrEqual(UNDO_WINDOW_LOWER_BOUND_MILLISECONDS);
-		await expect(deckPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+			// ↩️ The last swipe of a batch waits out the undo window like every other one, so the call
+			// is still blocking while the deck offers to take the swipe back.
+			await expect(deckPage.getByRole("button", {name: "Undo skip"})).toBeVisible();
+			expect(batchCall.settled()).toBe(false);
+			expect(await batchCall.promise).toStrictEqual({content: [{text: batchAnswer, type: "text"}]});
+			expect(Date.now() - lastSwipeAt).toBeGreaterThanOrEqual(UNDO_WINDOW_LOWER_BOUND_MILLISECONDS);
+			await expect(deckPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		});
 
 		// 🔗 A second authorized client on the same account, answered from a deck that was already
 		// open before the question existed.
-		const secondClient = await authorizeClient(request, settingsPage, secondClientName, secondRedirectUri);
-		clients.push(secondClient);
-		await settingsPage.goto("/settings");
-		for (const name of [firstClientName, secondClientName]) {
-			await expect(settingsPage.getByText(name, {exact: true})).toBeVisible();
-		}
-		const secondCall = settlementTracker(
-			secondClient.callTool({
-				name: "ask_yep_nope",
-				arguments: {project: `Deployed core loop ${runId}`, questions: [secondClientQuestion]},
-			}),
+		const secondClient = await deploymentStep("authorize and connect the second MCP client", async () =>
+			authorizeClient(request, signedInSettingsPage, secondClientName, secondRedirectUri),
 		);
-		await expect(deckPage.getByRole("heading", {name: secondClientQuestion.title})).toBeVisible();
-		await deckPage.getByRole("button", {name: "Yep →"}).click();
-		expect(await secondCall.promise).toStrictEqual({
-			content: [{text: `${secondClientQuestion.title} -> YEP`, type: "text"}],
+		clients.push(secondClient);
+		await deploymentStep("answer the second MCP client's question", async () => {
+			await signedInSettingsPage.goto("/settings");
+			for (const name of [firstClientName, secondClientName]) {
+				await expect(signedInSettingsPage.getByText(name, {exact: true})).toBeVisible();
+			}
+			const secondCall = settlementTracker(
+				secondClient.callTool({
+					name: "ask_yep_nope",
+					arguments: {project: `Deployed core loop ${runId}`, questions: [secondClientQuestion]},
+				}),
+			);
+			await expect(deckPage.getByRole("heading", {name: secondClientQuestion.title})).toBeVisible();
+			await deckPage.getByRole("button", {name: "Yep →"}).click();
+			expect(await secondCall.promise).toStrictEqual({
+				content: [{text: `${secondClientQuestion.title} -> YEP`, type: "text"}],
+			});
 		});
 
 		// 🚫 A retraction has to reach a deck that is already showing the card, which is the live
 		// socket's job and nothing else's.
-		const abortController = new AbortController();
-		const retractedCall = firstClient.callTool(
-			{
-				name: "ask_yep_nope",
-				arguments: {project: `Deployed core loop ${runId}`, questions: [retractedQuestion]},
-			},
-			undefined,
-			{signal: abortController.signal},
-		);
-		await expect(deckPage.getByRole("heading", {name: retractedQuestion.title})).toBeVisible();
-		abortController.abort();
-		expect((await rejectedError(retractedCall)).name).toBe("McpError");
-		await expect(deckPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		await deploymentStep("retract the first MCP client's live question", async () => {
+			const abortController = new AbortController();
+			const retractedCall = firstClient.callTool(
+				{
+					name: "ask_yep_nope",
+					arguments: {project: `Deployed core loop ${runId}`, questions: [retractedQuestion]},
+				},
+				undefined,
+				{signal: abortController.signal},
+			);
+			await expect(deckPage.getByRole("heading", {name: retractedQuestion.title})).toBeVisible();
+			abortController.abort();
+			expect((await rejectedError(retractedCall)).name).toBe("McpError");
+			await expect(deckPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		});
 	} finally {
+		process.stderr.write("[deployed core loop] close MCP clients\n");
 		await Promise.all(clients.map(async (client) => client.close().catch(() => undefined)));
+		process.stderr.write("[deployed core loop] close MCP clients complete\n");
 		if (settingsPage !== null) {
 			// 🧹 The account outlives the run, so it goes back to the state the run found it in: no
 			// client this run registered still authorized, and routing off. Revoking the last
 			// authorized client turns routing off by itself, so the toggle here is only for the
 			// runs where a revocation did not land.
-			await settingsPage.goto("/settings").catch(() => undefined);
+			process.stderr.write("[deployed core loop] open settings for cleanup\n");
+			await settingsPage.goto("/settings", {timeout: CLEANUP_TIMEOUT_MILLISECONDS}).catch(() => undefined);
+			process.stderr.write("[deployed core loop] open settings for cleanup complete\n");
 			for (const name of [firstClientName, secondClientName]) {
+				process.stderr.write(`[deployed core loop] revoke ${name}\n`);
 				await revokeClient(settingsPage, name).catch(() => undefined);
+				process.stderr.write(`[deployed core loop] revoke ${name} complete\n`);
 			}
-			await settingsPage.goto("/").catch(() => undefined);
+			process.stderr.write("[deployed core loop] disable AFK routing\n");
+			await settingsPage.goto("/", {timeout: CLEANUP_TIMEOUT_MILLISECONDS}).catch(() => undefined);
 			const routing = settingsPage.getByRole("button", {name: /^AFK (on|off)$/});
 			if ((await routing.getAttribute("aria-pressed").catch(() => null)) === "true") {
-				await routing.click().catch(() => undefined);
+				await routing.click({timeout: CLEANUP_TIMEOUT_MILLISECONDS}).catch(() => undefined);
 			}
+			process.stderr.write("[deployed core loop] disable AFK routing complete\n");
 		}
-		await context?.close();
+		// The browser fixture owns its contexts. Closing one here after the test timeout can hang in
+		// Playwright teardown and replace the named stage that identified the original failure.
 	}
 });

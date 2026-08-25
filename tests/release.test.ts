@@ -20,6 +20,7 @@ const IN_SYNC = ok("0\t0\n");
 const HEAD_COMMIT = ok("abc1234\n");
 const UNUSED_TAG = ok();
 const VERIFIED = ok("All pre-commit checks passed!\n");
+const BUILT = ok("built in 1.21s\n");
 const TAGGED = ok();
 const DEPLOYED = ok(`Uploaded yepnope (4.21 sec)\nDeployed yepnope triggers\nCurrent Version ID: ${VERSION_ID}\n`);
 const PUSHED = ok("");
@@ -69,6 +70,7 @@ const STAGING_DEPLOYED = ok("Uploaded yepnope-staging (3.10 sec)\nCurrent Versio
 const CORE_LOOP_PROVEN = ok("1 passed (48.2s)\n");
 const REHEARSAL = [STAGING_DEPLOYED, CORE_LOOP_PROVEN];
 const REHEARSAL_CALLS = [
+	["vp", ["build"]],
 	["vp", ["exec", "wrangler", "deploy", "--config", "wrangler.staging.jsonc"]],
 	["just", ["check-deployment", STAGING_ORIGIN]],
 ];
@@ -107,6 +109,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			BUILT,
 			...REHEARSAL,
 			TAGGED,
 			DEPLOYED,
@@ -197,6 +200,30 @@ describe("just release", () => {
 		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ...PREFLIGHT_CALLS, ["just", ["verify"]]]);
 	});
 
+	it("stops before staging when the post-verify artifact cannot be built", async () => {
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			FETCHED,
+			IN_SYNC,
+			HEAD_COMMIT,
+			UNUSED_TAG,
+			...PREFLIGHT,
+			VERIFIED,
+			{code: 1, output: "vite build failed\n"},
+		]);
+
+		await expect(runRelease(dependencies(run))).rejects.toThrow(
+			"building the staging artifact failed with exit code 1, so nothing was deployed",
+		);
+		expect(run.mock.calls).toStrictEqual([
+			...PLAN_CALLS,
+			...PREFLIGHT_CALLS,
+			["just", ["verify"]],
+			REHEARSAL_CALLS[0],
+		]);
+	});
+
 	it("refuses an unconfigured deployment before spending a verify or cutting a tag", async () => {
 		const run = releaseRunner([
 			CLEAN_TREE,
@@ -225,6 +252,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			BUILT,
 			{code: 1, output: "Authentication error [code: 10000]\n"},
 		]);
 
@@ -236,7 +264,7 @@ describe("just release", () => {
 			...PLAN_CALLS,
 			...PREFLIGHT_CALLS,
 			["just", ["verify"]],
-			REHEARSAL_CALLS[0],
+			...REHEARSAL_CALLS.slice(0, 2),
 		]);
 	});
 
@@ -250,6 +278,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			BUILT,
 			STAGING_DEPLOYED,
 			{code: 1, output: "1 failed\n  a deployed YepNope answers an authorized MCP client's question\n"},
 		]);
@@ -276,6 +305,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			BUILT,
 			...REHEARSAL,
 			TAGGED,
 			{code: 1, output: "Authentication error [code: 10000]\n"},
@@ -298,6 +328,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			BUILT,
 			...REHEARSAL,
 			TAGGED,
 			ok("Uploaded yepnope (4.21 sec)\n"),
@@ -321,6 +352,7 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
+			BUILT,
 			...REHEARSAL,
 			TAGGED,
 			DEPLOYED,
