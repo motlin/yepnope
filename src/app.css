@@ -250,12 +250,19 @@ body {
 }
 
 .settings-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	background: none;
 	border: 0;
 	color: var(--text-faint);
-	font-size: 17px;
 	cursor: pointer;
 	padding: 2px 4px;
+}
+
+.settings-button svg {
+	width: 20px;
+	height: 20px;
 }
 
 .deck-header {

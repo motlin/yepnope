@@ -902,6 +902,7 @@ describe("App live question synchronization", () => {
 		act(() => {
 			publishQuestions?.([]);
 		});
+		const settingsButton = screen.getByRole("button", {name: "Settings"});
 
 		expect({
 			accountStatuses: document.querySelectorAll(".app-header .account-status").length,
@@ -909,12 +910,60 @@ describe("App live question synchronization", () => {
 				accessibleName: button.getAttribute("aria-label") ?? button.textContent,
 				className: button.className,
 			})),
+			settingsIcon: {
+				ariaHidden: settingsButton.querySelector("svg")?.getAttribute("aria-hidden"),
+				lines: [...settingsButton.querySelectorAll("line")].map((line) => ({
+					stroke: line.getAttribute("stroke"),
+					strokeLinecap: line.getAttribute("stroke-linecap"),
+					strokeWidth: line.getAttribute("stroke-width"),
+					x1: line.getAttribute("x1"),
+					x2: line.getAttribute("x2"),
+					y1: line.getAttribute("y1"),
+					y2: line.getAttribute("y2"),
+				})),
+				text: settingsButton.textContent,
+				viewBox: settingsButton.querySelector("svg")?.getAttribute("viewBox"),
+			},
 		}).toStrictEqual({
 			accountStatuses: 0,
 			buttons: [
 				{accessibleName: "AFK on", className: "afk-toggle afk-on"},
 				{accessibleName: "Settings", className: "settings-button"},
 			],
+			settingsIcon: {
+				ariaHidden: "true",
+				lines: [
+					{
+						stroke: "currentColor",
+						strokeLinecap: "round",
+						strokeWidth: "2",
+						x1: "4",
+						x2: "20",
+						y1: "6",
+						y2: "6",
+					},
+					{
+						stroke: "currentColor",
+						strokeLinecap: "round",
+						strokeWidth: "2",
+						x1: "4",
+						x2: "20",
+						y1: "12",
+						y2: "12",
+					},
+					{
+						stroke: "currentColor",
+						strokeLinecap: "round",
+						strokeWidth: "2",
+						x1: "4",
+						x2: "20",
+						y1: "18",
+						y2: "18",
+					},
+				],
+				text: "",
+				viewBox: "0 0 24 24",
+			},
 		});
 	});
 
