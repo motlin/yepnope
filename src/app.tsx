@@ -265,6 +265,7 @@ interface McpClientSetup {
 	readonly authorization: string;
 	/** The same connection registered by hand, for anyone who does not want the plugin. */
 	readonly manualSteps: readonly SetupStep[];
+	readonly manualIntroduction: string;
 	readonly docsLabel: string;
 	readonly docsUrl: string;
 }
@@ -289,6 +290,7 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 			},
 			{label: "Without the plugin: authorize it", command: "/mcp"},
 		],
+		manualIntroduction: "Alternative: use the manual commands only if you did not install the plugin.",
 		docsLabel: "Open the official Claude Code MCP instructions",
 		docsUrl: "https://docs.claude.com/en/docs/claude-code/mcp",
 	},
@@ -309,6 +311,8 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 			},
 			{label: "Without the plugin: authorize it", command: "codex mcp login yepnope"},
 		],
+		manualIntroduction:
+			"Alternative: use the manual commands only if you did not install the plugin. Combining both paths creates a redundant top-level MCP registration.",
 		docsLabel: "Open the official Codex MCP instructions",
 		docsUrl: "https://developers.openai.com/codex/mcp/",
 	},
@@ -2086,6 +2090,9 @@ function Settings({
 							))}
 						</div>
 						<p>{client.authorization}</p>
+						<p>
+							<strong>{client.manualIntroduction}</strong>
+						</p>
 						<div className="install-steps">
 							{client.manualSteps.map((step) => (
 								<InstallCommand key={step.command} command={step.command} label={step.label} />

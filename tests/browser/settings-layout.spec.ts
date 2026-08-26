@@ -184,6 +184,11 @@ test("settings separates account access, MCP clients, and browser notifications"
 		).toBeVisible();
 		await expect(page.getByRole("heading", {name: "Codex"})).toBeVisible();
 		await expect(page.getByText("codex plugin add yepnope@yepnope")).toBeVisible();
+		await expect(
+			page.getByText(
+				"Alternative: use the manual commands only if you did not install the plugin. Combining both paths creates a redundant top-level MCP registration.",
+			),
+		).toBeVisible();
 		await expect(page.getByText("codex mcp add yepnope --url https://yepnope.app/mcp")).toBeVisible();
 		await expect(page.getByText("codex mcp login yepnope")).toBeVisible();
 		expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("pair");

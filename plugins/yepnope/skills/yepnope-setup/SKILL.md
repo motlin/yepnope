@@ -7,14 +7,32 @@ description: Inspect, connect, and authenticate the YepNope remote MCP server wi
 
 ## Inspect without exposing credentials
 
-Run one client-appropriate read-only check:
+Run the client-appropriate read-only checks:
 
 - Claude Code: `claude mcp list`
-- Codex: `codex mcp list`
+- Codex:
+
+    ```sh
+    codex plugin list --json
+    codex mcp list --json
+    ```
 
 Inspect only the `yepnope` entry. Never print configuration files, OAuth storage, request headers, or configured environment values. Never run `claude mcp get yepnope`, because it may print configured environment values.
 
 Setup is complete only when the remote server is enabled, connected, authenticated with OAuth, and exposes `ask_yep_nope`.
+
+## Keep Codex installation sources exclusive
+
+When `yepnope@yepnope` is installed and enabled, its bundled MCP server is authoritative. Never run `codex mcp add yepnope` for that installation.
+
+Detect a top-level registration without printing Codex configuration by checking only for the exact table header that `codex mcp add yepnope` creates:
+
+```sh
+codex_config_file="${CODEX_HOME:-$HOME/.codex}/config.toml"
+rg --quiet '^[[:space:]]*\[mcp_servers\.yepnope\][[:space:]]*$' "$codex_config_file"
+```
+
+Exit status zero means a top-level registration is shadowing the bundled server. Show the conflict and get explicit approval before running `codex mcp remove yepnope`. Then confirm that the exact table header is absent and run the ordinary `codex mcp list --json` again. The bundled `yepnope` entry must remain present with `https://yepnope.app/mcp` and `tool_timeout_sec` equal to `691200`. If it does not, stop and report the failed verification; do not recreate a top-level entry.
 
 ## Connect Claude Code
 
@@ -28,13 +46,15 @@ Then tell the user to run `/mcp`, select `yepnope`, and complete browser authent
 
 ## Connect Codex
 
-If no `yepnope` server exists, run:
+If `yepnope@yepnope` is installed and enabled, resolve any shadowing top-level registration as described above, then run `codex mcp login yepnope`. Do not add another server.
+
+Only when the plugin is not installed and no `yepnope` server exists, run:
 
 ```sh
 codex mcp add yepnope --url https://yepnope.app/mcp
 ```
 
-Then run `codex mcp login yepnope` and let the user complete browser authentication. Do not remove or overwrite an existing server with the same name without showing the conflict and receiving confirmation.
+Then run `codex mcp login yepnope` and let the user complete browser authentication. If the plugin is not installed but a `yepnope` server already exists, keep it and proceed to login rather than adding it again. Do not remove or overwrite an existing server with the same name without showing the conflict and receiving confirmation.
 
 ## Verify once and return control
 

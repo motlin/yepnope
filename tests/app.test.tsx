@@ -49,6 +49,8 @@ const CODEX_MARKETPLACE_COMMAND = "codex plugin marketplace add motlin/yepnope";
 const CODEX_PLUGIN_COMMAND = "codex plugin add yepnope@yepnope";
 const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
 const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
+const CODEX_MANUAL_WARNING =
+	"Alternative: use the manual commands only if you did not install the plugin. Combining both paths creates a redundant top-level MCP registration.";
 const SETUP_COMMANDS = [
 	CLAUDE_CODE_MARKETPLACE_COMMAND,
 	CLAUDE_CODE_PLUGIN_COMMAND,
@@ -1058,12 +1060,14 @@ describe("App live question synchronization", () => {
 				.getAllByRole("heading", {level: 4})
 				.map((heading) => heading.textContent),
 			commands: setupCommands(panel),
+			codexManualWarning: within(panel).getByText(CODEX_MANUAL_WARNING).textContent,
 			docsUrls: within(panel)
 				.getAllByRole("link")
 				.map((link) => link.getAttribute("href")),
 		}).toStrictEqual({
 			clients: ["Claude Code", "Codex"],
 			commands: SETUP_COMMANDS,
+			codexManualWarning: CODEX_MANUAL_WARNING,
 			docsUrls: ["https://docs.claude.com/en/docs/claude-code/mcp", "https://developers.openai.com/codex/mcp/"],
 		});
 	});

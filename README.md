@@ -42,6 +42,11 @@ codex plugin marketplace add motlin/yepnope
 codex plugin add yepnope@yepnope
 ```
 
+Do not also run `codex mcp add yepnope`: the plugin already owns that server.
+If Codex had a direct YepNope MCP registration before the plugin was installed,
+run `$yepnope-setup`; it detects the overlapping source without printing Codex
+configuration and asks before removing the redundant top-level entry.
+
 For Claude Code:
 
 ```sh
@@ -107,8 +112,9 @@ copied between windows, no token is pasted into a config file, and the
 authorization appears under **Settings -> Connected MCP clients** where it can be
 revoked.
 
-To register the connection by hand instead of through the plugin, in Claude
-Code:
+To register the connection by hand instead of through the plugin, use the
+following commands. These are alternative installation paths; do not combine
+them with the plugin install. In Claude Code:
 
 ```sh
 claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp
@@ -121,8 +127,9 @@ codex mcp add yepnope --url https://yepnope.app/mcp
 codex mcp login yepnope
 ```
 
-**Settings -> Connected MCP clients** in the app repeats all of these commands
-for both clients, so the phone is enough to finish setup.
+**Settings -> Connected MCP clients** in the app repeats these mutually
+exclusive plugin and manual paths for both clients, so the phone is enough to
+finish setup.
 
 ### Migrate a pre-OAuth installation
 
@@ -137,7 +144,16 @@ claude mcp remove --scope local yepnope
 claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp
 ```
 
-Then run `/mcp`, select `yepnope`, and authorize. For Codex:
+Then run `/mcp`, select `yepnope`, and authorize. For Codex with the plugin
+installed, remove the legacy top-level registration and use the bundled server:
+
+```sh
+codex mcp remove yepnope
+codex mcp login yepnope
+```
+
+For a skill-only Codex installation without the plugin, replace the old
+registration by hand:
 
 ```sh
 codex mcp remove yepnope

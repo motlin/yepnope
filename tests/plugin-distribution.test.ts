@@ -1,4 +1,8 @@
-import {existsSync, readFileSync} from "node:fs";
+import {spawnSync} from "node:child_process";
+import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {fileURLToPath} from "node:url";
 import {RETENTION_MILLISECONDS} from "../worker/validation";
 
 interface PluginMcpConfig {
@@ -194,20 +198,80 @@ describe("YepNope plugin distribution", () => {
 
 	it("documents plugin, local, and skill-only installation", () => {
 		const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+		const setupSkill = readFileSync(
+			new URL("../plugins/yepnope/skills/yepnope-setup/SKILL.md", import.meta.url),
+			"utf8",
+		);
+		const localInstaller = readFileSync(new URL("../install-local.sh", import.meta.url), "utf8");
 		expect({
 			claudePlugin: readme.includes("claude plugin install yepnope@yepnope"),
 			codexPlugin: readme.includes("codex plugin add yepnope@yepnope"),
 			localInstaller: readme.includes("./install-local.sh all"),
+			localInstallerRejectsDirectCodexRegistration:
+				localInstaller.includes("mcp_servers\\.yepnope") &&
+				localInstaller.includes("rg --quiet") &&
+				localInstaller.includes("codex mcp remove yepnope"),
 			npxBothSkills:
 				readme.includes("npx skills add motlin/yepnope") &&
 				readme.includes("--skill yepnope") &&
 				readme.includes("--skill yepnope-setup"),
+			setupKeepsCodexSourcesExclusive:
+				setupSkill.includes("mcp_servers\\.yepnope") &&
+				setupSkill.includes("rg --quiet") &&
+				setupSkill.includes("Never run `codex mcp add yepnope`") &&
+				setupSkill.includes("tool_timeout_sec` equal to `691200"),
 		}).toStrictEqual({
 			claudePlugin: true,
 			codexPlugin: true,
 			localInstaller: true,
+			localInstallerRejectsDirectCodexRegistration: true,
 			npxBothSkills: true,
+			setupKeepsCodexSourcesExclusive: true,
 		});
+	});
+
+	it("stops the local Codex plugin installer before a direct MCP registration can be duplicated", () => {
+		const testDirectory = mkdtempSync(join(tmpdir(), "yepnope-plugin-distribution-"));
+		const codexHome = join(testDirectory, "codex-home");
+		const binDirectory = join(testDirectory, "bin");
+		const codexMarker = join(testDirectory, "codex-invoked");
+
+		try {
+			mkdirSync(codexHome);
+			mkdirSync(binDirectory);
+			writeFileSync(join(codexHome, "config.toml"), '[mcp_servers.yepnope]\nurl = "https://yepnope.app/mcp"\n');
+			const fakeCodex = join(binDirectory, "codex");
+			writeFileSync(fakeCodex, '#!/bin/sh\nprintf invoked > "$CODEX_TEST_MARKER"\nexit 99\n');
+			chmodSync(fakeCodex, 0o755);
+
+			const result = spawnSync(
+				"bash",
+				[fileURLToPath(new URL("../install-local.sh", import.meta.url)), "codex"],
+				{
+					encoding: "utf8",
+					env: {
+						...process.env,
+						CODEX_HOME: codexHome,
+						CODEX_TEST_MARKER: codexMarker,
+						PATH: `${binDirectory}:${process.env["PATH"]}`,
+					},
+				},
+			);
+
+			expect({
+				codexInvoked: existsSync(codexMarker),
+				status: result.status,
+				stderr: result.stderr,
+			}).toStrictEqual({
+				codexInvoked: false,
+				status: 1,
+				stderr:
+					"A direct Codex MCP registration named yepnope would shadow the plugin bundle.\n" +
+					"Run 'codex mcp remove yepnope' before installing the Codex plugin.\n",
+			});
+		} finally {
+			rmSync(testDirectory, {recursive: true, force: true});
+		}
 	});
 
 	it("migrates pre-OAuth client registrations without restoring the stdio shim", () => {
