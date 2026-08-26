@@ -138,6 +138,30 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
 		await expect(firstPage.getByRole("button", {name: "1 MCP client authorized"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
+		expect(
+			await firstPage.locator(".resolved").evaluate((emptyState) => {
+				const style = getComputedStyle(emptyState);
+				return {
+					alignItems: style.alignItems,
+					backgroundColor: style.backgroundColor,
+					borderRadius: style.borderRadius,
+					borderStyle: style.borderStyle,
+					borderWidth: style.borderWidth,
+					justifyContent: style.justifyContent,
+					padding: style.padding,
+					textAlign: style.textAlign,
+				};
+			}),
+		).toStrictEqual({
+			alignItems: "center",
+			backgroundColor: "rgba(0, 0, 0, 0)",
+			borderRadius: "0px",
+			borderStyle: "none",
+			borderWidth: "0px",
+			justifyContent: "center",
+			padding: "0px",
+			textAlign: "center",
+		});
 		await expect(firstPage.getByRole("button", {name: "AFK off"})).toHaveAttribute("aria-pressed", "false");
 
 		await firstPage.getByRole("button", {name: "AFK off"}).click();

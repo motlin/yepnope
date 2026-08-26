@@ -419,13 +419,12 @@ body {
 .resolved {
 	position: absolute;
 	inset: 20px 0 0;
-	background: var(--surface-panel);
-	border: 1px solid var(--border-panel);
-	border-radius: 20px;
-	padding: 24px;
 	display: flex;
 	flex-direction: column;
+	align-items: center;
+	justify-content: center;
 	gap: 10px;
+	text-align: center;
 }
 
 .resolved h3 {
