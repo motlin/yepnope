@@ -36,9 +36,13 @@ codex mcp add yepnope --url https://yepnope.app/mcp
 
 Then run `codex mcp login yepnope` and let the user complete browser authentication. Do not remove or overwrite an existing server with the same name without showing the conflict and receiving confirmation.
 
-## Verify once
+## Verify once and return control
 
-After authentication, verify the client reports the remote server as connected and OAuth-authenticated, then confirm that `ask_yep_nope` is available. Stop after that check; do not install monitoring or poll the server.
+Treat the client command as authoritative for the OAuth result. A blank loopback callback tab does not establish whether authentication succeeded or failed. If the login command succeeds, continue with verification. If it fails or times out, report that exact result and stop; do not retry authentication automatically.
+
+Verify the client reports the remote server as connected and OAuth-authenticated, then confirm through client tool discovery that `ask_yep_nope` is available. Never invoke `ask_yep_nope` as a connectivity test: it creates a real question and blocks while waiting for a human answer.
+
+After reporting the verification result, end the turn and return control to the user. Do not resume the workflow that led to setup, deliver a pending question or approval, or invoke another YepNope skill or tool. Continue that earlier workflow only after the user sends a new message.
 
 ## Keep status output optional
 
