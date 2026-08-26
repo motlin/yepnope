@@ -1,6 +1,11 @@
 import {runInDurableObject} from "cloudflare:test";
 import {env, exports} from "cloudflare:workers";
-import {createAuthentication, createPasskeyAuthentication, type AuthenticationObservation} from "../auth";
+import {
+	createAuthentication,
+	createPasskeyAuthentication,
+	type AuthenticationDependencies,
+	type AuthenticationObservation,
+} from "../auth";
 import {HUMAN_VERIFICATION_HEADER, HumanVerificationOutcome, type HumanVerificationVerifier} from "../turnstile";
 import {testTurnstileToken} from "../turnstile-test-siteverify";
 import type {UserDurableObject} from "../user-do";
@@ -46,17 +51,31 @@ export interface AuthenticationHarness {
 	authentication: ReturnType<typeof createAuthentication>;
 	mailbox: DeliveredAuthenticationEmail[];
 	observations: AuthenticationObservation[];
+	publicAuthenticationWaits: number[];
 }
+
+export const immediatePublicAuthenticationTiming: AuthenticationDependencies["publicAuthenticationTiming"] = {
+	currentMilliseconds: () => 0,
+	wait: async () => Promise.resolve(),
+};
 
 function mailboxHarnessParts(overrides: Partial<Env>) {
 	const mailbox: DeliveredAuthenticationEmail[] = [];
 	const observations: AuthenticationObservation[] = [];
+	const publicAuthenticationWaits: number[] = [];
 	return {
 		environment: {...env, ...overrides},
 		mailbox,
 		observations,
+		publicAuthenticationWaits,
 		dependencies: {
 			observe: (observation: AuthenticationObservation) => observations.push(observation),
+			publicAuthenticationTiming: {
+				currentMilliseconds: () => 0,
+				wait: async (milliseconds: number) => {
+					await Promise.resolve(publicAuthenticationWaits.push(milliseconds));
+				},
+			},
 			runInBackground: undefined,
 			sendEmail: async (message: Parameters<SendEmail["send"]>[0]) => {
 				await Promise.resolve(
@@ -75,14 +94,26 @@ function mailboxHarnessParts(overrides: Partial<Env>) {
 }
 
 export function authenticationWithMailbox(overrides: Partial<Env> = {}): AuthenticationHarness {
-	const {environment, dependencies, mailbox, observations} = mailboxHarnessParts(overrides);
-	return {authentication: createAuthentication(environment, dependencies), mailbox, observations};
+	const {environment, dependencies, mailbox, observations, publicAuthenticationWaits} =
+		mailboxHarnessParts(overrides);
+	return {
+		authentication: createAuthentication(environment, dependencies),
+		mailbox,
+		observations,
+		publicAuthenticationWaits,
+	};
 }
 
 /** Passkey ceremonies are served by the lazily loaded instance, so this harness awaits that import. */
 export async function passkeyAuthenticationWithMailbox(overrides: Partial<Env> = {}): Promise<AuthenticationHarness> {
-	const {environment, dependencies, mailbox, observations} = mailboxHarnessParts(overrides);
-	return {authentication: await createPasskeyAuthentication(environment, dependencies), mailbox, observations};
+	const {environment, dependencies, mailbox, observations, publicAuthenticationWaits} =
+		mailboxHarnessParts(overrides);
+	return {
+		authentication: await createPasskeyAuthentication(environment, dependencies),
+		mailbox,
+		observations,
+		publicAuthenticationWaits,
+	};
 }
 
 export function postAuthentication(path: string, body: Record<string, unknown>, cookie?: string): Request {

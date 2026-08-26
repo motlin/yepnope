@@ -1,0 +1,163 @@
+{
+	"baselineCommit": "2b04a95af9df37ec78026ee62a08df2ce84a4fd2",
+	"measuredAt": "2026-08-25T23:14:46-04:00",
+	"measurementNotes": [
+		"Wall times are /usr/bin/time real seconds from the same checkout and machine.",
+		"Vitest reports transform time only for the whole run. scripts/vitest-timing-reporter.ts records the per-file environment, prepare, setup, collect, and test durations Vitest exposes.",
+		"Per-file diagnostics are from a separate after run, so their parallel aggregate is not the suite wall time."
+	],
+	"suites": {
+		"browser": {
+			"after": {
+				"passedTests": 47,
+				"wallSeconds": 97.19,
+				"worstSpecsMilliseconds": {
+					"identity registration, recovery, connected clients, answers, revocation, and deletion": 22531,
+					"public authentication contracts do not reveal account state": 18558,
+					"browser OAuth authorizes a real Streamable HTTP MCP client": 17252,
+					"activates version N+1 and stops version N JavaScript and its socket": 10025,
+					"a device-authorized hook is approved in the browser and dies the moment Settings revokes it": 5472
+				}
+			},
+			"baseline": {
+				"passedTests": 47,
+				"wallSeconds": 97.54,
+				"worstSpecsMilliseconds": {
+					"identity registration, recovery, connected clients, answers, revocation, and deletion": 22646,
+					"public authentication contracts do not reveal account state": 18449,
+					"browser OAuth authorizes a real Streamable HTTP MCP client": 17343,
+					"activates version N+1 and stops version N JavaScript and its socket": 10024,
+					"a device-authorized hook is approved in the browser and dies the moment Settings revokes it": 5540
+				}
+			},
+			"command": "/usr/bin/time -p vp run test:browser",
+			"wallDeltaPercent": -0.36
+		},
+		"node": {
+			"after": {
+				"collectMilliseconds": 1770,
+				"environmentMilliseconds": 3390,
+				"passedFiles": 23,
+				"passedTests": 293,
+				"setupMilliseconds": 0,
+				"testMilliseconds": 3820,
+				"transformMilliseconds": 187,
+				"vitestSeconds": 2.5,
+				"wallSeconds": 2.74,
+				"worstFiles": [
+					{
+						"collectMilliseconds": 81.44,
+						"environmentMilliseconds": 377.26,
+						"file": "tests/app.test.tsx",
+						"prepareMilliseconds": 5.98,
+						"setupMilliseconds": 0,
+						"testMilliseconds": 1846.05
+					},
+					{
+						"collectMilliseconds": 14.59,
+						"environmentMilliseconds": 0.1,
+						"file": "tests/codex-question-hooks.test.ts",
+						"prepareMilliseconds": 3.4,
+						"setupMilliseconds": 0,
+						"testMilliseconds": 690.17
+					},
+					{
+						"collectMilliseconds": 53.67,
+						"environmentMilliseconds": 0.04,
+						"file": "tests/admin-storage.test.ts",
+						"prepareMilliseconds": 4.55,
+						"setupMilliseconds": 0,
+						"testMilliseconds": 534.42
+					}
+				]
+			},
+			"baseline": {
+				"collectMilliseconds": 2160,
+				"environmentMilliseconds": 3680,
+				"passedFiles": 23,
+				"passedTests": 293,
+				"setupMilliseconds": 0,
+				"testMilliseconds": 4070,
+				"transformMilliseconds": 302,
+				"vitestSeconds": 2.65,
+				"wallSeconds": 2.87
+			},
+			"command": "/usr/bin/time -p node node_modules/vitest/dist/cli.js run --reporter=verbose",
+			"perFileCommand": "node node_modules/vitest/dist/cli.js run --reporter=scripts/vitest-timing-reporter.ts --silent=passed-only",
+			"wallDeltaPercent": -4.53
+		},
+		"worker": {
+			"after": {
+				"collectMilliseconds": 1390,
+				"environmentMilliseconds": 2,
+				"passedFiles": 26,
+				"passedTests": 198,
+				"setupMilliseconds": 193130,
+				"testMilliseconds": 42180,
+				"transformMilliseconds": 53400,
+				"vitestSeconds": 21.05,
+				"wallSeconds": 21.77,
+				"worstFiles": [
+					{
+						"collectMilliseconds": 64,
+						"environmentMilliseconds": 0,
+						"file": "worker/tests/authentication.test.ts",
+						"prepareMilliseconds": 22,
+						"setupMilliseconds": 9135,
+						"testMilliseconds": 10211
+					},
+					{
+						"collectMilliseconds": 62,
+						"environmentMilliseconds": 0,
+						"file": "worker/tests/mcp-endpoint.test.ts",
+						"prepareMilliseconds": 22,
+						"setupMilliseconds": 9140,
+						"testMilliseconds": 6016
+					},
+					{
+						"collectMilliseconds": 65,
+						"environmentMilliseconds": 0,
+						"file": "worker/tests/authentication-alternatives.test.ts",
+						"prepareMilliseconds": 21,
+						"setupMilliseconds": 9131,
+						"testMilliseconds": 4701
+					}
+				]
+			},
+			"baseline": {
+				"collectMilliseconds": 1450,
+				"environmentMilliseconds": 1,
+				"passedFiles": 26,
+				"passedTests": 198,
+				"setupMilliseconds": 181930,
+				"testMilliseconds": 79650,
+				"transformMilliseconds": 54230,
+				"vitestSeconds": 34.93,
+				"wallSeconds": 35.6,
+				"worstTestsMilliseconds": {
+					"never retries a delivery another attempt cannot fix": 4094,
+					"creates, verifies, restores, signs out, and recovers a verified email account": 3595,
+					"keeps every public account-state contract indistinguishable": 3540,
+					"classifies verification requests by account state behind one public response": 3026,
+					"retracts outstanding questions on cancellation and timeout": 2175,
+					"records only classified authentication observations": 2012
+				}
+			},
+			"command": "/usr/bin/time -p node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts --reporter=verbose",
+			"perFileCommand": "node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts --reporter=scripts/vitest-timing-reporter.ts --silent=passed-only",
+			"wallDeltaPercent": -38.85
+		}
+	},
+	"workerExperiments": [
+		{
+			"outcome": "passed but only 0.17 seconds faster than the isolated after run, so isolation stays enabled",
+			"setting": "--no-isolate",
+			"wallSeconds": 21.6
+		},
+		{
+			"outcome": "passed but slower than the default worker count",
+			"setting": "--maxWorkers=8",
+			"wallSeconds": 22.96
+		}
+	]
+}

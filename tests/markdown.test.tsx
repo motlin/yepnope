@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment project-jsdom
 import {render} from "@testing-library/react";
 import {describe, expect, it} from "vitest";
 import {renderMarkdown} from "../src/markdown";

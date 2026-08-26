@@ -275,6 +275,10 @@ interface AuthenticationEmailCopy {
 
 export interface AuthenticationDependencies {
 	observe: (observation: AuthenticationObservation) => void;
+	publicAuthenticationTiming: {
+		currentMilliseconds: () => number;
+		wait: (milliseconds: number) => Promise<void>;
+	};
 	runInBackground: ((promise: Promise<unknown>) => void) | undefined;
 	sendEmail: (message: AuthenticationEmail) => Promise<void>;
 	verifyHuman: HumanVerificationVerifier;
@@ -543,12 +547,14 @@ async function publicAuthenticationOperation(request: Request): Promise<PublicAu
 	}
 }
 
-async function waitForPublicAuthenticationResponseFloor(startedAt: number): Promise<void> {
-	const remainingMilliseconds = PUBLIC_AUTHENTICATION_RESPONSE_FLOOR_MILLISECONDS - (performance.now() - startedAt);
+async function waitForPublicAuthenticationResponseFloor(
+	startedAt: number,
+	timing: AuthenticationDependencies["publicAuthenticationTiming"],
+): Promise<void> {
+	const remainingMilliseconds =
+		PUBLIC_AUTHENTICATION_RESPONSE_FLOOR_MILLISECONDS - (timing.currentMilliseconds() - startedAt);
 	if (remainingMilliseconds > 0) {
-		await new Promise<void>((resolve) => {
-			setTimeout(resolve, remainingMilliseconds);
-		});
+		await timing.wait(remainingMilliseconds);
 	}
 }
 
@@ -559,39 +565,39 @@ function publicAuthenticationResponse(operation: PublicAuthenticationOperation):
 		: Response.json(PUBLIC_AUTHENTICATION_ACCEPTED_BODY, {headers});
 }
 
-function nonEnumeratingAuthenticationHandler(observe: AuthenticationDependencies["observe"]): AuthenticationMiddleware {
+function nonEnumeratingAuthenticationHandler(dependencies: AuthenticationDependencies): AuthenticationMiddleware {
 	return (next) => async (request) => {
 		const operation = await publicAuthenticationOperation(request);
 		if (operation === null) {
 			return next(request);
 		}
-		const startedAt = performance.now();
+		const startedAt = dependencies.publicAuthenticationTiming.currentMilliseconds();
 		let response: Response;
 		try {
 			response = await next(request);
 		} catch {
-			observe({
+			dependencies.observe({
 				event: "public_authentication_response_normalized",
 				failure: null,
 				level: "error",
 				reason: operation,
 				status: null,
 			});
-			await waitForPublicAuthenticationResponseFloor(startedAt);
+			await waitForPublicAuthenticationResponseFloor(startedAt, dependencies.publicAuthenticationTiming);
 			return publicAuthenticationResponse(operation);
 		}
 		if (operation === PublicAuthenticationOperation.SignIn && response.ok) {
-			await waitForPublicAuthenticationResponseFloor(startedAt);
+			await waitForPublicAuthenticationResponseFloor(startedAt, dependencies.publicAuthenticationTiming);
 			return response;
 		}
-		observe({
+		dependencies.observe({
 			event: "public_authentication_response_normalized",
 			failure: null,
 			level: response.ok ? "info" : "warn",
 			reason: operation,
 			status: response.status,
 		});
-		await waitForPublicAuthenticationResponseFloor(startedAt);
+		await waitForPublicAuthenticationResponseFloor(startedAt, dependencies.publicAuthenticationTiming);
 		return publicAuthenticationResponse(operation);
 	};
 }
@@ -1057,7 +1063,7 @@ export function createAuthentication(
 				humanVerificationAuthenticationHandler(dependencies.verifyHuman, dependencies.observe),
 				restrictedDynamicClientRegistrationHandler(),
 				singleUseEmailVerificationHandler(environment.DB),
-				nonEnumeratingAuthenticationHandler(dependencies.observe),
+				nonEnumeratingAuthenticationHandler(dependencies),
 				verificationStateAuthenticationHandler(environment.DB, dependencies.observe),
 				methodUsageAuthenticationHandler(dependencies.observe),
 				nameFreeAuthenticationHandler(),
@@ -1141,6 +1147,13 @@ export function observeWorkerAuthentication(observation: AuthenticationObservati
 function workerDependencies(environment: Env): AuthenticationDependencies {
 	return {
 		observe: observeWorkerAuthentication,
+		publicAuthenticationTiming: {
+			currentMilliseconds: () => performance.now(),
+			wait: async (milliseconds) =>
+				new Promise<void>((resolve) => {
+					setTimeout(resolve, milliseconds);
+				}),
+		},
 		runInBackground: (promise) => {
 			const executionContext = requestExecutionContexts.getStore();
 			if (executionContext === undefined) {

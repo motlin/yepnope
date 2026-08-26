@@ -9,7 +9,7 @@ import {
 	turnstileSiteKey,
 	type TurnstileSiteverify,
 } from "../turnstile";
-import {API_ORIGIN} from "./helpers";
+import {API_ORIGIN, immediatePublicAuthenticationTiming} from "./helpers";
 
 const PRODUCTION_HOSTNAME = new URL(API_ORIGIN).hostname;
 const PASSWORD = "correct-horse-battery-staple";
@@ -46,6 +46,7 @@ function harness(overrides: Partial<Env> = {}, siteverify: TurnstileSiteverify =
 	};
 	const authentication = createAuthentication(environment, {
 		observe: (observation) => observations.push(observation),
+		publicAuthenticationTiming: immediatePublicAuthenticationTiming,
 		runInBackground: undefined,
 		sendEmail: async (message) => {
 			await Promise.resolve(mailbox.push({subject: message.subject, text: message.text ?? ""}));

@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment project-jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {APPLICATION_UPDATE_EVENT, APPLICATION_VERSION, initializeApplicationUpdates} from "../src/application-updates";
 

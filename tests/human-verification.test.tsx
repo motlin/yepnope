@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment project-jsdom
 import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {useState, type ReactElement} from "react";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";

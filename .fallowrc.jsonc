@@ -15,6 +15,9 @@
 		"scripts/browser-test-server.ts",
 		// Playwright loads its reporters from a path string, which fallow cannot follow.
 		"scripts/browser-test-reporter.ts",
+		// Vitest loads its custom environment and timing reporter from path strings.
+		"scripts/vitest-jsdom-environment.ts",
+		"scripts/vitest-timing-reporter.ts",
 		// Codex loads plugin hook commands from hooks.json, which fallow cannot follow.
 		"plugins/yepnope/codex-hooks/route-questions.cjs",
 		"worker/admin.ts",

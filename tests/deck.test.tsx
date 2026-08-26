@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment project-jsdom
 import {act, fireEvent, render, screen} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {Deck, FLY_OUT_MILLISECONDS, UNDO_WINDOW_MILLISECONDS, type DeckQuestion, type Disposition} from "../src/deck";

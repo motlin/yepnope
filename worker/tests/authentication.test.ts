@@ -9,6 +9,7 @@ import {
 	cookieFrom,
 	emailLink,
 	humanVerified,
+	immediatePublicAuthenticationTiming,
 	postAuthentication,
 	required,
 	worker,
@@ -76,19 +77,15 @@ function emailServiceError(code: string, message: string): Error {
 	return Object.assign(new Error(message), {code});
 }
 
-async function timedPublicContract(responsePromise: Promise<Response>) {
-	const startedAt = performance.now();
+async function publicContract(responsePromise: Promise<Response>) {
 	const response = await responsePromise;
 	return {
-		contract: {
-			body: await response.json(),
-			cacheControl: response.headers.get("cache-control"),
-			contentType: response.headers.get("content-type"),
-			location: response.headers.get("location"),
-			setCookie: response.headers.get("set-cookie"),
-			status: response.status,
-		},
-		elapsedMilliseconds: performance.now() - startedAt,
+		body: await response.json(),
+		cacheControl: response.headers.get("cache-control"),
+		contentType: response.headers.get("content-type"),
+		location: response.headers.get("location"),
+		setCookie: response.headers.get("set-cookie"),
+		status: response.status,
 	};
 }
 
@@ -203,7 +200,7 @@ describe("Better Auth account recovery", () => {
 	});
 
 	it("keeps every public account-state contract indistinguishable", async () => {
-		const {authentication, mailbox} = authenticationWithMailbox();
+		const {authentication, mailbox, publicAuthenticationWaits} = authenticationWithMailbox();
 		const password = AUTHENTICATION_PASSWORD;
 		const unverifiedEmail = "unverified-contract-alice@example.com";
 		const verifiedEmail = "verified-contract-alice@example.com";
@@ -218,10 +215,11 @@ describe("Better Auth account recovery", () => {
 		);
 		await authentication.handler(new Request(emailLink(required(mailbox[0], "verification email"))));
 		mailbox.length = 0;
+		publicAuthenticationWaits.length = 0;
 
 		const registrations = await Promise.all(
 			[newRegistrationEmail, unverifiedEmail, verifiedEmail].map(async (email) =>
-				timedPublicContract(authentication.handler(postAuthentication("sign-up/email", {email, password}))),
+				publicContract(authentication.handler(postAuthentication("sign-up/email", {email, password}))),
 			),
 		);
 		const acceptedContract = {
@@ -232,11 +230,7 @@ describe("Better Auth account recovery", () => {
 			setCookie: null,
 			status: 200,
 		};
-		expect(registrations.map(({contract}) => contract)).toStrictEqual([
-			acceptedContract,
-			acceptedContract,
-			acceptedContract,
-		]);
+		expect(registrations).toStrictEqual([acceptedContract, acceptedContract, acceptedContract]);
 
 		const signIns = await Promise.all(
 			[
@@ -244,7 +238,7 @@ describe("Better Auth account recovery", () => {
 				{email: unverifiedEmail, password: "wrong-password"},
 				{email: verifiedEmail, password: "wrong-password"},
 			].map(async (credentials) =>
-				timedPublicContract(authentication.handler(postAuthentication("sign-in/email", credentials))),
+				publicContract(authentication.handler(postAuthentication("sign-in/email", credentials))),
 			),
 		);
 		const signInFailureContract = {
@@ -258,26 +252,18 @@ describe("Better Auth account recovery", () => {
 			setCookie: null,
 			status: 401,
 		};
-		expect(signIns.map(({contract}) => contract)).toStrictEqual([
-			signInFailureContract,
-			signInFailureContract,
-			signInFailureContract,
-		]);
+		expect(signIns).toStrictEqual([signInFailureContract, signInFailureContract, signInFailureContract]);
 
 		const verificationRequests = await Promise.all(
 			[unknownEmail, unverifiedEmail, verifiedEmail].map(async (email) =>
-				timedPublicContract(
+				publicContract(
 					authentication.handler(
 						postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
 					),
 				),
 			),
 		);
-		expect(verificationRequests.map(({contract}) => contract)).toStrictEqual([
-			acceptedContract,
-			acceptedContract,
-			acceptedContract,
-		]);
+		expect(verificationRequests).toStrictEqual([acceptedContract, acceptedContract, acceptedContract]);
 		expect(mailbox.map(({subject, to}) => ({subject, to}))).toStrictEqual([
 			{subject: "Verify your YepNope email", to: unverifiedEmail},
 		]);
@@ -285,18 +271,14 @@ describe("Better Auth account recovery", () => {
 
 		const passwordRecoveryRequests = await Promise.all(
 			[unknownEmail, unverifiedEmail, verifiedEmail].map(async (email) =>
-				timedPublicContract(
+				publicContract(
 					authentication.handler(
 						postAuthentication("request-password-reset", {email, redirectTo: "/reset-password"}),
 					),
 				),
 			),
 		);
-		expect(passwordRecoveryRequests.map(({contract}) => contract)).toStrictEqual([
-			acceptedContract,
-			acceptedContract,
-			acceptedContract,
-		]);
+		expect(passwordRecoveryRequests).toStrictEqual([acceptedContract, acceptedContract, acceptedContract]);
 		expect(
 			mailbox
 				.map(({subject, to}) => ({subject, to}))
@@ -306,11 +288,9 @@ describe("Better Auth account recovery", () => {
 			{subject: "Reset your YepNope password", to: verifiedEmail},
 		]);
 
-		const timings = [...registrations, ...signIns, ...verificationRequests, ...passwordRecoveryRequests].map(
-			({elapsedMilliseconds}) => elapsedMilliseconds,
-		);
-		expect(Math.min(...timings)).toBeGreaterThanOrEqual(450);
-		expect(Math.max(...timings) - Math.min(...timings)).toBeLessThan(500);
+		expect(publicAuthenticationWaits).toHaveLength(12);
+		expect(Math.min(...publicAuthenticationWaits)).toBeGreaterThanOrEqual(450);
+		expect(Math.max(...publicAuthenticationWaits) - Math.min(...publicAuthenticationWaits)).toBeLessThan(500);
 	});
 
 	it("suppresses delivery failures without recording their sensitive details", async () => {
@@ -326,6 +306,7 @@ describe("Better Auth account recovery", () => {
 			observe: (observation) => {
 				observations.push(observation);
 			},
+			publicAuthenticationTiming: immediatePublicAuthenticationTiming,
 			runInBackground: undefined,
 			verifyHuman: humanVerified,
 			sendEmail: async () => {
@@ -340,12 +321,12 @@ describe("Better Auth account recovery", () => {
 			},
 		});
 		const responses = [
-			await timedPublicContract(
+			await publicContract(
 				authentication.handler(
 					postAuthentication("send-verification-email", {callbackURL: "/verify-email", email}),
 				),
 			),
-			await timedPublicContract(
+			await publicContract(
 				authentication.handler(
 					postAuthentication("request-password-reset", {email, redirectTo: "/reset-password"}),
 				),
@@ -361,7 +342,7 @@ describe("Better Auth account recovery", () => {
 			status: 200,
 		};
 
-		expect(responses.map(({contract}) => contract)).toStrictEqual([acceptedContract, acceptedContract]);
+		expect(responses).toStrictEqual([acceptedContract, acceptedContract]);
 		expect({
 			// 🔁 A rejected recipient cannot become an accepted one, so neither request is retried.
 			attempts,
@@ -424,6 +405,7 @@ describe("Better Auth account recovery", () => {
 			observe: (observation) => {
 				observations.push(observation);
 			},
+			publicAuthenticationTiming: immediatePublicAuthenticationTiming,
 			runInBackground: undefined,
 			verifyHuman: humanVerified,
 			sendEmail: async (message) => {
@@ -502,6 +484,7 @@ describe("Better Auth account recovery", () => {
 			observe: (observation) => {
 				observations.push(observation);
 			},
+			publicAuthenticationTiming: immediatePublicAuthenticationTiming,
 			runInBackground: undefined,
 			verifyHuman: humanVerified,
 			sendEmail: async () => {
@@ -565,6 +548,7 @@ describe("Better Auth account recovery", () => {
 				observe: (observation) => {
 					observations.push(observation);
 				},
+				publicAuthenticationTiming: immediatePublicAuthenticationTiming,
 				runInBackground: undefined,
 				verifyHuman: humanVerified,
 				sendEmail: async () => {
