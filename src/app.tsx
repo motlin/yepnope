@@ -52,20 +52,6 @@ import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from
 import {THEME_CHOICES, useTheme, type ResolvedTheme, type Theme} from "./theme";
 import {humanVerificationBlocksSubmit, useHumanVerification, type HumanVerification} from "./turnstile";
 
-// 🌟 Harness icon placeholder: an 8-ray starburst standing in for the asking harness's logo.
-function HarnessIcon(): ReactElement {
-	return (
-		<svg viewBox="0 0 24 24" role="img" aria-label="harness" className="harness">
-			<g stroke="#d97757" strokeWidth="2.6" strokeLinecap="round">
-				<line x1="12" y1="2.5" x2="12" y2="21.5" />
-				<line x1="2.5" y1="12" x2="21.5" y2="12" />
-				<line x1="5.3" y1="5.3" x2="18.7" y2="18.7" />
-				<line x1="18.7" y1="5.3" x2="5.3" y2="18.7" />
-			</g>
-		</svg>
-	);
-}
-
 interface IosInstallHintProps {
 	required: boolean;
 }
@@ -2642,7 +2628,6 @@ export function App(): ReactElement {
 								onToggle={onToggleAfk}
 							/>
 						)}
-						<HarnessIcon />
 						<button
 							type="button"
 							className="settings-button"

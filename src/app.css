@@ -187,12 +187,6 @@ body {
 	gap: 8px;
 }
 
-.app-header .harness {
-	width: 14px;
-	height: 14px;
-	display: block;
-}
-
 .afk-toggle,
 .account-status {
 	border: 1px solid var(--border-control);
