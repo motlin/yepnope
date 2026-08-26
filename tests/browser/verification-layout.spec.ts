@@ -33,6 +33,7 @@ async function openPostRegistrationVerification(page: Page): Promise<Authenticat
 }
 
 async function assertVerificationSurface(page: Page): Promise<void> {
+	await expect(page.getByRole("button", {name: "Resend verification email"})).toBeEnabled();
 	expect(
 		await page.locator(".account-panel").evaluate((panel) => ({
 			buttons: [...panel.querySelectorAll("button")].map((button) => ({
