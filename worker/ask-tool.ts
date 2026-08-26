@@ -56,7 +56,13 @@ export const TOOL_DESCRIPTION =
 	"native user-question tool without asking the user to change routing. When routing is on, the user " +
 	"answers on their phone by swiping. They cannot see your terminal and may have forgotten the " +
 	"project context, so every question must be self-contained: state what you will do if they answer " +
-	"yes, and give the context needed to decide, in that order. One decision per question. " +
+	"yes, and give the context needed to decide, in that order. The phone receives only the title, body, " +
+	"and context chips from this call; it never receives console output, chat text, or anything printed " +
+	"before the call. Copy every exact item needed for the decision into the body even when it already " +
+	"appears elsewhere. For commit approval, include each short SHA and subject. Never use phrases such " +
+	"as 'listed above', 'as discussed', 'these commits', or 'previous message' as a substitute for those " +
+	"details. If the facts do not fit in one card, split them into independent questions rather than " +
+	"referencing external context. One decision per question. " +
 	"Prefer phrasing where the expected answer is yes, but never use a negation in the title to " +
 	"achieve it; a clear question with an expected no beats a confusing one with an expected " +
 	"yes. Test each question against 'Yes means I will ______.' If that cannot be completed " +
@@ -104,11 +110,17 @@ export const TOOL_INPUT_SCHEMA = {
 				type: "object",
 				required: ["title", "body"],
 				properties: {
-					title: {type: "string", maxLength: TITLE_MAX_CHARACTERS},
+					title: {
+						type: "string",
+						maxLength: TITLE_MAX_CHARACTERS,
+						description: "Short yes-or-no decision that does not refer to console or chat context",
+					},
 					body: {
 						type: "string",
 						maxLength: BODY_MAX_CHARACTERS,
-						description: "GitHub Flavored Markdown",
+						description:
+							"GitHub Flavored Markdown containing every phone-visible fact needed to decide. Copy exact " +
+							"items rather than saying they were listed elsewhere; for commits, include each short SHA and subject.",
 					},
 				},
 			},

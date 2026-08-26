@@ -3,6 +3,8 @@ import {
 	BODY_MAX_CHARACTERS,
 	createBatchRequestSchema,
 	dispositionSchema,
+	externalContextReferenceRejection,
+	findExternalContextReferenceViolations,
 	findLengthViolations,
 	teachingRejection,
 	TITLE_MAX_CHARACTERS,
@@ -54,6 +56,24 @@ describe("rejection, never truncation", () => {
 });
 
 describe("teaching errors", () => {
+	it("rejects references to context that the phone cannot see", () => {
+		const violations = findExternalContextReferenceViolations([
+			{title: "Approve the six commits listed above?", body: ""},
+			{title: "Deploy the release?", body: "Use the configuration from the previous message."},
+			{title: "Approve the commits?", body: "abc0000 Fix the first example.\ndef0000 Fix the second example."},
+		]);
+		expect(violations).toStrictEqual([
+			{ordinal: 0, field: "title", reference: "listed above"},
+			{ordinal: 1, field: "body", reference: "previous message"},
+		]);
+		expect(externalContextReferenceRejection(violations)).toBe(
+			'questions[0].title refers to off-card context with "listed above". ' +
+				'questions[1].body refers to off-card context with "previous message". ' +
+				"The phone receives only this card, not console or chat output. " +
+				"Copy every exact item and the consequence of Yes into the title and body, then resend the whole batch.",
+		);
+	});
+
 	it("finds every violation with its ordinal, field, and actual count", () => {
 		const violations = findLengthViolations([
 			{title: "Fine?", body: ""},

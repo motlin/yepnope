@@ -24,7 +24,7 @@ If the tool returns `route: native` with `reason: afk_off`, immediately ask the 
 
 If the attempted tool call fails because the connection became unavailable, use the same native fallback. If the tool returns Yep, Nope, or Skip, honor that disposition and do not ask the question again natively.
 
-Preserve the user's exact decision boundary and include enough context for the question to make sense on a phone.
+Preserve the user's exact decision boundary. The phone receives only the `title`, `body`, and context chips passed in the `ask_yep_nope` call; it cannot see the terminal, chat transcript, or text printed before the call. Copy every exact item needed for the decision into the body even when it already appears elsewhere. For commit approval, include each short SHA and subject. Do not use phrases such as “listed above,” “as discussed,” “these commits,” or “previous message” as a substitute for the details. If the facts do not fit in one card, split them into independent yes-or-no decisions rather than referring to external context.
 
 Fill in the `repo`, `branch`, `worktree`, and `directory` arguments whenever the session is inside a git repository. Derive them from the shell rather than asking the user, and omit any you cannot determine. They render as chips on the card, and they are how the user tells one of your sessions from another when several worktrees of the same repository are open at once.
 

@@ -10,16 +10,23 @@ const ROUTING_INSTRUCTION =
 	"Before asking the user any question, call ask_yep_nope first for every question that can be " +
 	"answered yes or no. Do not skip YepNope because a question seems small, obvious, or inexpensive. " +
 	"Use a native question only after the YepNope attempt returns afk_off or the MCP call fails. " +
-	"Questions that cannot be represented truthfully as yes or no remain native.";
+	"Questions that cannot be represented truthfully as yes or no remain native. The phone receives " +
+	"only the title, body, and context chips passed to ask_yep_nope, never console or chat text. Copy " +
+	"every exact decision item and the consequence of Yes into the card body. Never substitute 'listed " +
+	"above', 'as discussed', 'these commits', or 'previous message' for the details. For commit approval, " +
+	"include each short SHA and subject.";
 
 const NATIVE_QUESTION_DENIAL =
 	"Call ask_yep_nope before using the native user-question tool. Retry this question through YepNope " +
-	"and use the native flow only if that attempt returns afk_off or fails.";
+	"with all decision context copied into the phone-visible title and body. The phone cannot see console " +
+	"or chat text. Use the native flow only if that attempt returns afk_off or fails.";
 
 const STOP_CONTINUATION =
 	"The response asks the user a question without first trying ask_yep_nope. Continue the turn and " +
-	"route every yes-or-no question through ask_yep_nope now. Use native text only after that attempt " +
-	"returns afk_off or fails; keep input that cannot be represented truthfully as yes or no native.";
+	"route every yes-or-no question through ask_yep_nope now. Copy all decision context into the " +
+	"phone-visible title and body because the phone cannot see console or chat text. Use native text only " +
+	"after that attempt returns afk_off or fails; keep input that cannot be represented truthfully as yes " +
+	"or no native.";
 
 const OUTCOMES = new Set(["not_attempted", "pending", "fallback", "answered"]);
 

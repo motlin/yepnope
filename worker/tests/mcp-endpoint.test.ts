@@ -206,6 +206,23 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 				true,
 			),
 		);
+		const externalContext = await worker.fetch(
+			mcpRequest(grant.accessToken, "tools/call", {
+				arguments: {
+					project: "Example project",
+					questions: [{body: "", title: "Approve the six commits listed above?"}],
+				},
+				name: "ask_yep_nope",
+			}),
+		);
+		expect(await responseMessage(externalContext)).toStrictEqual(
+			strictTextResponse(
+				'questions[0].title refers to off-card context with "listed above". ' +
+					"The phone receives only this card, not console or chat output. " +
+					"Copy every exact item and the consequence of Yes into the title and body, then resend the whole batch.",
+				true,
+			),
+		);
 		expect(await env.USER_DO.getByName(grant.userId).getAfk(true)).toBe(false);
 	});
 

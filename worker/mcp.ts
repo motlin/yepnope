@@ -20,7 +20,14 @@ import {
 } from "./oauth-token";
 import {parseFrame, type DispositionMap} from "./protocol";
 import type {UserDurableObject} from "./user-do";
-import {findLengthViolations, RETENTION_MILLISECONDS, teachingRejection, type Disposition} from "./validation";
+import {
+	externalContextReferenceRejection,
+	findExternalContextReferenceViolations,
+	findLengthViolations,
+	RETENTION_MILLISECONDS,
+	teachingRejection,
+	type Disposition,
+} from "./validation";
 
 const DEFAULT_HEARTBEAT_MILLISECONDS = 30_000;
 const DEFAULT_PROGRESS_MILLISECONDS = 15_000;
@@ -264,6 +271,10 @@ function createRemoteMcpServer(
 			const violations = findLengthViolations(batch.questions);
 			if (violations.length > 0) {
 				return textResult(teachingRejection(violations), true);
+			}
+			const externalContextReferences = findExternalContextReferenceViolations(batch.questions);
+			if (externalContextReferences.length > 0) {
+				return textResult(externalContextReferenceRejection(externalContextReferences), true);
 			}
 			if (!(await stub.getAfk(true))) {
 				return nativeQuestionFallbackResult();

@@ -58,6 +58,12 @@ export interface LengthViolation {
 	maxCharacters: number;
 }
 
+export interface ExternalContextReferenceViolation {
+	ordinal: number;
+	field: "title" | "body";
+	reference: string;
+}
+
 const LENGTH_LIMITED_FIELDS = [
 	{field: "title", maxCharacters: TITLE_MAX_CHARACTERS},
 	{field: "body", maxCharacters: BODY_MAX_CHARACTERS},
@@ -86,6 +92,37 @@ export function teachingRejection(violations: LengthViolation[]): string {
 		...named,
 		`Titles fit in ${TITLE_MAX_CHARACTERS} characters and bodies in ${BODY_MAX_CHARACTERS}.`,
 		"Rewrite the over-length questions shorter and resend the whole batch; nothing is truncated for you.",
+	].join(" ");
+}
+
+const EXTERNAL_CONTEXT_REFERENCE =
+	/\b(?:listed|shown|described|mentioned)\s+above\b|\bas discussed\b|\b(?:previous|earlier)\s+(?:message|response)\b/iu;
+
+export function findExternalContextReferenceViolations(
+	questions: QuestionInput[],
+): ExternalContextReferenceViolation[] {
+	const violations: ExternalContextReferenceViolation[] = [];
+	questions.forEach((question, ordinal) => {
+		for (const field of ["title", "body"] as const) {
+			const match = EXTERNAL_CONTEXT_REFERENCE.exec(question[field]);
+			if (match !== null) {
+				violations.push({ordinal, field, reference: match[0]});
+			}
+		}
+	});
+	return violations;
+}
+
+export function externalContextReferenceRejection(violations: ExternalContextReferenceViolation[]): string {
+	const named = violations.map(
+		(violation) =>
+			`questions[${violation.ordinal}].${violation.field} refers to off-card context with ` +
+			`"${violation.reference}".`,
+	);
+	return [
+		...named,
+		"The phone receives only this card, not console or chat output.",
+		"Copy every exact item and the consequence of Yes into the title and body, then resend the whole batch.",
 	].join(" ");
 }
 
