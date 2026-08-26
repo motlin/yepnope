@@ -78,7 +78,9 @@ async function routeAfkDeck(page: Page, afk: boolean | null): Promise<void> {
 		);
 	});
 	await page.goto("/");
-	await expect(page.getByRole("button", {name: "1 MCP client authorized"})).toBeVisible();
+	await expect(page.getByRole("button", {name: afk === true ? "AFK on" : "AFK off"})).toBeVisible();
+	await expect(page.locator(".app-header .account-status")).toHaveCount(0);
+	await expect(page.getByRole("button", {name: "Settings"})).toBeVisible();
 	if (afk === null) {
 		await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
 	}
@@ -271,8 +273,6 @@ for (const {expected, theme} of PALETTES) {
 
 		test("AFK toggle exposes a visible keyboard focus ring", async ({page}) => {
 			await routeAfkDeck(page, false);
-			await page.keyboard.press("Tab");
-			await expect(page.getByRole("button", {name: "1 MCP client authorized"})).toBeFocused();
 			await page.keyboard.press("Tab");
 			const toggle = page.getByRole("button", {name: "AFK off"});
 			await expect(toggle).toBeFocused();

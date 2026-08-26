@@ -894,7 +894,7 @@ describe("App live question synchronization", () => {
 		});
 	});
 
-	it("removes the redundant product name from the app header", async () => {
+	it("shows only the AFK toggle and settings control for an authorized client", async () => {
 		render(<App />);
 		await waitFor(() => {
 			expect(publishQuestions).toBeTypeOf("function");
@@ -903,7 +903,19 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(document.querySelector(".app-header")?.textContent).toBe("1 MCP client authorizedAFK on⚙");
+		expect({
+			accountStatuses: document.querySelectorAll(".app-header .account-status").length,
+			buttons: [...document.querySelectorAll(".app-header button")].map((button) => ({
+				accessibleName: button.getAttribute("aria-label") ?? button.textContent,
+				className: button.className,
+			})),
+		}).toStrictEqual({
+			accountStatuses: 0,
+			buttons: [
+				{accessibleName: "AFK on", className: "afk-toggle afk-on"},
+				{accessibleName: "Settings", className: "settings-button"},
+			],
+		});
 	});
 
 	it("opens settings directly from its route", async () => {

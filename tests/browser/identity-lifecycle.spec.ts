@@ -104,6 +104,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await verificationPage.goto(await mailboxLink(request, verificationSubject, email));
 		await expect(verificationPage).toHaveURL(/\/$/);
 		await expect(verificationPage.getByRole("button", {name: "Connect Claude Code or Codex"})).toBeVisible();
+		await expect(verificationPage.getByRole("button", {name: "Settings"})).toBeVisible();
 		await verificationPage.getByRole("button", {name: "Settings"}).click();
 		await expect(verificationPage.getByText(email)).toBeVisible();
 		const verifiedUserId = await sessionUserId(verificationPage);
@@ -136,7 +137,8 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await secondPage.reload();
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
-		await expect(firstPage.getByRole("button", {name: "1 MCP client authorized"})).toBeVisible();
+		await expect(firstPage.locator(".app-header .account-status")).toHaveCount(0);
+		await expect(firstPage.getByRole("button", {name: "Settings"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
 		expect(
 			await firstPage.locator(".resolved").evaluate((emptyState) => {

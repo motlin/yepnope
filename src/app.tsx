@@ -76,18 +76,11 @@ function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
 interface AfkToggleProps {
 	afk: boolean | null;
 	connectedMcpClientCount: number | null;
-	onOpenSettings: () => void;
 	onConnectClient: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({
-	afk,
-	connectedMcpClientCount,
-	onOpenSettings,
-	onConnectClient,
-	onToggle,
-}: AfkToggleProps): ReactElement {
+function AfkToggle({afk, connectedMcpClientCount, onConnectClient, onToggle}: AfkToggleProps): ReactElement {
 	if (connectedMcpClientCount === null) {
 		return (
 			<button type="button" className="account-status" disabled>
@@ -95,8 +88,6 @@ function AfkToggle({
 			</button>
 		);
 	}
-	const clientLabel =
-		connectedMcpClientCount === 1 ? "1 MCP client authorized" : `${connectedMcpClientCount} MCP clients authorized`;
 	if (connectedMcpClientCount === 0) {
 		return (
 			<button type="button" className="account-status" onClick={onConnectClient}>
@@ -108,21 +99,16 @@ function AfkToggle({
 	const enabled = afk === true;
 	const afkClassName = checking ? "afk-toggle afk-checking" : enabled ? "afk-toggle afk-on" : "afk-toggle afk-off";
 	return (
-		<>
-			<button type="button" className="account-status" onClick={onOpenSettings}>
-				{clientLabel}
-			</button>
-			<button
-				type="button"
-				className={afkClassName}
-				aria-busy={checking || undefined}
-				aria-pressed={checking ? undefined : enabled}
-				disabled={checking}
-				onClick={onToggle}
-			>
-				{checking ? "Checking AFK…" : enabled ? "AFK on" : "AFK off"}
-			</button>
-		</>
+		<button
+			type="button"
+			className={afkClassName}
+			aria-busy={checking || undefined}
+			aria-pressed={checking ? undefined : enabled}
+			disabled={checking}
+			onClick={onToggle}
+		>
+			{checking ? "Checking AFK…" : enabled ? "AFK on" : "AFK off"}
+		</button>
 	);
 }
 
@@ -2618,9 +2604,6 @@ export function App(): ReactElement {
 							<AfkToggle
 								afk={afk}
 								connectedMcpClientCount={connectedMcpClientCount}
-								onOpenSettings={() => {
-									navigate("settings");
-								}}
 								onConnectClient={() => {
 									setConnectingClient(true);
 									navigate("settings");
