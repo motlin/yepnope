@@ -578,11 +578,11 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			.getByRole("listitem")
 			.filter({has: secondPage.getByText("Second browser OAuth MCP client", {exact: true})});
 		await secondClientRow.getByRole("button", {name: "Revoke"}).click();
-		await expect(secondClientRow).toContainText("revoked");
+		await expect(secondClientRow).toHaveCount(0);
 		const revokedSecondClientError = await rejectedError(rotatedClient.listTools());
 		expect(revokedSecondClientError).toStrictEqual({message: revokedAccessError, name: "Error"});
 		expect(await refreshFailure(request, secondClientId, rotatedTokens.refresh_token)).toStrictEqual({
-			body: {error: "invalid_grant", error_description: "invalid refresh token"},
+			body: {error: "invalid_grant", error_description: "session not found"},
 			status: 400,
 		});
 		expect(await client.listTools()).toStrictEqual(expectedTools);
@@ -591,7 +591,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			.getByRole("listitem")
 			.filter({has: secondPage.getByText("Browser OAuth MCP client", {exact: true})});
 		await firstClientRow.getByRole("button", {name: "Revoke"}).click();
-		await expect(firstClientRow).toContainText("revoked");
+		await expect(firstClientRow).toHaveCount(0);
 		await expect
 			.poll(async () => {
 				const response = await secondPage.request.get("/api/v1/afk");
@@ -601,7 +601,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		const revokedFirstClientError = await rejectedError(client.listTools());
 		expect(revokedFirstClientError).toStrictEqual({message: revokedAccessError, name: "Error"});
 		expect(await refreshFailure(request, clientId, tokens.refresh_token)).toStrictEqual({
-			body: {error: "invalid_grant", error_description: "invalid refresh token"},
+			body: {error: "invalid_grant", error_description: "session not found"},
 			status: 400,
 		});
 

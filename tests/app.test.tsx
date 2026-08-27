@@ -1653,15 +1653,6 @@ describe("Better Auth account routes", () => {
 					status: "active",
 					revokedAt: null,
 				},
-				{
-					id: "b".repeat(64),
-					displayName: "Alice Claude",
-					authorizedAt: 946_684_800_000,
-					lastUsedAt: null,
-					grantedScopes: ["yepnope:questions"],
-					status: "revoked",
-					revokedAt: 946_771_200_000,
-				},
 			],
 			pushDevices: [{id: "push-alice", label: "Alice phone", createdAt: 946_684_800_000}],
 		};
@@ -1673,9 +1664,7 @@ describe("Better Auth account routes", () => {
 		revokeConnectedMcpClient.mockImplementation(async (clientId) => {
 			accountDevices = {
 				...accountDevices,
-				connectedMcpClients: accountDevices.connectedMcpClients.map((client) =>
-					client.id === clientId ? {...client, status: "revoked", revokedAt: 946_771_200_000} : client,
-				),
+				connectedMcpClients: accountDevices.connectedMcpClients.filter((client) => client.id !== clientId),
 			};
 			return await Promise.resolve(0);
 		});
@@ -1691,12 +1680,6 @@ describe("Better Auth account routes", () => {
 			clientRow.textContent.includes("Granted scopes: Ask questions (yepnope:questions)"),
 		]).toStrictEqual([true, true]);
 		expect(within(clientRow).queryByRole("button", {name: "Rename"})).toBeNull();
-		const revokedClientRow = screen.getByText("Alice Claude").closest("li");
-		if (revokedClientRow === null) {
-			throw new Error("missing revoked MCP client row");
-		}
-		expect(within(revokedClientRow).queryByRole("button", {name: "Revoke"})).toBeNull();
-
 		const pushRow = screen.getByText("Alice phone").closest("li");
 		if (pushRow === null) {
 			throw new Error("missing push device row");
@@ -1712,11 +1695,7 @@ describe("Better Auth account routes", () => {
 		fireEvent.click(within(clientRow).getByRole("button", {name: "Revoke"}));
 		await waitFor(() => {
 			expect(revokeConnectedMcpClient.mock.calls).toStrictEqual([["a".repeat(64)]]);
-			const disconnectedClientRow = screen.getByText("Alice Codex").closest("li");
-			if (disconnectedClientRow === null) {
-				throw new Error("missing disconnected MCP client row");
-			}
-			expect(within(disconnectedClientRow).queryByRole("button", {name: "Revoke"})).toBeNull();
+			expect(screen.getByText("No connected MCP clients.").textContent).toBe("No connected MCP clients.");
 		});
 	});
 

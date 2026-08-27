@@ -220,6 +220,34 @@ describe("connected MCP client and browser notification management", () => {
 		const first = await seedOAuthMcpClient(alice.userId, "alice-first", {name: "Alice Codex"});
 		const second = await seedOAuthMcpClient(alice.userId, "alice-second", {name: "Alice Claude"});
 		const bobClient = await seedOAuthMcpClient(bob.userId, "bob-first", {name: "Bob Codex"});
+		await env.DB.prepare(
+			"INSERT INTO verification (id, identifier, value, expires_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		)
+			.bind(
+				"alice-first-authorization-code",
+				"alice-first-authorization-code",
+				JSON.stringify({
+					type: "authorization_code",
+					userId: alice.userId,
+					query: {client_id: first.clientId},
+				}),
+				Date.UTC(2099, 0, 1),
+				AUTHORIZED_AT,
+			)
+			.run();
+		await env.DB.batch([
+			env.DB.prepare(
+				"INSERT INTO oauth_access_token " +
+					"(id, token, client_id, user_id, refresh_id, resources, expires_at, created_at, scopes) " +
+					"SELECT ?, ?, client_id, user_id, id, resources, expires_at, created_at, scopes " +
+					"FROM oauth_refresh_token WHERE id = ?",
+			).bind("test-oauth-access-alice-first", "stored-test-access-token-alice-first", first.refreshTokenId),
+			env.DB.prepare("INSERT INTO mcp_client_use (user_id, client_id, last_used_at) VALUES (?, ?, ?)").bind(
+				alice.userId,
+				first.clientId,
+				AUTHORIZED_AT,
+			),
+		]);
 		const stub = env.USER_DO.getByName(alice.userId);
 		expect(await stub.setAfk(true, true)).toStrictEqual({status: "updated", afk: true});
 
@@ -264,9 +292,9 @@ describe("connected MCP client and browser notification management", () => {
 			`/api/v1/account/connected-mcp-clients/${first.managementId}`,
 			"DELETE",
 		);
-		expect({body: await repeatedFirstRevocation.json(), status: repeatedFirstRevocation.status}).toStrictEqual({
-			body: {status: "ok", connected_mcp_client_count: 1},
-			status: 200,
+		expect({body: await repeatedFirstRevocation.text(), status: repeatedFirstRevocation.status}).toStrictEqual({
+			body: "",
+			status: 404,
 		});
 
 		const afterLastRevocation = nextMessage(socket);
@@ -286,21 +314,55 @@ describe("connected MCP client and browser notification management", () => {
 			current_deck: [],
 		});
 		expect(await stub.getAfk(true)).toBe(false);
-		expect(
-			await env.DB.prepare(
-				"SELECT client_id, revoked IS NOT NULL AS revoked FROM oauth_refresh_token " +
-					"WHERE client_id IN (?, ?, ?) ORDER BY client_id",
+		expect({
+			aliceAccessTokens: await env.DB.prepare(
+				"SELECT count(*) AS value FROM oauth_access_token WHERE user_id = ?",
+			)
+				.bind(alice.userId)
+				.first(),
+			aliceAuthorizationCodes: await env.DB.prepare(
+				"SELECT count(*) AS value FROM verification WHERE json_valid(value) " +
+					"AND json_extract(value, '$.userId') = ?",
+			)
+				.bind(alice.userId)
+				.first(),
+			aliceClientUses: await env.DB.prepare("SELECT count(*) AS value FROM mcp_client_use WHERE user_id = ?")
+				.bind(alice.userId)
+				.first(),
+			aliceConsents: await env.DB.prepare("SELECT count(*) AS value FROM oauth_consent WHERE user_id = ?")
+				.bind(alice.userId)
+				.first(),
+			aliceRefreshTokens: await env.DB.prepare(
+				"SELECT count(*) AS value FROM oauth_refresh_token WHERE user_id = ?",
+			)
+				.bind(alice.userId)
+				.first(),
+			bobRefreshTokens: await env.DB.prepare(
+				"SELECT client_id, revoked FROM oauth_refresh_token WHERE user_id = ?",
+			)
+				.bind(bob.userId)
+				.all(),
+			clients: await env.DB.prepare(
+				"SELECT client_id FROM oauth_client WHERE client_id IN (?, ?, ?) ORDER BY client_id",
 			)
 				.bind(first.clientId, second.clientId, bobClient.clientId)
 				.all(),
-		).toStrictEqual({
-			success: true,
-			results: [
-				{client_id: first.clientId, revoked: 1},
-				{client_id: second.clientId, revoked: 1},
-				{client_id: bobClient.clientId, revoked: 0},
-			],
-			meta: expect.any(Object),
+		}).toStrictEqual({
+			aliceAccessTokens: {value: 0},
+			aliceAuthorizationCodes: {value: 0},
+			aliceClientUses: {value: 0},
+			aliceConsents: {value: 0},
+			aliceRefreshTokens: {value: 0},
+			bobRefreshTokens: {
+				success: true,
+				results: [{client_id: bobClient.clientId, revoked: null}],
+				meta: expect.any(Object),
+			},
+			clients: {
+				success: true,
+				results: [{client_id: first.clientId}, {client_id: second.clientId}, {client_id: bobClient.clientId}],
+				meta: expect.any(Object),
+			},
 		});
 		socket.close();
 	});

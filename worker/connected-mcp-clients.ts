@@ -141,15 +141,17 @@ export async function listConnectedMcpClients(
 ): Promise<ConnectedMcpClient[]> {
 	const authorizations = await oauthClientAuthorizations(database, userId, resource, now);
 	return Promise.all(
-		authorizations.map(async (authorization) => ({
-			id: await managementId(userId, authorization.clientId),
-			displayName: authorization.displayName,
-			authorizedAt: authorization.authorizedAt,
-			lastUsedAt: authorization.lastUsedAt,
-			grantedScopes: authorization.grantedScopes,
-			status: authorization.active ? "active" : authorization.revokedAt === null ? "expired" : "revoked",
-			revokedAt: authorization.active ? null : authorization.revokedAt,
-		})),
+		authorizations
+			.filter(({active}) => active)
+			.map(async (authorization) => ({
+				id: await managementId(userId, authorization.clientId),
+				displayName: authorization.displayName,
+				authorizedAt: authorization.authorizedAt,
+				lastUsedAt: authorization.lastUsedAt,
+				grantedScopes: authorization.grantedScopes,
+				status: "active",
+				revokedAt: null,
+			})),
 	);
 }
 
@@ -197,16 +199,20 @@ export async function revokeConnectedMcpClient(
 	await database.batch([
 		database
 			.prepare(
-				"UPDATE oauth_refresh_token SET revoked = ? " +
-					"WHERE user_id = ? AND client_id = ? AND revoked IS NULL",
+				"DELETE FROM verification WHERE json_valid(value) " +
+					"AND json_extract(value, '$.type') = 'authorization_code' " +
+					"AND json_extract(value, '$.userId') = ? " +
+					"AND json_extract(value, '$.query.client_id') = ?",
 			)
-			.bind(revokedAt, userId, ownedClientId),
+			.bind(userId, ownedClientId),
+		database.prepare("DELETE FROM mcp_client_use WHERE user_id = ? AND client_id = ?").bind(userId, ownedClientId),
 		database
-			.prepare(
-				"UPDATE oauth_access_token SET revoked = ? " +
-					"WHERE user_id = ? AND client_id = ? AND revoked IS NULL",
-			)
-			.bind(revokedAt, userId, ownedClientId),
+			.prepare("DELETE FROM oauth_access_token WHERE user_id = ? AND client_id = ?")
+			.bind(userId, ownedClientId),
+		database
+			.prepare("DELETE FROM oauth_refresh_token WHERE user_id = ? AND client_id = ?")
+			.bind(userId, ownedClientId),
+		database.prepare("DELETE FROM oauth_consent WHERE user_id = ? AND client_id = ?").bind(userId, ownedClientId),
 	]);
 	const state = await getConnectedMcpClientAuthorizationState(database, userId, resource, revokedAt);
 	await namespace.getByName(userId).synchronizeConnectedMcpClientAuthorizationState(state);

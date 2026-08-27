@@ -200,4 +200,112 @@ describe("D1 migrations", () => {
 
 		database.close();
 	});
+
+	it("removes retained inactive MCP grants while preserving active grants and client registrations", () => {
+		const initial = migrations.find(({tag}) => tag === "001_initial");
+		const cleanup = migrations.find(({tag}) => tag === "002_remove_inactive_mcp_authorizations");
+		if (initial === undefined || cleanup === undefined) {
+			throw new Error("missing inactive MCP authorization cleanup migration");
+		}
+		const database = new DatabaseSync(":memory:");
+		database.exec("PRAGMA foreign_keys = ON");
+		applyMigration(database, initial.source);
+		const createdAt = Date.parse("2000-01-01T00:00:00.000Z");
+		const expiresAt = Date.parse("2099-01-01T00:00:00.000Z");
+		const scopes = JSON.stringify(["openid", "yepnope:questions"]);
+		const resources = JSON.stringify(["https://yepnope.app/mcp"]);
+		database
+			.prepare("INSERT INTO user (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 1, ?, ?)")
+			.run("alice", "alice@example.com", createdAt, createdAt);
+		for (const [clientId, name] of [
+			["active-client", "Active Codex"],
+			["revoked-client", "Revoked Codex"],
+		] as const) {
+			database
+				.prepare(
+					"INSERT INTO oauth_client (id, client_id, user_id, created_at, updated_at, name, redirect_uris) " +
+						"VALUES (?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(`${clientId}-row`, clientId, "alice", createdAt, createdAt, name, "[]");
+			database
+				.prepare(
+					"INSERT INTO oauth_consent " +
+						"(id, client_id, user_id, resources, scopes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(`${clientId}-consent`, clientId, "alice", resources, scopes, createdAt, createdAt);
+			database
+				.prepare(
+					"INSERT INTO oauth_refresh_token " +
+						"(id, token, client_id, user_id, resources, expires_at, created_at, revoked, scopes) " +
+						"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(
+					`${clientId}-refresh`,
+					`${clientId}-refresh-token`,
+					clientId,
+					"alice",
+					resources,
+					expiresAt,
+					createdAt,
+					clientId === "revoked-client" ? createdAt : null,
+					scopes,
+				);
+			database
+				.prepare("INSERT INTO mcp_client_use (user_id, client_id, last_used_at) VALUES (?, ?, ?)")
+				.run("alice", clientId, createdAt);
+		}
+		database
+			.prepare(
+				"INSERT INTO oauth_access_token " +
+					"(id, token, client_id, user_id, refresh_id, resources, expires_at, created_at, revoked, scopes) " +
+					"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				"revoked-client-access",
+				"revoked-client-access-token",
+				"revoked-client",
+				"alice",
+				"revoked-client-refresh",
+				resources,
+				expiresAt,
+				createdAt,
+				createdAt,
+				scopes,
+			);
+		database
+			.prepare("INSERT INTO verification (id, identifier, value, expires_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+			.run(
+				"revoked-client-code",
+				"revoked-client-code",
+				JSON.stringify({
+					type: "authorization_code",
+					userId: "alice",
+					query: {client_id: "revoked-client"},
+				}),
+				expiresAt,
+				createdAt,
+			);
+
+		applyMigration(database, cleanup.source);
+
+		expect({
+			accessTokens: rows(database, "SELECT client_id FROM oauth_access_token ORDER BY client_id"),
+			clientUses: rows(database, "SELECT client_id FROM mcp_client_use ORDER BY client_id"),
+			clients: rows(database, "SELECT client_id FROM oauth_client ORDER BY client_id"),
+			consents: rows(database, "SELECT client_id FROM oauth_consent ORDER BY client_id"),
+			foreignKeyViolations: rows(database, "PRAGMA foreign_key_check"),
+			refreshTokens: rows(database, "SELECT client_id FROM oauth_refresh_token ORDER BY client_id"),
+			verifications: rows(database, "SELECT id FROM verification ORDER BY id"),
+		}).toStrictEqual({
+			accessTokens: [],
+			clientUses: [{client_id: "active-client"}],
+			clients: [{client_id: "active-client"}, {client_id: "revoked-client"}],
+			consents: [{client_id: "active-client"}],
+			foreignKeyViolations: [],
+			refreshTokens: [{client_id: "active-client"}],
+			verifications: [],
+		});
+
+		database.close();
+	});
 });

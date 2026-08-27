@@ -281,7 +281,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 
 		const mcpClientRow = secondPage.getByRole("listitem").filter({hasText: "Browser test MCP client"});
 		await mcpClientRow.getByRole("button", {name: "Revoke"}).click();
-		await expect(mcpClientRow).toContainText("revoked");
+		await expect(mcpClientRow).toHaveCount(0);
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		const accountAfk = await secondPage.request.get("/api/v1/afk");
 		expect({body: await accountAfk.json(), status: accountAfk.status()}).toStrictEqual({

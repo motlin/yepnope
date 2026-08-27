@@ -242,7 +242,7 @@ test("a device-authorized hook is approved in the browser and dies the moment Se
 		});
 
 		await hookRow.getByRole("button", {name: "Revoke"}).click();
-		await expect(hookRow).toContainText("revoked");
+		await expect(hookRow).toHaveCount(0);
 		const revokedHook = await callHook(request, tokens.access_token);
 		const accessTokenAgeSeconds = (Date.now() - accessTokenIssuedAt) / 1_000;
 		// 🔌 The whole point: the very next hook call fails on revocation, not on expiry. The token the
@@ -252,17 +252,10 @@ test("a device-authorized hook is approved in the browser and dies the moment Se
 			accessTokenStillFreshAtRevocation:
 				tokens.expires_in - accessTokenAgeSeconds > freshAccessTokenMarginSeconds,
 			revokedHook,
-			summary: await connectedClientSummary(hookRow),
 		}).toStrictEqual({
 			accessTokenLifetimeSeconds: 600,
 			accessTokenStillFreshAtRevocation: true,
 			revokedHook: {body: "", status: 401},
-			summary: {
-				grantedScopes:
-					"Granted scopes: Stay connected (offline_access), " +
-					"Use your YepNope identity (openid), Ask questions (yepnope:questions)",
-				status: "revoked",
-			},
 		});
 	} finally {
 		await context.close();
