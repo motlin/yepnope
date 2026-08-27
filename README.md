@@ -127,6 +127,17 @@ codex mcp add yepnope --url https://yepnope.app/mcp
 codex mcp login yepnope
 ```
 
+`codex mcp login` opens the default browser itself and also prints the
+authorization URL. The printed line reads ``Authorize `yepnope` by opening
+this URL in your browser:``, which sounds like an instruction, but the tab is
+already loading by the time it appears; verified against `codex-cli 0.150.1`.
+Copy the printed URL by hand only when that launch cannot work — a headless
+host, an SSH session, or a machine with no default browser — and finish
+authorization there. The launch belongs entirely to the local Codex process,
+which opens the browser before it waits on the loopback callback it
+registered. No YepNope endpoint, skill, or plugin hook takes part in it, and
+`codex mcp login --help` exposes no flag that suppresses it.
+
 **Settings -> Connected MCP clients** in the app repeats these mutually
 exclusive plugin and manual paths for both clients, so the phone is enough to
 finish setup.

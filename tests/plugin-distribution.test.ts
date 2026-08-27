@@ -294,6 +294,21 @@ describe("YepNope plugin distribution", () => {
 		});
 	});
 
+	it("documents that Codex opens the authorization browser itself", () => {
+		const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+		expect({
+			namesTheVerifiedClient: readme.includes("codex-cli 0.150.1"),
+			saysCodexOpensTheBrowser: readme.includes("`codex mcp login` opens the default browser itself"),
+			callsThePrintedUrlAFallback: readme.includes(
+				"Copy the printed URL by hand only when that launch cannot work",
+			),
+		}).toStrictEqual({
+			namesTheVerifiedClient: true,
+			saysCodexOpensTheBrowser: true,
+			callsThePrintedUrlAFallback: true,
+		});
+	});
+
 	it("documents the timeout the plugin ships instead of one the reader must set", () => {
 		const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 		expect({
