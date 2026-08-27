@@ -57,6 +57,7 @@ const CONFIGURED_BINDINGS = ok(
 );
 const STAGING_ORIGIN = "https://yepnope-staging.example.workers.dev";
 const STAGING_BINDINGS = ok(`env.BETTER_AUTH_URL ("${STAGING_ORIGIN}")`);
+const STAGING_CONFIGURATION = `{\n\t"vars": {\n\t\t"BETTER_AUTH_URL": "${STAGING_ORIGIN}"\n\t}\n}\n`;
 const PREFLIGHT = [CONFIGURED_SECRETS, CONFIGURED_BINDINGS, STAGING_BINDINGS];
 const PREFLIGHT_CALLS = [
 	["vp", ["exec", "wrangler", "secret", "list", "--format", "json"]],
@@ -84,7 +85,11 @@ function releaseRunner(results: CommandResult[]) {
 }
 
 function dependencies(run: ReturnType<typeof releaseRunner>): ReleaseDependencies {
-	return {now: () => NOW, run};
+	return {
+		now: () => NOW,
+		readTextFile: vi.fn<ReleaseDependencies["readTextFile"]>().mockResolvedValue(STAGING_CONFIGURATION),
+		run,
+	};
 }
 
 describe("just release", () => {

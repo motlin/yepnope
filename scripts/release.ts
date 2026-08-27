@@ -1,4 +1,5 @@
 import {spawn} from "node:child_process";
+import {readFile} from "node:fs/promises";
 import {pathToFileURL} from "node:url";
 // Node runs this file directly, so the relative import carries the extension TypeScript allows.
 import {preflightDeployment, PRODUCTION_HOSTNAME, STAGING_CONFIG, type CommandResult} from "./preflight.ts";
@@ -24,6 +25,7 @@ export type {CommandResult};
 
 export interface ReleaseDependencies {
 	now: () => Date;
+	readTextFile: (path: string) => Promise<string>;
 	run: (command: string, commandArguments: readonly string[]) => Promise<CommandResult>;
 }
 
@@ -204,7 +206,11 @@ async function spawnCommand(command: string, commandArguments: readonly string[]
 }
 
 async function main(): Promise<void> {
-	const dependencies: ReleaseDependencies = {now: () => new Date(), run: spawnCommand};
+	const dependencies: ReleaseDependencies = {
+		now: () => new Date(),
+		readTextFile: async (path) => readFile(path, "utf8"),
+		run: spawnCommand,
+	};
 	if (process.argv.includes("--dry-run")) {
 		const plan = await planRelease(dependencies);
 		// The preflight reads Cloudflare and changes nothing, so the dry run gets it too: an

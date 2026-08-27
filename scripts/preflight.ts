@@ -35,6 +35,7 @@ export interface CommandResult {
 }
 
 export interface PreflightDependencies {
+	readTextFile: (path: string) => Promise<string>;
 	run: (command: string, commandArguments: readonly string[]) => Promise<CommandResult>;
 }
 
@@ -230,7 +231,13 @@ async function stagingDeploymentOrigin(dependencies: PreflightDependencies): Pro
 				cannotTell,
 		);
 	}
-	const printed = variableValue(parseBindings(result.output).get("BETTER_AUTH_URL"));
+
+	// Wrangler's human-readable binding table truncates long values to fit the terminal. The dry run
+	// still proves that Wrangler can resolve every resource, but the checked-in config is the source
+	// of truth for the exact origin passed to the deployed core-loop check.
+	const source = await dependencies.readTextFile(STAGING_CONFIG);
+	const declarations = [...source.matchAll(/^\s*"BETTER_AUTH_URL"\s*:\s*"([^"\n]+)"\s*,?\s*$/gmu)];
+	const printed = declarations.length === 1 ? (declarations[0]?.[1] ?? null) : null;
 	const hostname = originHostname(printed);
 	if (hostname === null) {
 		throw new Error(`${STAGING_CONFIG} declares no BETTER_AUTH_URL origin, ${cannotTell}`);
