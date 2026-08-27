@@ -51,6 +51,18 @@ const CODEX_ADD_COMMAND = "codex mcp add yepnope --url https://yepnope.app/mcp";
 const CODEX_LOGIN_COMMAND = "codex mcp login yepnope";
 const CODEX_MANUAL_WARNING =
 	"Alternative: use the manual commands only if you did not install the plugin. Combining both paths creates a redundant top-level MCP registration.";
+// The rest of the supported clients have no YepNope plugin, so their one step is the registration
+// itself. Each command is the one its own current documentation prints; the traps are that Cursor
+// takes no type, VS Code demands one, Windsurf says serverUrl, and Cline's transport is camelCase.
+const CLINE_CONFIGURATION = '{"mcpServers": {"yepnope": {"type": "streamableHttp", "url": "https://yepnope.app/mcp"}}}';
+const CURSOR_CONFIGURATION = '{"mcpServers": {"yepnope": {"url": "https://yepnope.app/mcp"}}}';
+const GOOSE_CONFIGURE_COMMAND = "goose configure";
+const GOOSE_SESSION_COMMAND = 'goose session --with-streamable-http-extension "https://yepnope.app/mcp"';
+const VS_CODE_ADD_COMMAND =
+	'code --add-mcp "{\\"name\\":\\"yepnope\\",\\"type\\":\\"http\\",\\"url\\":\\"https://yepnope.app/mcp\\"}"';
+const VS_CODE_CONFIGURATION = '{"servers": {"yepnope": {"type": "http", "url": "https://yepnope.app/mcp"}}}';
+const WINDSURF_CONFIGURATION = '{"mcpServers": {"yepnope": {"serverUrl": "https://yepnope.app/mcp"}}}';
+const ZED_CONFIGURATION = '{"context_servers": {"yepnope": {"url": "https://yepnope.app/mcp"}}}';
 const SETUP_COMMANDS = [
 	CLAUDE_CODE_MARKETPLACE_COMMAND,
 	CLAUDE_CODE_PLUGIN_COMMAND,
@@ -60,10 +72,50 @@ const SETUP_COMMANDS = [
 	CODEX_PLUGIN_COMMAND,
 	CODEX_ADD_COMMAND,
 	CODEX_LOGIN_COMMAND,
+	CLINE_CONFIGURATION,
+	CURSOR_CONFIGURATION,
+	GOOSE_CONFIGURE_COMMAND,
+	GOOSE_SESSION_COMMAND,
+	VS_CODE_ADD_COMMAND,
+	VS_CODE_CONFIGURATION,
+	WINDSURF_CONFIGURATION,
+	ZED_CONFIGURATION,
 ];
+const MCP_CLIENT_NAMES = [
+	"Claude Code",
+	"Codex",
+	"Cline",
+	"Cursor",
+	"Goose",
+	"VS Code (GitHub Copilot)",
+	"Windsurf (Devin Desktop)",
+	"Zed",
+];
+const MCP_CLIENT_DOCS_URLS = [
+	"https://docs.claude.com/en/docs/claude-code/mcp",
+	"https://developers.openai.com/codex/mcp/",
+	"https://docs.cline.bot/mcp/connecting-to-a-remote-server",
+	"https://cursor.com/docs/mcp",
+	"https://goose-docs.ai/docs/getting-started/using-extensions/",
+	"https://code.visualstudio.com/docs/agent-customization/mcp-servers",
+	"https://docs.devin.ai/desktop/cascade/mcp",
+	"https://zed.dev/docs/ai/mcp",
+];
+
+// The per-client instructions live on their own page so settings stays account-focused.
+const CONNECT_PAGE_LABEL = "Connect an MCP client";
+const CONNECT_AGENT_LABEL = "Connect an agent";
+const CLIENT_AUTHORIZATION_FRAMING =
+	"OAuth-authorized clients can ask questions and manage only the capabilities you approve.";
 
 function setupCommands(panel: HTMLElement): (string | null)[] {
 	return Array.from(panel.querySelectorAll("code")).map((command) => command.textContent);
+}
+
+async function openConnectPage(): Promise<HTMLElement> {
+	window.history.replaceState({}, "", "/connect");
+	render(<App />);
+	return screen.findByRole("region", {name: CONNECT_PAGE_LABEL});
 }
 
 // §13.2 asks for the privacy position "plainly on the site". Settings are unreachable without an
@@ -800,7 +852,7 @@ describe("App live question synchronization", () => {
 				currentDeck: [],
 			});
 		});
-		fireEvent.click(screen.getByRole("button", {name: "Connect Claude Code or Codex"}));
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
 		expect(await screen.findByText("No connected MCP clients.")).toBeDefined();
 		fetchAccountDevices.mockResolvedValue({
 			browserSessions: [],
@@ -1000,7 +1052,7 @@ describe("App live question synchronization", () => {
 		});
 	});
 
-	it("requires iPhone installation before browser notifications without hiding MCP setup", async () => {
+	it("requires iPhone installation before browser notifications without hiding the setup page", async () => {
 		vi.mocked(isIos).mockReturnValue(true);
 		vi.mocked(isStandalone).mockReturnValue(false);
 
@@ -1015,10 +1067,41 @@ describe("App live question synchronization", () => {
 
 		expect(screen.getByRole("heading", {name: "Install first"})).toBeDefined();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
-		expect(setupCommands(screen.getByRole("region", {name: "Connected MCP clients"}))).toStrictEqual(
-			SETUP_COMMANDS,
-		);
+		expect(screen.getByRole("button", {name: CONNECT_PAGE_LABEL})).toBeDefined();
 		expect(document.body.textContent.toLowerCase()).not.toContain("pair");
+	});
+
+	it("keeps per-client instructions off settings and sends the reader to the connect page", async () => {
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+
+		const settingsPanel = screen.getByRole("region", {name: "Connected MCP clients"});
+		expect({
+			commands: setupCommands(settingsPanel),
+			framing: within(settingsPanel).getByText(CLIENT_AUTHORIZATION_FRAMING).textContent,
+		}).toStrictEqual({
+			commands: [],
+			framing: CLIENT_AUTHORIZATION_FRAMING,
+		});
+
+		fireEvent.click(within(settingsPanel).getByRole("button", {name: CONNECT_PAGE_LABEL}));
+
+		const connectPanel = await screen.findByRole("region", {name: CONNECT_PAGE_LABEL});
+		expect({
+			commands: setupCommands(connectPanel),
+			path: window.location.pathname,
+			title: document.title,
+		}).toStrictEqual({
+			commands: SETUP_COMMANDS,
+			path: "/connect",
+			title: "Connect an MCP client · YepNope",
+		});
 	});
 
 	it("sends the AFK empty state straight to the per-client instructions", async () => {
@@ -1031,44 +1114,56 @@ describe("App live question synchronization", () => {
 			publishApplicationState?.({afk: false, connectedMcpClientCount: 0, currentDeck: []});
 		});
 
-		fireEvent.click(screen.getByRole("button", {name: "Connect Claude Code or Codex"}));
+		fireEvent.click(screen.getByRole("button", {name: CONNECT_AGENT_LABEL}));
 
-		const panel = await screen.findByRole("region", {name: "Connected MCP clients"});
-		const heading = within(panel).getByRole("heading", {name: "Connected MCP clients"});
+		const panel = await screen.findByRole("region", {name: CONNECT_PAGE_LABEL});
+		const heading = within(panel).getByRole("heading", {name: CONNECT_PAGE_LABEL});
 		expect({
 			focused: document.activeElement === heading,
+			path: window.location.pathname,
 			commands: setupCommands(panel),
 		}).toStrictEqual({
 			focused: true,
+			path: "/connect",
 			commands: SETUP_COMMANDS,
 		});
 	});
 
 	it("documents setup for every supported client instead of Codex alone", async () => {
-		render(<App />);
-		await waitFor(() => {
-			expect(publishQuestions).toBeTypeOf("function");
-		});
-		act(() => {
-			publishQuestions?.([]);
-		});
-		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		const panel = await openConnectPage();
 
-		const panel = screen.getByRole("region", {name: "Connected MCP clients"});
 		expect({
 			clients: within(panel)
 				.getAllByRole("heading", {level: 4})
 				.map((heading) => heading.textContent),
 			commands: setupCommands(panel),
 			codexManualWarning: within(panel).getByText(CODEX_MANUAL_WARNING).textContent,
+			framing: within(panel).getByText(CLIENT_AUTHORIZATION_FRAMING).textContent,
 			docsUrls: within(panel)
 				.getAllByRole("link")
 				.map((link) => link.getAttribute("href")),
 		}).toStrictEqual({
-			clients: ["Claude Code", "Codex"],
+			clients: MCP_CLIENT_NAMES,
 			commands: SETUP_COMMANDS,
 			codexManualWarning: CODEX_MANUAL_WARNING,
-			docsUrls: ["https://docs.claude.com/en/docs/claude-code/mcp", "https://developers.openai.com/codex/mcp/"],
+			framing: CLIENT_AUTHORIZATION_FRAMING,
+			docsUrls: MCP_CLIENT_DOCS_URLS,
+		});
+	});
+
+	it("asks signed-out readers to sign in before authorizing a client", async () => {
+		fetchSession.mockResolvedValue(null);
+
+		const panel = await openConnectPage();
+
+		expect({
+			commands: setupCommands(panel),
+			gate: within(panel).getByText("Sign in before authorizing a client.").textContent,
+			path: window.location.pathname,
+		}).toStrictEqual({
+			commands: SETUP_COMMANDS,
+			gate: "Sign in before authorizing a client.",
+			path: "/connect",
 		});
 	});
 
@@ -1076,15 +1171,7 @@ describe("App live question synchronization", () => {
 		const writeText = vi.fn<(text: string) => Promise<void>>(async () => Promise.resolve());
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
-		render(<App />);
-		await waitFor(() => {
-			expect(publishQuestions).toBeTypeOf("function");
-		});
-		act(() => {
-			publishQuestions?.([]);
-		});
-		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		const panel = screen.getByRole("region", {name: "Connected MCP clients"});
+		const panel = await openConnectPage();
 		const copyButtons = within(panel).getAllByRole("button", {name: "Copy"});
 		fireEvent.click(copyButtons[0] ?? document.body);
 		fireEvent.click(copyButtons[4] ?? document.body);
@@ -1113,15 +1200,8 @@ describe("App live question synchronization", () => {
 		);
 		Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
 
-		render(<App />);
-		await waitFor(() => {
-			expect(publishQuestions).toBeTypeOf("function");
-		});
-		act(() => {
-			publishQuestions?.([]);
-		});
-		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
-		fireEvent.click(screen.getAllByRole("button", {name: "Copy"})[0] ?? document.body);
+		const panel = await openConnectPage();
+		fireEvent.click(within(panel).getAllByRole("button", {name: "Copy"})[0] ?? document.body);
 		await waitFor(() => {
 			expect(screen.getByRole("alert").textContent).toBe("Copy is blocked. Select the command manually.");
 		});

@@ -25,9 +25,11 @@ somewhere.
    Signing in on a second browser does not enrol it, and
    **Settings -> Signed-in browsers** lists the ones that are.
 4. Install the agent integration below, then turn **AFK** on from the deck. The
-   toggle reads `Connect Claude Code or Codex` and does nothing until one is
-   authorized, because routing questions to a phone means nothing with nothing
-   to route.
+   toggle reads `Connect an agent` and does nothing until one is authorized,
+   because routing questions to a phone means nothing with nothing to route.
+   That button, and **Settings -> Connected MCP clients -> Connect an MCP
+   client**, both open <https://yepnope.app/connect>, which carries the
+   per-client setup steps.
 
 ## Install the agent integration
 
@@ -138,9 +140,14 @@ which opens the browser before it waits on the loopback callback it
 registered. No YepNope endpoint, skill, or plugin hook takes part in it, and
 `codex mcp login --help` exposes no flag that suppresses it.
 
-**Settings -> Connected MCP clients** in the app repeats these mutually
-exclusive plugin and manual paths for both clients, so the phone is enough to
-finish setup.
+<https://yepnope.app/connect> repeats these mutually exclusive plugin and
+manual paths, so the phone is enough to finish setup. It also carries the
+registration for the MCP clients YepNope ships no plugin for: Cline, Cursor,
+Goose, VS Code with GitHub Copilot, Windsurf, and Zed. Every one of those
+connects to the same remote server over the same OAuth flow, with no bearer
+token and no `mcp-remote` proxy; only the shape of the config differs, and the
+page carries each client's own current syntax. **Settings -> Connected MCP
+clients** links to that page and lists the grants that already exist.
 
 ### Migrate a pre-OAuth installation
 

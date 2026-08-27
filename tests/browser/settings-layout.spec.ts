@@ -56,6 +56,13 @@ async function openSettings(page: Page): Promise<void> {
 	await expect(page.getByRole("button", {name: "Back to the deck"})).toBeVisible();
 }
 
+async function openConnect(page: Page): Promise<void> {
+	await routeSettingsData(page);
+	await page.goto("/connect");
+	await expect(page.getByRole("heading", {name: "Connect an MCP client"})).toBeVisible();
+	await expect(page.getByRole("button", {name: "Back to the deck"})).toBeVisible();
+}
+
 async function assertViewportScrollsSettings(page: Page): Promise<void> {
 	const settings = page.locator(".settings");
 	const privacy = page.getByRole("heading", {name: "Privacy and retention"}).locator("xpath=..");
@@ -177,6 +184,22 @@ test("settings separates account access, MCP clients, and browser notifications"
 		await expect(page.getByText("Alice laptop")).toBeVisible();
 		await expect(page.getByText("Safari on iPhone · This browser")).toBeVisible();
 		await expect(page.getByText("Alice phone")).toBeVisible();
+		// The per-client steps live on /connect now, so settings stays account-focused.
+		expect(await page.locator(".settings code").count()).toBe(0);
+		expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("pair");
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-account-access.png")});
+		await page.getByRole("button", {name: "Connect an MCP client"}).click();
+		await expect(page).toHaveURL(/\/connect$/);
+	} finally {
+		await context.close();
+	}
+});
+
+test("the connect page carries the setup steps for every supported client", async ({browser}) => {
+	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
+	const page = await context.newPage();
+	try {
+		await openConnect(page);
 		await expect(page.getByRole("heading", {name: "Claude Code"})).toBeVisible();
 		await expect(page.getByText("claude plugin install yepnope@yepnope")).toBeVisible();
 		await expect(
@@ -192,7 +215,7 @@ test("settings separates account access, MCP clients, and browser notifications"
 		await expect(page.getByText("codex mcp add yepnope --url https://yepnope.app/mcp")).toBeVisible();
 		await expect(page.getByText("codex mcp login yepnope")).toBeVisible();
 		expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("pair");
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-account-access.png")});
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "connect-clients.png")});
 	} finally {
 		await context.close();
 	}
@@ -207,7 +230,7 @@ test("install commands stay copyable within a narrow mobile width", async ({brow
 	const page = await context.newPage();
 	try {
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-		await openSettings(page);
+		await openConnect(page);
 		// The longest command in the panel, so wrapping is proven where it is hardest.
 		const command = page.getByText("claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp");
 		const commandBounds = await command.boundingBox();
@@ -228,7 +251,7 @@ test("install commands stay copyable within a narrow mobile width", async ({brow
 		expect(commandBounds.x + commandBounds.width).toBeLessThanOrEqual(containerBounds.x + containerBounds.width);
 		await command.locator("xpath=../../button").click();
 		await expect(command.locator("xpath=../../button")).toHaveText("Copied");
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-install-mobile.png")});
+		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "connect-install-mobile.png")});
 	} finally {
 		await context.close();
 	}

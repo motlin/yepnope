@@ -1070,23 +1070,24 @@ body {
 	font-size: 11px;
 }
 
-.connected-clients a {
+.client-setup a {
 	color: var(--success-text);
 }
 
-/* 🧭 One block per supported client, separated so nobody reads Codex steps as Claude Code steps. */
-.client-setup + .client-setup {
-	margin-top: 18px;
-	border-top: 1px solid var(--border-subtle);
-	padding-top: 6px;
+/* 🧭 One card per supported client, so nobody reads Cursor steps as Claude Code steps. */
+.client-setup h4 {
+	margin-top: 0;
+	color: var(--text-strong);
+	font-size: 15px;
 }
 
-.connected-clients h3:focus-visible {
+.client-setups h3:focus-visible {
 	outline: 2px solid var(--success-text);
 	outline-offset: 4px;
 }
 
-.refresh-devices {
+.client-actions {
+	flex-wrap: wrap;
 	margin-top: 12px;
 }
 

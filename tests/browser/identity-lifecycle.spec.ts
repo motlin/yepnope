@@ -103,7 +103,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		const verificationPage = await verificationContext.newPage();
 		await verificationPage.goto(await mailboxLink(request, verificationSubject, email));
 		await expect(verificationPage).toHaveURL(/\/$/);
-		await expect(verificationPage.getByRole("button", {name: "Connect Claude Code or Codex"})).toBeVisible();
+		await expect(verificationPage.getByRole("button", {name: "Connect an agent"})).toBeVisible();
 		await expect(verificationPage.getByRole("button", {name: "Settings"})).toBeVisible();
 		await verificationPage.getByRole("button", {name: "Settings"}).click();
 		await expect(verificationPage.getByText(email)).toBeVisible();

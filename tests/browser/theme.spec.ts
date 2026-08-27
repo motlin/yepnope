@@ -44,6 +44,16 @@ const SURFACES: Surface[] = [
 		},
 	},
 	{
+		// The longest strings in the app are here: config snippets nothing can shorten, so a narrow
+		// phone is where a page-wide horizontal scrollbar would show up first.
+		name: "connect",
+		signedIn: true,
+		open: async (page) => {
+			await page.goto("/connect");
+			await expect(page.getByRole("heading", {name: "Connect an MCP client"})).toBeVisible();
+		},
+	},
+	{
 		name: "oauth-consent",
 		signedIn: true,
 		open: async (page) => {

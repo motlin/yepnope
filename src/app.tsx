@@ -91,7 +91,7 @@ function AfkToggle({afk, connectedMcpClientCount, onConnectClient, onToggle}: Af
 	if (connectedMcpClientCount === 0) {
 		return (
 			<button type="button" className="account-status" onClick={onConnectClient}>
-				Connect Claude Code or Codex
+				Connect an agent
 			</button>
 		);
 	}
@@ -115,18 +115,26 @@ function AfkToggle({afk, connectedMcpClientCount, onConnectClient, onToggle}: Af
 interface SettingsProps {
 	session: AuthenticationUser | null;
 	connectedMcpClientCount: number | null;
-	/** Set when the reader arrived here to connect a client, so the instructions are what they land on. */
-	focusConnectedClients: boolean;
 	theme: Theme;
 	onBack: () => void;
+	onConnectClient: () => void;
 	onSignIn: () => void;
 	onRegister: () => void;
 	onSignedOut: () => void;
 }
 
+interface ConnectClientsProps {
+	session: AuthenticationUser | null;
+	/** Set when the reader arrived here to connect a client, so the instructions are what they land on. */
+	focusHeading: boolean;
+	onBack: () => void;
+	onSignIn: () => void;
+}
+
 type AppView =
 	| "deck"
 	| "settings"
+	| "connect"
 	| "sign-in"
 	| "register"
 	| "verify-email"
@@ -139,6 +147,8 @@ function viewFromPath(pathname: string): AppView {
 	switch (pathname) {
 		case "/settings":
 			return "settings";
+		case "/connect":
+			return "connect";
 		case "/sign-in":
 			return "sign-in";
 		case "/register":
@@ -162,6 +172,8 @@ function pathForView(view: AppView): string {
 	switch (view) {
 		case "settings":
 			return "/settings";
+		case "connect":
+			return "/connect";
 		case "sign-in":
 			return "/sign-in";
 		case "register":
@@ -258,14 +270,19 @@ interface SetupStep {
 	readonly command: string;
 }
 
+/** A second route to the same connection, for a reader the recommended one does not suit. */
+interface McpClientAlternative {
+	readonly introduction: string;
+	readonly steps: readonly SetupStep[];
+}
+
 interface McpClientSetup {
 	readonly name: string;
-	/** The plugin install, which registers the MCP server and both skills in one step. */
-	readonly pluginSteps: readonly SetupStep[];
+	/** The recommended route: the plugin where YepNope ships one, the registration itself otherwise. */
+	readonly steps: readonly SetupStep[];
 	readonly authorization: string;
-	/** The same connection registered by hand, for anyone who does not want the plugin. */
-	readonly manualSteps: readonly SetupStep[];
-	readonly manualIntroduction: string;
+	/** Null where there is only one route, so nothing calls the only steps an alternative. */
+	readonly alternative: McpClientAlternative | null;
 	readonly docsLabel: string;
 	readonly docsUrl: string;
 }
@@ -275,7 +292,7 @@ interface McpClientSetup {
 const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 	{
 		name: "Claude Code",
-		pluginSteps: [
+		steps: [
 			{label: "1. Add the YepNope marketplace", command: "claude plugin marketplace add motlin/yepnope"},
 			{label: "2. Install the plugin", command: "claude plugin install yepnope@yepnope"},
 		],
@@ -283,20 +300,22 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 			"Start a new Claude Code session. It opens YepNope in your browser for account sign-in and consent. " +
 			"If authorization does not open automatically, run /mcp, select yepnope, and authorize there. No token " +
 			"or browser cookie belongs in Claude Code configuration.",
-		manualSteps: [
-			{
-				label: "Without the plugin: register the server",
-				command: "claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp",
-			},
-			{label: "Without the plugin: authorize it", command: "/mcp"},
-		],
-		manualIntroduction: "Alternative: use the manual commands only if you did not install the plugin.",
+		alternative: {
+			introduction: "Alternative: use the manual commands only if you did not install the plugin.",
+			steps: [
+				{
+					label: "Without the plugin: register the server",
+					command: "claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp",
+				},
+				{label: "Without the plugin: authorize it", command: "/mcp"},
+			],
+		},
 		docsLabel: "Open the official Claude Code MCP instructions",
 		docsUrl: "https://docs.claude.com/en/docs/claude-code/mcp",
 	},
 	{
 		name: "Codex",
-		pluginSteps: [
+		steps: [
 			{label: "1. Add the YepNope marketplace", command: "codex plugin marketplace add motlin/yepnope"},
 			{label: "2. Install the plugin", command: "codex plugin add yepnope@yepnope"},
 		],
@@ -304,17 +323,130 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 			"Start a new Codex session. It opens YepNope in your browser for account sign-in and consent. If " +
 			"authorization does not open automatically, run the login command. No token or browser cookie belongs " +
 			"in Codex configuration.",
-		manualSteps: [
-			{
-				label: "Without the plugin: register the server",
-				command: "codex mcp add yepnope --url https://yepnope.app/mcp",
-			},
-			{label: "Without the plugin: authorize it", command: "codex mcp login yepnope"},
-		],
-		manualIntroduction:
-			"Alternative: use the manual commands only if you did not install the plugin. Combining both paths creates a redundant top-level MCP registration.",
+		alternative: {
+			introduction:
+				"Alternative: use the manual commands only if you did not install the plugin. Combining both paths creates a redundant top-level MCP registration.",
+			steps: [
+				{
+					label: "Without the plugin: register the server",
+					command: "codex mcp add yepnope --url https://yepnope.app/mcp",
+				},
+				{label: "Without the plugin: authorize it", command: "codex mcp login yepnope"},
+			],
+		},
 		docsLabel: "Open the official Codex MCP instructions",
 		docsUrl: "https://developers.openai.com/codex/mcp/",
+	},
+	{
+		name: "Cline",
+		steps: [
+			{
+				label: "Add the server to Cline's MCP settings",
+				command: '{"mcpServers": {"yepnope": {"type": "streamableHttp", "url": "https://yepnope.app/mcp"}}}',
+			},
+		],
+		authorization:
+			"The transport has to read exactly streamableHttp; any other spelling falls back to SSE and the " +
+			"connection fails. Cline notices that YepNope wants OAuth and shows an Authenticate button that opens " +
+			"your browser. To skip the JSON, open the MCP Servers icon, choose Remote Servers, and enter the same " +
+			"name, URL, and transport there.",
+		alternative: null,
+		docsLabel: "Open the official Cline remote-server instructions",
+		docsUrl: "https://docs.cline.bot/mcp/connecting-to-a-remote-server",
+	},
+	{
+		name: "Cursor",
+		steps: [
+			{
+				label: "Add the server to ~/.cursor/mcp.json",
+				command: '{"mcpServers": {"yepnope": {"url": "https://yepnope.app/mcp"}}}',
+			},
+		],
+		authorization:
+			"Cursor has no add command, so that file is the registration, and a remote server takes no type field. " +
+			"Open Customize, then MCPs, and follow the authorization prompt. Leave out headers and auth: they are " +
+			"for servers that want an API key, and no token belongs in mcp.json.",
+		alternative: null,
+		docsLabel: "Open the official Cursor MCP instructions",
+		docsUrl: "https://cursor.com/docs/mcp",
+	},
+	{
+		name: "Goose",
+		steps: [{label: "Add the remote extension", command: "goose configure"}],
+		authorization:
+			"Choose Add Extension, then Remote Extension (Streamable HTTP), name it yepnope, and give the URI " +
+			"https://yepnope.app/mcp. Goose registers itself with YepNope and opens your browser while the " +
+			"extension starts, so no client ID or secret is needed. Written by hand in " +
+			"~/.config/goose/config.yaml the field is uri, not url.",
+		alternative: {
+			introduction: "Alternative: connect for a single session without saving anything.",
+			steps: [
+				{
+					label: "One session only",
+					command: 'goose session --with-streamable-http-extension "https://yepnope.app/mcp"',
+				},
+			],
+		},
+		docsLabel: "Open the official Goose extension instructions",
+		docsUrl: "https://goose-docs.ai/docs/getting-started/using-extensions/",
+	},
+	{
+		name: "VS Code (GitHub Copilot)",
+		steps: [
+			{
+				label: "Register the server",
+				command:
+					'code --add-mcp "{\\"name\\":\\"yepnope\\",\\"type\\":\\"http\\",\\"url\\":\\"https://yepnope.app/mcp\\"}"',
+			},
+		],
+		authorization:
+			"VS Code asks you to trust the server, then opens your browser the first time agent mode connects to " +
+			"it. The grant is listed afterwards under Accounts, Manage Trusted MCP Servers.",
+		alternative: {
+			introduction:
+				"Alternative: write it into .vscode/mcp.json by hand. VS Code's key is servers, not mcpServers, and type is required.",
+			steps: [
+				{
+					label: "Workspace configuration",
+					command: '{"servers": {"yepnope": {"type": "http", "url": "https://yepnope.app/mcp"}}}',
+				},
+			],
+		},
+		docsLabel: "Open the official VS Code MCP instructions",
+		docsUrl: "https://code.visualstudio.com/docs/agent-customization/mcp-servers",
+	},
+	{
+		name: "Windsurf (Devin Desktop)",
+		steps: [
+			{
+				label: "Add the server to ~/.codeium/windsurf/mcp_config.json",
+				command: '{"mcpServers": {"yepnope": {"serverUrl": "https://yepnope.app/mcp"}}}',
+			},
+		],
+		authorization:
+			"The field is serverUrl, not url. Saving the entry starts the browser flow, and a server still waiting " +
+			"on it shows an Authenticate button in the MCP list. That file belongs to the legacy Cascade agent: new " +
+			"Devin Desktop tabs default to the Devin Local agent, which reads its own configuration, described in " +
+			"the documentation below.",
+		alternative: null,
+		docsLabel: "Open the official Devin Desktop MCP instructions",
+		docsUrl: "https://docs.devin.ai/desktop/cascade/mcp",
+	},
+	{
+		name: "Zed",
+		steps: [
+			{
+				label: "Add the server to ~/.config/zed/settings.json",
+				command: '{"context_servers": {"yepnope": {"url": "https://yepnope.app/mcp"}}}',
+			},
+		],
+		authorization:
+			"That entry is the whole registration. With no Authorization header configured, Zed runs the standard " +
+			"MCP OAuth flow: open Settings, AI, MCP Servers, and press Authenticate. Adding a header instead would " +
+			"suppress the browser flow.",
+		alternative: null,
+		docsLabel: "Open the official Zed MCP instructions",
+		docsUrl: "https://zed.dev/docs/ai/mcp",
 	},
 ];
 
@@ -1969,15 +2101,14 @@ function AppearancePanel({theme}: AppearancePanelProps): ReactElement {
 function Settings({
 	session,
 	connectedMcpClientCount,
-	focusConnectedClients,
 	theme,
 	onBack,
+	onConnectClient,
 	onSignIn,
 	onRegister,
 	onSignedOut,
 }: SettingsProps): ReactElement {
 	const requiresIosInstall = isIos() && !isStandalone();
-	const connectedClientsHeading = useRef<HTMLHeadingElement | null>(null);
 	const [accountError, setAccountError] = useState<string | null>(null);
 	const [accountDevices, setAccountDevices] = useState<AccountDevices | null>(null);
 	const [devicesError, setDevicesError] = useState<string | null>(null);
@@ -2012,12 +2143,6 @@ function Settings({
 	useEffect(() => {
 		void reloadDevices();
 	}, [connectedMcpClientCount, reloadDevices]);
-
-	useEffect(() => {
-		if (focusConnectedClients) {
-			connectedClientsHeading.current?.focus();
-		}
-	}, [focusConnectedClients]);
 
 	async function runDeviceAction(action: () => Promise<void>): Promise<void> {
 		setDevicesError(null);
@@ -2076,35 +2201,8 @@ function Settings({
 			{session !== null && <SignInMethodsPanel onSignedOut={onSignedOut} />}
 			<AppearancePanel theme={theme} />
 			<div className="hint connected-clients" role="region" aria-label="Connected MCP clients">
-				<h3 ref={connectedClientsHeading} tabIndex={-1}>
-					Connected MCP clients
-				</h3>
+				<h3>Connected MCP clients</h3>
 				<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>
-				<p>Follow the steps for the client you run. Nothing here detects it for you.</p>
-				{MCP_CLIENT_SETUPS.map((client) => (
-					<div key={client.name} className="client-setup">
-						<h4>{client.name}</h4>
-						<div className="install-steps">
-							{client.pluginSteps.map((step) => (
-								<InstallCommand key={step.command} command={step.command} label={step.label} />
-							))}
-						</div>
-						<p>{client.authorization}</p>
-						<p>
-							<strong>{client.manualIntroduction}</strong>
-						</p>
-						<div className="install-steps">
-							{client.manualSteps.map((step) => (
-								<InstallCommand key={step.command} command={step.command} label={step.label} />
-							))}
-						</div>
-						<p>
-							<a href={client.docsUrl} target="_blank" rel="noreferrer">
-								{client.docsLabel}
-							</a>
-						</p>
-					</div>
-				))}
 				{session === null ? (
 					<>
 						<p>Sign in before authorizing a client.</p>
@@ -2135,16 +2233,21 @@ function Settings({
 						))}
 					</ul>
 				)}
-				{session !== null && (
-					<button
-						type="button"
-						className="secondary refresh-devices"
-						disabled={devicesLoading}
-						onClick={() => void reloadDevices()}
-					>
-						{devicesLoading ? "Refreshing…" : "Refresh connected clients"}
+				<div className="settings-actions client-actions">
+					<button type="button" onClick={onConnectClient}>
+						Connect an MCP client
 					</button>
-				)}
+					{session !== null && (
+						<button
+							type="button"
+							className="secondary"
+							disabled={devicesLoading}
+							onClick={() => void reloadDevices()}
+						>
+							{devicesLoading ? "Refreshing…" : "Refresh connected clients"}
+						</button>
+					)}
+				</div>
 				{devicesError !== null && (
 					<p className="form-error" role="alert">
 						{devicesError}
@@ -2251,6 +2354,74 @@ function Settings({
 	);
 }
 
+/**
+ * The per-client setup instructions, on a page of their own.
+ *
+ * Settings is about this account: which clients hold a grant and how to take one away. Connecting a
+ * new client is a different errand with different steps for every CLI, and inlining all of them
+ * buried the account controls underneath instructions for somebody else's agent.
+ */
+function ConnectClients({session, focusHeading, onBack, onSignIn}: ConnectClientsProps): ReactElement {
+	const pageHeading = useRef<HTMLHeadingElement | null>(null);
+
+	useEffect(() => {
+		if (focusHeading) {
+			pageHeading.current?.focus();
+		}
+	}, [focusHeading]);
+
+	return (
+		<div className="settings client-setups" role="region" aria-label="Connect an MCP client">
+			<div className="hint">
+				<h3 ref={pageHeading} tabIndex={-1}>
+					Connect an MCP client
+				</h3>
+				<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>
+				<p>Follow the steps for the client you run. Nothing here detects it for you.</p>
+				{session === null && (
+					<>
+						<p>Sign in before authorizing a client.</p>
+						<button type="button" onClick={onSignIn}>
+							Sign in
+						</button>
+					</>
+				)}
+			</div>
+			{MCP_CLIENT_SETUPS.map((client) => (
+				<div key={client.name} className="hint client-setup">
+					<h4>{client.name}</h4>
+					<div className="install-steps">
+						{client.steps.map((step) => (
+							<InstallCommand key={step.command} command={step.command} label={step.label} />
+						))}
+					</div>
+					<p>{client.authorization}</p>
+					{client.alternative !== null && (
+						<>
+							<p>
+								<strong>{client.alternative.introduction}</strong>
+							</p>
+							<div className="install-steps">
+								{client.alternative.steps.map((step) => (
+									<InstallCommand key={step.command} command={step.command} label={step.label} />
+								))}
+							</div>
+						</>
+					)}
+					<p>
+						<a href={client.docsUrl} target="_blank" rel="noreferrer">
+							{client.docsLabel}
+						</a>
+					</p>
+				</div>
+			))}
+			<button type="button" className="back" onClick={onBack}>
+				Back to the deck
+			</button>
+		</div>
+	);
+}
+
 export function App(): ReactElement {
 	const theme = useTheme();
 	const [session, setSession] = useState<AuthenticationUser | null>(null);
@@ -2280,6 +2451,7 @@ export function App(): ReactElement {
 		const titles: Record<AppView, string> = {
 			deck: "YepNope",
 			settings: "Settings · YepNope",
+			connect: "Connect an MCP client · YepNope",
 			"sign-in": "Sign in · YepNope",
 			register: "Create account · YepNope",
 			"verify-email": "Verify email · YepNope",
@@ -2303,7 +2475,7 @@ export function App(): ReactElement {
 		if (`${window.location.pathname}${window.location.search}` !== target) {
 			window.history.pushState({}, "", target);
 		}
-		if (nextView !== "settings") {
+		if (nextView !== "connect") {
 			setConnectingClient(false);
 		}
 		setOAuthResumeFailed(false);
@@ -2503,10 +2675,12 @@ export function App(): ReactElement {
 					<Settings
 						session={session}
 						connectedMcpClientCount={connectedMcpClientCount}
-						focusConnectedClients={connectingClient}
 						theme={theme}
 						onBack={() => {
 							navigate("deck");
+						}}
+						onConnectClient={() => {
+							navigate("connect");
 						}}
 						onSignIn={() => {
 							navigate("sign-in");
@@ -2516,6 +2690,19 @@ export function App(): ReactElement {
 						}}
 						onSignedOut={() => {
 							showSignedOutLanding();
+						}}
+					/>
+				);
+			case "connect":
+				return (
+					<ConnectClients
+						session={session}
+						focusHeading={connectingClient}
+						onBack={() => {
+							navigate("deck");
+						}}
+						onSignIn={() => {
+							navigate("sign-in");
 						}}
 					/>
 				);
@@ -2606,7 +2793,7 @@ export function App(): ReactElement {
 	const showApplicationHeader = sessionReady && session !== null && (view === "deck" || view === "settings");
 
 	return (
-		<div className={view === "settings" ? "app app-settings" : "app"}>
+		<div className={view === "settings" || view === "connect" ? "app app-settings" : "app"}>
 			{showApplicationHeader && (
 				<div className="app-header">
 					<span className="meta">
@@ -2616,7 +2803,7 @@ export function App(): ReactElement {
 								connectedMcpClientCount={connectedMcpClientCount}
 								onConnectClient={() => {
 									setConnectingClient(true);
-									navigate("settings");
+									navigate("connect");
 								}}
 								onToggle={onToggleAfk}
 							/>
