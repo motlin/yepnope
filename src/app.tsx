@@ -2123,11 +2123,14 @@ function Settings({
 								key={client.id}
 								label={client.displayName}
 								metadata={`Authorized ${new Date(client.authorizedAt).toLocaleString()} · ${client.lastUsedAt === null ? "Not used yet" : `Last used ${new Date(client.lastUsedAt).toLocaleString()}`} · Granted scopes: ${grantedScopeSummary(client.grantedScopes)} · ${client.status}`}
-								onRevoke={async () =>
-									runDeviceAction(async () => {
-										await revokeConnectedMcpClient(client.id);
-									})
-								}
+								{...(client.status === "active"
+									? {
+											onRevoke: async () =>
+												runDeviceAction(async () => {
+													await revokeConnectedMcpClient(client.id);
+												}),
+										}
+									: {})}
 							/>
 						))}
 					</ul>

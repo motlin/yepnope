@@ -259,6 +259,15 @@ describe("connected MCP client and browser notification management", () => {
 			current_deck: [],
 		});
 		expect(await stub.getAfk(true)).toBe(true);
+		const repeatedFirstRevocation = await accountRequest(
+			alice.cookie,
+			`/api/v1/account/connected-mcp-clients/${first.managementId}`,
+			"DELETE",
+		);
+		expect({body: await repeatedFirstRevocation.json(), status: repeatedFirstRevocation.status}).toStrictEqual({
+			body: {status: "ok", connected_mcp_client_count: 1},
+			status: 200,
+		});
 
 		const afterLastRevocation = nextMessage(socket);
 		const revokedLast = await accountRequest(

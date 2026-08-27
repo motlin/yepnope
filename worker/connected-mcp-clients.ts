@@ -186,7 +186,7 @@ export async function revokeConnectedMcpClient(
 	const authorizations = await oauthClientAuthorizations(database, userId, resource, revokedAt);
 	let ownedClientId: string | undefined;
 	for (const authorization of authorizations) {
-		if (authorization.active && (await managementId(userId, authorization.clientId)) === connectedMcpClientId) {
+		if ((await managementId(userId, authorization.clientId)) === connectedMcpClientId) {
 			ownedClientId = authorization.clientId;
 			break;
 		}
