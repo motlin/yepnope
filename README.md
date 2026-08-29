@@ -573,6 +573,21 @@ listed provider needs one pass. Then recover once from `/forgot-password`,
 taking both the reset link and the sign-in link, and confirm each lands back on
 the same account's deck.
 
+The robot's share of that pass is `tests/deployed/sign-in-surface.spec.ts`. It
+reads `/api/v1/auth-methods`, checks the sign-in page draws an entry point for
+every advertised method, confirms the gated routes refuse a request with no
+human token and that Turnstile refuses to mint one for an automated browser,
+asks each provider for its authorization URL and checks the client and callback
+it names, and checks passkey challenges name the deployment as relying party.
+It creates no account, no session, and no email:
+
+```sh
+npm run smoke:sign-in-surface                                   # against https://yepnope.app
+YEPNOPE_DEPLOYMENT_ORIGIN=https://... npm run smoke:sign-in-surface   # against staging
+```
+
+The human share is the sign-ins themselves, as listed above.
+
 Then run the delivery smoke check, which reads the sending-domain onboarding
 state, Email Service activity for the last seven days, and D1's verification
 token counts. It reports counts and statuses only, never an address, link, or
