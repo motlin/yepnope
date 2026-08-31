@@ -29,12 +29,30 @@ describe("Isolate-wide authentication", () => {
 	// a passkey request loads the stack, the isolate keeps it.
 	it("loads the WebAuthn stack only once a passkey ceremony asks for it", async () => {
 		expect(passkeyStackLoaded()).toBe(false);
+		// 🥶 These first constructions double as the cold-path check, riding along rather than
+		// building extra instances the suite would pay for. Better Auth starts initializing — a D1
+		// write seeding the OAuth resource row included — the moment it is constructed, inside
+		// whichever request arrives first on a cold isolate. If that request answers before
+		// initialization settles (a Turnstile refusal does exactly that), the in-flight I/O dies
+		// with the request context, and every later call that awaits the cached init promise —
+		// get-session, sign-in, all of them — waits forever. Each constructing request must
+		// therefore owe the initialization to its waitUntil, which keeps the request context alive
+		// until the cached instance is actually usable.
+		const constructing = recordingExecutionContext();
 
-		await workerAuthenticationFor(env, "/api/auth/get-session");
+		await withRequestBackgroundTasks(constructing.context, async () =>
+			workerAuthenticationFor(env, "/api/auth/get-session"),
+		);
 		expect(passkeyStackLoaded()).toBe(false);
+		expect(constructing.deferred.length).toBe(1);
 
-		await workerAuthenticationFor(env, "/api/auth/passkey/generate-authenticate-options");
+		await withRequestBackgroundTasks(constructing.context, async () =>
+			workerAuthenticationFor(env, "/api/auth/passkey/generate-authenticate-options"),
+		);
 		expect(passkeyStackLoaded()).toBe(true);
+		// Settlement is not awaited here: later tests drive handlers that await the same
+		// initialization, and this test already sits close to its timeout when the suite runs hot.
+		expect(constructing.deferred.length).toBe(2);
 	});
 
 	it("serves passkey ceremonies from the lazily loaded instance", async () => {

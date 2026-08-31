@@ -1183,13 +1183,46 @@ interface IsolateAuthentication {
 
 let isolateAuthentication: IsolateAuthentication | null = null;
 
+/**
+ * 🥶 Better Auth starts initializing — a D1 write seeding the OAuth resource row included — the
+ * moment it is constructed, inside whichever request happens to arrive first on a cold isolate. If
+ * that request answers before initialization settles (a Turnstile refusal does exactly that), the
+ * in-flight I/O dies with the request context, and every later call that awaits the cached init
+ * promise — get-session, sign-in, all of them — waits forever. Handing the init promise to the
+ * constructing request's `waitUntil` keeps that context alive until the cached instance is actually
+ * usable, and a failed initialization discards the cache entry so the next request rebuilds it
+ * instead of inheriting one that can only fail.
+ */
+function retainUntilInitialized(
+	dependencies: AuthenticationDependencies,
+	initialization: Promise<unknown>,
+	discard: () => void,
+): void {
+	dependencies.runInBackground?.(
+		initialization.then(
+			() => undefined,
+			(caught: unknown) => {
+				discard();
+				throw caught;
+			},
+		),
+	);
+}
+
 function isolateAuthenticationFor(environment: Env): IsolateAuthentication {
 	if (isolateAuthentication === null || isolateAuthentication.environment !== environment) {
-		isolateAuthentication = {
+		const dependencies = workerDependencies(environment);
+		const cached: IsolateAuthentication = {
 			environment,
-			shared: createAuthentication(environment, workerDependencies(environment)),
+			shared: createAuthentication(environment, dependencies),
 			withPasskeys: null,
 		};
+		retainUntilInitialized(dependencies, cached.shared.$context, () => {
+			if (isolateAuthentication === cached) {
+				isolateAuthentication = null;
+			}
+		});
+		isolateAuthentication = cached;
 	}
 	return isolateAuthentication;
 }
@@ -1210,7 +1243,20 @@ export async function workerAuthenticationFor(
 	}
 	// Caching the promise rather than its result means two simultaneous ceremonies on a cold
 	// isolate load the WebAuthn stack once between them.
-	cached.withPasskeys ??= createPasskeyAuthentication(environment, workerDependencies(environment));
+	if (cached.withPasskeys === null) {
+		const dependencies = workerDependencies(environment);
+		const withPasskeys = createPasskeyAuthentication(environment, dependencies);
+		cached.withPasskeys = withPasskeys;
+		retainUntilInitialized(
+			dependencies,
+			withPasskeys.then(async (authentication) => authentication.$context),
+			() => {
+				if (cached.withPasskeys === withPasskeys) {
+					cached.withPasskeys = null;
+				}
+			},
+		);
+	}
 	return cached.withPasskeys;
 }
 
