@@ -101,6 +101,50 @@ describe("yepnope login", () => {
 		expect(waits).toStrictEqual([5_000, 10_000]);
 	});
 
+	it("keeps waiting when a poll dies on the network rather than the service", async () => {
+		const responses = [
+			async () => Promise.resolve(jsonResponse({client_id: "registered-client"}, 201)),
+			async () =>
+				Promise.resolve(
+					jsonResponse({
+						device_code: "device-code-value",
+						expires_in: 600,
+						interval: 5,
+						user_code: "WGHL5UTV",
+						verification_uri: `${BASE_URL}/device`,
+					}),
+				),
+			async () => Promise.reject(new TypeError("fetch failed")),
+			async () => Promise.resolve(jsonResponse({error: "authorization_pending"}, 400)),
+			async () =>
+				Promise.resolve(
+					jsonResponse({access_token: "issued-access", expires_in: 600, refresh_token: "issued-refresh"}),
+				),
+		];
+		vi.stubGlobal("fetch", async () =>
+			(responses.shift() ?? (async () => Promise.resolve(jsonResponse({}, 500))))(),
+		);
+		const store = credentialStore(BASE_URL, fakeKeychain());
+		const waits: number[] = [];
+
+		await runLoginCommand({
+			baseUrl: BASE_URL,
+			clientName: "YepNope hook on test-machine",
+			sleep: async (milliseconds) => {
+				waits.push(milliseconds);
+				return Promise.resolve();
+			},
+			store,
+			write: () => undefined,
+		});
+		const stored = await store.load();
+
+		expect({refreshToken: stored?.refreshToken, waits}).toStrictEqual({
+			refreshToken: "issued-refresh",
+			waits: [5_000, 5_000, 5_000],
+		});
+	});
+
 	it("stops with the service's own reason when the account denies the code", async () => {
 		const responses = [
 			jsonResponse({client_id: "registered-client"}, 201),

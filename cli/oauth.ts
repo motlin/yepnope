@@ -38,6 +38,7 @@ export type PollOutcome =
 	| {status: "issued"; tokens: TokenSet}
 	| {status: "pending"}
 	| {status: "slow_down"}
+	| {status: "unreachable"}
 	| {status: "failed"; reason: string};
 
 class OAuthError extends Error {}
@@ -105,12 +106,19 @@ function issued(payload: unknown): TokenSet {
 }
 
 export async function pollDeviceToken(baseUrl: string, clientId: string, deviceCode: string): Promise<PollOutcome> {
-	const response = await postForm(baseUrl, "/api/auth/oauth2/token", {
-		client_id: clientId,
-		device_code: deviceCode,
-		grant_type: DEVICE_CODE_GRANT_TYPE,
-		resource: resource(baseUrl),
-	});
+	// 📡 A poll that dies on the network says nothing about the approval. The code is still live on
+	// the service, so the loop keeps waiting instead of abandoning a code the user is about to approve.
+	let response: Response;
+	try {
+		response = await postForm(baseUrl, "/api/auth/oauth2/token", {
+			client_id: clientId,
+			device_code: deviceCode,
+			grant_type: DEVICE_CODE_GRANT_TYPE,
+			resource: resource(baseUrl),
+		});
+	} catch {
+		return {status: "unreachable"};
+	}
 	if (response.ok) {
 		return {status: "issued", tokens: issued(await response.json())};
 	}
