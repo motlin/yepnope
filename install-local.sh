@@ -64,12 +64,11 @@ function install_claude_plugin() {
 function install_codex_plugin() {
 	require_command codex
 	require_command jq
-	require_command rg
 
 	local marketplace_json marketplace_root installed_json codex_config_file
 	codex_config_file="${CODEX_HOME:-$HOME/.codex}/config.toml"
 	if [[ -f "$codex_config_file" ]] && \
-		rg --quiet '^[[:space:]]*\[mcp_servers\.yepnope\][[:space:]]*$' "$codex_config_file"; then
+		grep -q '^[[:space:]]*\[mcp_servers\.yepnope\][[:space:]]*$' "$codex_config_file"; then
 		echo "A direct Codex MCP registration named yepnope would shadow the plugin bundle." >&2
 		echo "Run 'codex mcp remove yepnope' before installing the Codex plugin." >&2
 		exit 1

@@ -1,5 +1,5 @@
 import {spawnSync} from "node:child_process";
-import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -209,7 +209,7 @@ describe("YepNope plugin distribution", () => {
 			localInstaller: readme.includes("./install-local.sh all"),
 			localInstallerRejectsDirectCodexRegistration:
 				localInstaller.includes("mcp_servers\\.yepnope") &&
-				localInstaller.includes("rg --quiet") &&
+				localInstaller.includes("grep -q") &&
 				localInstaller.includes("codex mcp remove yepnope"),
 			npxBothSkills:
 				readme.includes("npx skills add motlin/yepnope") &&
@@ -243,6 +243,9 @@ describe("YepNope plugin distribution", () => {
 			const fakeCodex = join(binDirectory, "codex");
 			writeFileSync(fakeCodex, '#!/bin/sh\nprintf invoked > "$CODEX_TEST_MARKER"\nexit 99\n');
 			chmodSync(fakeCodex, 0o755);
+			// 🧭 CI runners carry no ripgrep, so the installer must manage on a stock PATH. jq rides
+			// along as a symlink; everything else the script may use has to come from /usr/bin and /bin.
+			symlinkSync(spawnSync("which", ["jq"], {encoding: "utf8"}).stdout.trim(), join(binDirectory, "jq"));
 
 			const result = spawnSync(
 				"bash",
@@ -253,7 +256,7 @@ describe("YepNope plugin distribution", () => {
 						...process.env,
 						CODEX_HOME: codexHome,
 						CODEX_TEST_MARKER: codexMarker,
-						PATH: `${binDirectory}:${process.env["PATH"]}`,
+						PATH: `${binDirectory}:/usr/bin:/bin`,
 					},
 				},
 			);
