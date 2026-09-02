@@ -54,7 +54,7 @@
 	"devDependencies": {
 		"@better-auth/memory-adapter": "1.7.0",
 		"@chromatic-com/storybook": "^5.3.0",
-		"@cloudflare/vitest-pool-workers": "^0.21.3",
+		"@cloudflare/vitest-pool-workers": "^0.22.0",
 		"@modelcontextprotocol/sdk": "1.30.0",
 		"@modelcontextprotocol/server": "2.0.0",
 		"@storybook/addon-a11y": "^10.5.8",
