@@ -14,6 +14,10 @@ ci := env("CI", "")
 install:
     vp install
     vp fmt CLAUDE.md
+    # 🧬 worker-configuration.d.ts is generated and git-ignored, so a fresh checkout has none. The
+    # type-aware lint rules need it: without it every Env type resolves to `error` and `vp check`
+    # reports over a thousand no-unsafe-* violations that say nothing about the code.
+    vp exec wrangler types --env-file /dev/null
 
 # Run dev server
 dev *args: install

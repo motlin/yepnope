@@ -1,6 +1,6 @@
 import {spawnSync} from "node:child_process";
 import {generateKeyPairSync, randomBytes} from "node:crypto";
-import {cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync} from "node:fs";
+import {cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync} from "node:fs";
 import {resolve} from "node:path";
 
 /** A command the harness runs itself, kept as data so the split between preparing and serving is testable. */
@@ -22,6 +22,10 @@ const environmentFile = resolve(repositoryDirectory, ".llm/browser-e2e.env");
 export const INITIAL_APPLICATION_VERSION = "browser-version-n";
 export const UPGRADED_APPLICATION_VERSION = "browser-version-n-plus-one";
 const upgradedClientDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-upgraded-client");
+// 🚚 Staging and retirement both sit outside the directory `wrangler dev` watches, so preparing the
+// swap costs the server nothing and only the rename itself is visible to it.
+const stagedClientDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-staged-client");
+const retiredClientDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-retired-client");
 
 const serverPort = "4173";
 export const SERVER_ORIGIN = `https://localhost:${serverPort}`;
@@ -158,13 +162,18 @@ export function prepareBrowserTests(): void {
  * directory in the watch continuously present.
  */
 export function serveUpgradedClient(): void {
-	const preparedFiles = new Set(readdirSync(upgradedClientDirectory, {recursive: true, encoding: "utf8"}));
-	cpSync(upgradedClientDirectory, servedClientDirectory, {force: true, recursive: true});
-	for (const entry of readdirSync(servedClientDirectory, {recursive: true, encoding: "utf8"})) {
-		if (!preparedFiles.has(entry)) {
-			rmSync(resolve(servedClientDirectory, entry), {force: true, recursive: true});
-		}
-	}
+	// 🔀 Two renames, not a file-by-file copy. `wrangler dev` watches the directory it serves and
+	// reloads a tenth of a second after each write, so copying a dozen files directly into it walked
+	// the server through a half-written tree: on a CI runner that killed the process outright, and
+	// every later spec then failed on a refused connection rather than on anything it tested. The
+	// upgrade is staged out of the watched path and swapped in atomically, so the server sees one
+	// change instead of a storm of partial ones.
+	rmSync(stagedClientDirectory, {force: true, recursive: true});
+	rmSync(retiredClientDirectory, {force: true, recursive: true});
+	cpSync(upgradedClientDirectory, stagedClientDirectory, {force: true, recursive: true});
+	renameSync(servedClientDirectory, retiredClientDirectory);
+	renameSync(stagedClientDirectory, servedClientDirectory);
+	rmSync(retiredClientDirectory, {force: true, recursive: true});
 }
 
 /** Refuse to serve state that `prepareBrowserTests` never produced, rather than serving a stale build. */
