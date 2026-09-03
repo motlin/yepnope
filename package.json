@@ -44,7 +44,7 @@
 		"@better-auth/passkey": "1.7.0",
 		"@simplewebauthn/browser": "^13.3.0",
 		"agentation": "^3.0.2",
-		"better-auth": "1.7.0",
+		"better-auth": "1.7.2",
 		"drizzle-orm": "^0.45.2",
 		"jose": "6.2.9",
 		"react": "^19.2.8",
