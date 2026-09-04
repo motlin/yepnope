@@ -1,7 +1,7 @@
 import {spawnSync} from "node:child_process";
 import {generateKeyPairSync, randomBytes} from "node:crypto";
-import {cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync} from "node:fs";
-import {resolve} from "node:path";
+import {cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync} from "node:fs";
+import {dirname, resolve} from "node:path";
 
 /** A command the harness runs itself, kept as data so the split between preparing and serving is testable. */
 export interface HarnessCommand {
@@ -22,10 +22,9 @@ const environmentFile = resolve(repositoryDirectory, ".llm/browser-e2e.env");
 export const INITIAL_APPLICATION_VERSION = "browser-version-n";
 export const UPGRADED_APPLICATION_VERSION = "browser-version-n-plus-one";
 const upgradedClientDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-upgraded-client");
-// 🚚 Staging and retirement both sit outside the directory `wrangler dev` watches, so preparing the
-// swap costs the server nothing and only the rename itself is visible to it.
+// 🚚 Staging sits outside the directory `wrangler dev` watches, so assembling the upgrade costs the
+// server nothing and only the per-file renames into place are visible to it.
 const stagedClientDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-staged-client");
-const retiredClientDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-retired-client");
 
 const serverPort = "4173";
 export const SERVER_ORIGIN = `https://localhost:${serverPort}`;
@@ -162,18 +161,42 @@ export function prepareBrowserTests(): void {
  * directory in the watch continuously present.
  */
 export function serveUpgradedClient(): void {
-	// 🔀 Two renames, not a file-by-file copy. `wrangler dev` watches the directory it serves and
-	// reloads a tenth of a second after each write, so copying a dozen files directly into it walked
-	// the server through a half-written tree: on a CI runner that killed the process outright, and
-	// every later spec then failed on a refused connection rather than on anything it tested. The
-	// upgrade is staged out of the watched path and swapped in atomically, so the server sees one
-	// change instead of a storm of partial ones.
-	rmSync(stagedClientDirectory, {force: true, recursive: true});
-	rmSync(retiredClientDirectory, {force: true, recursive: true});
-	cpSync(upgradedClientDirectory, stagedClientDirectory, {force: true, recursive: true});
-	renameSync(servedClientDirectory, retiredClientDirectory);
-	renameSync(stagedClientDirectory, servedClientDirectory);
-	rmSync(retiredClientDirectory, {force: true, recursive: true});
+	swapServedClient(upgradedClientDirectory, servedClientDirectory, stagedClientDirectory);
+}
+
+/**
+ * Replace `served` with the contents of `upgraded`, one whole file at a time.
+ *
+ * Split out from `serveUpgradedClient` so the contract above can be tested against scratch
+ * directories rather than the tree an actual run serves.
+ *
+ * 📄 Each file arrives whole. The copy is staged outside the watched tree, so assembling it costs the
+ * server nothing, and every file then lands by rename — atomic within a filesystem — so a reload that
+ * fires mid-swap reads either the old file or the new one, never half of either. Renaming `served`
+ * itself would be one step fewer, but it takes the watched directory out of existence for an instant,
+ * which is the one reload the server is documented not to survive.
+ */
+export function swapServedClient(upgraded: string, served: string, staged: string): void {
+	rmSync(staged, {force: true, recursive: true});
+	cpSync(upgraded, staged, {force: true, recursive: true});
+	const upgradedEntries = readdirSync(staged, {recursive: true, encoding: "utf8"});
+	for (const entry of upgradedEntries) {
+		const stagedEntry = resolve(staged, entry);
+		const servedEntry = resolve(served, entry);
+		if (statSync(stagedEntry).isDirectory()) {
+			mkdirSync(servedEntry, {recursive: true});
+		} else {
+			mkdirSync(dirname(servedEntry), {recursive: true});
+			renameSync(stagedEntry, servedEntry);
+		}
+	}
+	const upgradedPaths = new Set(upgradedEntries);
+	for (const entry of readdirSync(served, {recursive: true, encoding: "utf8"})) {
+		if (!upgradedPaths.has(entry)) {
+			rmSync(resolve(served, entry), {force: true, recursive: true});
+		}
+	}
+	rmSync(staged, {force: true, recursive: true});
 }
 
 /** Refuse to serve state that `prepareBrowserTests` never produced, rather than serving a stale build. */

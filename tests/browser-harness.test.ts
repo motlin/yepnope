@@ -1,4 +1,6 @@
-import {readdirSync, readFileSync} from "node:fs";
+import {mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 import playwrightConfig from "../playwright.config";
 import viteConfig from "../vite.config";
@@ -9,6 +11,7 @@ import {
 	PREPARE_COMMANDS,
 	SERVE_COMMAND,
 	UPGRADED_APPLICATION_VERSION,
+	swapServedClient,
 	type HarnessCommand,
 } from "../scripts/browser-test-harness";
 
@@ -78,6 +81,43 @@ describe("browser test harness", () => {
 	// Playwright stops watching the web server once it has started, so a server that dies mid-run
 	// is reported as dozens of refused connections and reads as a product regression. The reporter
 	// is what draws that distinction, and it can only draw it from a log the server actually keeps.
+	it("swaps the upgraded client in without the served directory ever being replaced", () => {
+		const root = mkdtempSync(join(tmpdir(), "yepnope-client-swap-"));
+		try {
+			const upgraded = join(root, "upgraded");
+			const served = join(root, "served");
+			const staged = join(root, "staged");
+			mkdirSync(join(upgraded, "assets"), {recursive: true});
+			writeFileSync(join(upgraded, "index.html"), "version n+1");
+			writeFileSync(join(upgraded, "assets", "main.js"), "new bundle");
+			mkdirSync(join(served, "assets"), {recursive: true});
+			writeFileSync(join(served, "index.html"), "version n");
+			writeFileSync(join(served, "assets", "main.js"), "old bundle");
+			writeFileSync(join(served, "assets", "stale.js"), "left over from version n");
+			// 🪪 The directory's identity, captured before the swap. `wrangler dev` watches this inode,
+			// so a swap that recreates the directory silently costs the server its watch.
+			const servedIdentityBefore = statSync(served).ino;
+
+			swapServedClient(upgraded, served, staged);
+
+			expect({
+				identityKept: statSync(served).ino === servedIdentityBefore,
+				index: readFileSync(join(served, "index.html"), "utf8"),
+				bundle: readFileSync(join(served, "assets", "main.js"), "utf8"),
+				entries: readdirSync(served, {recursive: true, encoding: "utf8"}).sort(),
+				stagingCleared: readdirSync(root).includes("staged"),
+			}).toStrictEqual({
+				identityKept: true,
+				index: "version n+1",
+				bundle: "new bundle",
+				entries: ["assets", join("assets", "main.js"), "index.html"].sort(),
+				stagingCleared: false,
+			});
+		} finally {
+			rmSync(root, {recursive: true, force: true});
+		}
+	});
+
 	it("keeps the server's own account of the run, and reads it back when the server dies", () => {
 		expect(SERVE_COMMAND.arguments_).toEqual(expect.arrayContaining(["--log-level", "log"]));
 		expect(playwrightConfig.reporter).toContainEqual(["./scripts/browser-test-reporter.ts"]);
