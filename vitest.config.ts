@@ -15,7 +15,7 @@ export default mergeConfig(
 			},
 		},
 		test: {
-			exclude: ["**/node_modules/**", "tests/browser/**", "tests/deployed/**", "worker/**"],
+			exclude: ["**/node_modules/**", ".llm/**", "tests/browser/**", "tests/deployed/**", "worker/**"],
 			globals: true,
 			environment: "node",
 			pool: "threads",

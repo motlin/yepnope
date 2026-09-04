@@ -126,12 +126,19 @@ function mailboxResponse(url: URL): Response {
 	return delivery === undefined ? new Response(null, {status: 404}) : Response.json({url: delivery.url});
 }
 
-async function countResponse(environment: ApplicationEnvironment): Promise<Response> {
+// 🔬 Counts belong to one account, named by `email`, so a spec can assert what it has created
+// without reading rows another spec is creating at the same time. Called without an `email` the
+// endpoint still answers for the whole database.
+async function countResponse(request: Request, environment: ApplicationEnvironment): Promise<Response> {
+	const email = new URL(request.url).searchParams.get("email");
+	const scope = email === null ? "" : " WHERE user_id IN (SELECT id FROM user WHERE email = ?)";
 	const counts = await environment.DB.prepare(
-		"SELECT (SELECT count(*) FROM user) AS users, " +
-			"(SELECT count(*) FROM device_code) AS device_codes, " +
-			"(SELECT count(*) FROM oauth_client) AS oauth_clients",
-	).first();
+		`SELECT (SELECT count(*) FROM user${email === null ? "" : " WHERE email = ?"}) AS users, ` +
+			`(SELECT count(*) FROM device_code${scope}) AS device_codes, ` +
+			`(SELECT count(*) FROM oauth_client${scope}) AS oauth_clients`,
+	)
+		.bind(...(email === null ? [] : [email, email, email]))
+		.first();
 	return Response.json({authentication_url: environment.BETTER_AUTH_URL, ...counts});
 }
 
@@ -223,7 +230,7 @@ export default {
 			return mailboxResponse(url);
 		}
 		if (url.pathname === "/api/__e2e__/counts" && request.method === "GET") {
-			return countResponse(environment);
+			return countResponse(request, environment);
 		}
 		if (url.pathname === "/api/__e2e__/deleted-account" && request.method === "POST") {
 			return deletedAccountResponse(request, environment);

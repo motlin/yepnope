@@ -57,9 +57,9 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 			socket.connectToServer();
 		});
 
-		// 🗒️ These zeroes are the whole database, not this test's slice of it, so this spec has to
-		// run before any spec that creates an account. Playwright orders specs by file name.
-		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
+		// 🗒️ These zeroes are this spec's own account, not the whole database, so specs that create
+		// their own accounts alongside this one cannot move them.
+		expect(await (await request.get("/api/__e2e__/counts", {params: {email}})).json()).toStrictEqual({
 			authentication_url: "https://localhost:4173",
 			device_codes: 0,
 			oauth_clients: 0,
@@ -80,7 +80,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 			authenticatedShells: 0,
 			copy: "Sign in to answer questions from your coding agents, or create an account to get started.",
 		});
-		expect(await (await request.get("/api/__e2e__/counts")).json()).toStrictEqual({
+		expect(await (await request.get("/api/__e2e__/counts", {params: {email}})).json()).toStrictEqual({
 			authentication_url: "https://localhost:4173",
 			device_codes: 0,
 			oauth_clients: 0,

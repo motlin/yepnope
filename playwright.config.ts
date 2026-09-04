@@ -17,21 +17,17 @@ export default defineConfig({
 	// so a failure can be read against what `wrangler dev` was doing at that moment. The third
 	// reporter reads that log back and says when the server, not the product, is what failed.
 	reporter: [["line"], ["json", {outputFile: ".llm/playwright-report.json"}], ["./scripts/browser-test-reporter.ts"]],
-	// 🔀 Three specs cannot share the run, so each is a project of its own and `dependencies` puts
-	// them in order around the parallel middle:
-	//   `identity-lifecycle` reads the whole database and expects it empty, so nothing may have
-	//     created an account before it — it goes first, on its own.
+	// 🔀 Two specs still cannot share the run, so each is a project of its own and `dependencies`
+	// puts them after the parallel middle:
 	//   `turnstile` reconfigures human verification server-wide through `/api/__e2e__/turnstile`,
 	//     which every other spec's sign-up would otherwise see.
 	//   `service-worker-upgrade` writes over the client directory the server serves and watches, and
 	//     the reload that follows would land on whichever spec happened to be mid-request.
 	// Everything else owns its own accounts and runs together in `app`.
 	projects: [
-		{name: "identity", testMatch: "**/identity-lifecycle.spec.ts"},
 		{
 			name: "app",
-			testIgnore: ["**/identity-lifecycle.spec.ts", "**/turnstile.spec.ts", "**/service-worker-upgrade.spec.ts"],
-			dependencies: ["identity"],
+			testIgnore: ["**/turnstile.spec.ts", "**/service-worker-upgrade.spec.ts"],
 		},
 		{name: "turnstile", testMatch: "**/turnstile.spec.ts", dependencies: ["app"]},
 		{name: "upgrade", testMatch: "**/service-worker-upgrade.spec.ts", dependencies: ["turnstile"]},
