@@ -1,19 +1,13 @@
 import {expect, test, type CDPSession, type Page} from "playwright/test";
-import {FLY_OUT_MILLISECONDS, UNDO_WINDOW_MILLISECONDS} from "../../src/deck";
+import {FLY_OUT_MILLISECONDS} from "../../src/deck";
 import {fulfillJson} from "./helpers";
 
-// 📱 The touch half of src/deck.tsx at a phone-sized viewport: a one-finger swipe is held for the
-// undo window before it is posted, and a two-finger pinch is never read as a swipe. Real touch
+// 📱 The touch half of src/deck.tsx at a phone-sized viewport: a one-finger swipe is held for undo
+// and can be taken back, and a two-finger pinch is never read as a swipe. Real touch
 // events come from CDP so the browser's own touch-to-pointer path is what gets exercised; the
 // emulated viewport cannot prove the pinch actually zooms, which is what
 // .llm/phone-verification-checklist.md covers on a real device.
 
-/** Partway into the undo window, where the answer must still be unposted. */
-const EARLY_CHECK_MILLISECONDS = 3_000;
-/** How long a spec waits past the window before it accepts that nothing was ever posted. */
-const PAST_WINDOW_MILLISECONDS = UNDO_WINDOW_MILLISECONDS + 1_000;
-/** Slack on the measured hold, so scheduler jitter alone cannot fail the spec. */
-const HOLD_TOLERANCE_MILLISECONDS = 500;
 /** Twice the fly-out, so a card still on screen afterwards really did stay put. */
 const FLY_OUT_GRACE_MILLISECONDS = FLY_OUT_MILLISECONDS * 2;
 const GESTURE_STEPS = 8;
@@ -127,45 +121,24 @@ async function pinchOut(page: Page, session: CDPSession): Promise<void> {
 	await dispatchTouch(session, "touchEnd", []);
 }
 
-test("a one-finger swipe is held for the undo window before it is posted", async ({page}) => {
+// ⏱️ What a swipe does once the undo window lapses — that it posts exactly once, and that an undone
+// swipe never posts even long afterwards — is proved on fake timers in tests/deck.test.tsx. This
+// spec only has to show that a real touch drives that machinery, so it asserts up to the undo bar
+// and never waits the window out.
+test("a one-finger swipe is held for undo, and tapping Undo brings the card back", async ({page}) => {
 	const answers = await routeMobileDeck(page);
 	const session = await page.context().newCDPSession(page);
 
 	await swipe(page, session, 200, -20);
-	// Read before the assertions below, so only the gesture's own latency eats into the tolerance.
-	const heldAt = Date.now();
 	await expect(page.getByRole("status")).toHaveText("Yep recorded");
 	await expect(page.getByText(/^[45]s to undo$/)).toBeVisible();
 	await expect(page.getByRole("heading", {name: "Reject the mobile swipe risk?"})).toBeVisible();
-
-	await page.waitForTimeout(EARLY_CHECK_MILLISECONDS);
 	expect(answers).toStrictEqual([]);
-	await expect(page.getByRole("button", {name: "Undo yep"})).toBeVisible();
 
-	await expect.poll(() => answers.length, {timeout: UNDO_WINDOW_MILLISECONDS * 2}).toBe(1);
-	const [posted] = answers;
-	if (posted === undefined) {
-		throw new Error("the answer was never posted");
-	}
-	expect(posted.at - heldAt).toBeGreaterThanOrEqual(UNDO_WINDOW_MILLISECONDS - HOLD_TOLERANCE_MILLISECONDS);
-	expect(posted.body).toStrictEqual({answers: [{question_id: "question-1", disposition: "yep"}]});
-	await expect(page.getByRole("button", {name: "Undo yep"})).toBeHidden();
-});
-
-test("tapping Undo inside the window brings the card back and posts nothing", async ({page}) => {
-	const answers = await routeMobileDeck(page);
-	const session = await page.context().newCDPSession(page);
-
-	await swipe(page, session, -200, -20);
-	await expect(page.getByRole("status")).toHaveText("Nope recorded");
-	await expect(page.getByRole("heading", {name: "Reject the mobile swipe risk?"})).toBeVisible();
-
-	await page.getByRole("button", {name: "Undo nope"}).tap();
+	await page.getByRole("button", {name: "Undo yep"}).tap();
 	await expect(page.getByRole("heading", {name: "Approve the mobile swipe change?"})).toBeVisible();
-	await expect(page.getByRole("button", {name: "Undo nope"})).toBeHidden();
+	await expect(page.getByRole("button", {name: "Undo yep"})).toBeHidden();
 	await expect(page.locator(".deck-header .count")).toHaveText("1 of 3");
-
-	await page.waitForTimeout(PAST_WINDOW_MILLISECONDS);
 	expect(answers).toStrictEqual([]);
 });
 
