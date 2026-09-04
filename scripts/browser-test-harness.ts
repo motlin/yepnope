@@ -11,7 +11,10 @@ export interface HarnessCommand {
 }
 
 export const repositoryDirectory = resolve(import.meta.dirname, "..");
-const servedClientDirectory = resolve(repositoryDirectory, "dist");
+// 📁 The e2e client is served from its own directory rather than `dist`, so the upgrade swap
+// below never writes into a build directory that other tasks treat as their input — a suite
+// run leaves `dist` exactly as it found it, and `vp run --cache` can still hit.
+const servedClientDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-client");
 const builtClientEntry = resolve(servedClientDirectory, "index.html");
 const stateDirectory = resolve(repositoryDirectory, ".llm/browser-e2e-state");
 const environmentFile = resolve(repositoryDirectory, ".llm/browser-e2e.env");
@@ -56,7 +59,14 @@ export const PREPARE_COMMANDS: readonly HarnessCommand[] = [
 			VITE_BUILD_OUT_DIR: upgradedClientDirectory,
 		},
 	},
-	{command: "vp", arguments_: ["build"], environment: {VITE_APPLICATION_VERSION: INITIAL_APPLICATION_VERSION}},
+	{
+		command: "vp",
+		arguments_: ["build"],
+		environment: {
+			VITE_APPLICATION_VERSION: INITIAL_APPLICATION_VERSION,
+			VITE_BUILD_OUT_DIR: servedClientDirectory,
+		},
+	},
 	{
 		command: "vp",
 		arguments_: [
@@ -108,6 +118,7 @@ export const BROWSER_TEST_SERVE_COMMAND = "node --experimental-strip-types scrip
 
 export function removeTestState(): void {
 	rmSync(stateDirectory, {force: true, recursive: true});
+	rmSync(servedClientDirectory, {force: true, recursive: true});
 	rmSync(upgradedClientDirectory, {force: true, recursive: true});
 	rmSync(environmentFile, {force: true});
 }

@@ -63,7 +63,10 @@ describe("browser test harness", () => {
 				VITE_APPLICATION_VERSION: UPGRADED_APPLICATION_VERSION,
 				VITE_BUILD_OUT_DIR: expect.stringContaining("browser-e2e-upgraded-client"),
 			},
-			{VITE_APPLICATION_VERSION: INITIAL_APPLICATION_VERSION},
+			{
+				VITE_APPLICATION_VERSION: INITIAL_APPLICATION_VERSION,
+				VITE_BUILD_OUT_DIR: expect.stringContaining("browser-e2e-client"),
+			},
 		]);
 	});
 
