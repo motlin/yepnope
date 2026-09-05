@@ -47,7 +47,11 @@ export default defineConfig({
 			"test:run": {
 				command:
 					"node node_modules/vitest/dist/cli.js run && node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts && vp run test:browser",
-				input: [{auto: true}, "!node_modules/.experimental-vitest-cache/**"],
+				// 🧹 Vitest's own results cache is written by the run, so leaving it in the inputs means
+				// every run dirties them and neither vitest task can ever be cached. The browser suite's
+				// state under .llm stays in the inputs on purpose: it is real state the run needs on
+				// disk, so that task must keep re-running rather than replay a hit that restores none.
+				input: [{auto: true}, "!node_modules/.experimental-vitest-cache/**", "!node_modules/.vite/**"],
 				output: [],
 			},
 		},
