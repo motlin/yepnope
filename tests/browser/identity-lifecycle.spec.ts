@@ -1,6 +1,11 @@
 import {expect, test, type BrowserContext, type Page, type WebSocketRoute} from "playwright/test";
 import {mailboxLink, sessionUserId} from "./helpers";
 
+// 🧵 The two tests here own separate accounts and share nothing but helper functions, so they
+// run alongside each other rather than one after the other — this file is the longest in the
+// suite and everything else finishes inside it.
+test.describe.configure({mode: "parallel"});
+
 const email = "alice-browser-test@example.com";
 const originalPassword = "browser-test-original-password";
 const replacementPassword = "browser-test-replacement-password";
@@ -202,20 +207,10 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await expect(firstPage.getByRole("button", {name: "Undo skip"})).toBeHidden({timeout: 15_000});
 		await expect.poll(async () => outstandingTitles(firstPage)).toStrictEqual({status: 200, titles: []});
 
-		const failureContext = await browser.newContext({ignoreHTTPSErrors: true});
-		contexts.push(failureContext);
-		const failurePage = await failureContext.newPage();
-		let boundedFailureConnections = 0;
-		await failurePage.routeWebSocket("**/api/v1/current-deck/stream", async (socket: WebSocketRoute) => {
-			boundedFailureConnections += 1;
-			await socket.close({code: 1012, reason: "browser test persistent failure"});
-		});
-		await signIn(failurePage, originalPassword);
-		await expect.poll(() => boundedFailureConnections, {timeout: 15_000}).toBe(5);
-		await failurePage.waitForTimeout(3_000);
-		expect(boundedFailureConnections).toBe(5);
-		await failureContext.close();
-		contexts.splice(contexts.indexOf(failureContext), 1);
+		// 🔌 That the socket backs off, gives up at the failure limit and never reconnects after is
+		// proved on fake timers in tests/api.test.ts, where the whole schedule costs no wall clock.
+		// Proving it here meant sitting through the real backoff and a further silent wait; the
+		// live reconnect above is what this spec still needs a real browser for.
 
 		await expect(secondPage.getByText(email)).toBeVisible();
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
