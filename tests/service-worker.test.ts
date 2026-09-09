@@ -16,7 +16,8 @@ interface ServiceWorkerHarness {
 	dispatchInstall(): Promise<void>;
 	dispatchMessage(data: Record<string, unknown>, sourceId: string): Promise<void>;
 	dispatchNotificationClick(payload: Record<string, unknown>, action: string): Promise<void>;
-	dispatchPush(payload: PushPayload): Promise<void>;
+	dispatchPush(payload: PushPayload | {type: "clear"; batch_id: string; outstanding: number}): Promise<void>;
+	getNotifications: ReturnType<typeof vi.fn>;
 	fetchMock: ReturnType<typeof vi.fn>;
 	skipWaiting: ReturnType<typeof vi.fn>;
 	showNotification: ReturnType<typeof vi.fn>;
@@ -46,6 +47,9 @@ function createHarness(options: {
 	);
 	const setAppBadge = vi.fn<(outstanding: number) => Promise<void>>(async () => Promise.resolve());
 	const clearAppBadge = vi.fn<() => Promise<void>>(async () => Promise.resolve());
+	const getNotifications = vi.fn<(options: {tag: string}) => Promise<Array<{close(): void}>>>(async () =>
+		Promise.resolve([]),
+	);
 	const fetchMock = vi.fn<() => Promise<unknown>>(options.fetchQuestions);
 	const skipWaiting = vi.fn<() => Promise<void>>(async () => Promise.resolve());
 	const claimClients = vi.fn<() => Promise<void>>(async () => Promise.resolve());
@@ -77,7 +81,7 @@ function createHarness(options: {
 			matchAll: vi.fn<() => Promise<unknown[]>>(async () => Promise.resolve(windowClients)),
 			openWindow: vi.fn<(url: string) => Promise<void>>(async () => Promise.resolve()),
 		},
-		registration: {showNotification},
+		registration: {showNotification, getNotifications},
 		skipWaiting,
 	};
 	const navigator = {
@@ -113,6 +117,7 @@ function createHarness(options: {
 		clearAppBadge,
 		claimClients,
 		fetchMock,
+		getNotifications,
 		skipWaiting,
 		showNotification,
 		setAppBadge,
@@ -280,6 +285,41 @@ describe("service worker application updates", () => {
 });
 
 describe("service worker push notifications", () => {
+	it.each([0, 2])(
+		"closes matching notifications without showing another and updates a badge of %i",
+		async (outstanding) => {
+			const harness = createHarness({
+				userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+				maxActions: 0,
+				fetchQuestions: async () => Promise.reject(new Error("clear must not fetch")),
+				windowClients: [
+					{id: "window-client-100", understandsVersionProtocol: true, url: "https://example.com/"},
+				],
+			});
+			const firstClose = vi.fn<() => void>();
+			const secondClose = vi.fn<() => void>();
+			harness.getNotifications.mockResolvedValue([{close: firstClose}, {close: secondClose}]);
+			await harness.dispatchPush({type: "clear", batch_id: "batch-100", outstanding});
+			expect({
+				getNotifications: callsFrom(harness.getNotifications),
+				closed: [firstClose.mock.calls, secondClose.mock.calls],
+				shown: callsFrom(harness.showNotification),
+				fetched: callsFrom(harness.fetchMock),
+				setBadge: callsFrom(harness.setAppBadge),
+				clearBadge: callsFrom(harness.clearAppBadge),
+				messages: harness.windowClients.map((client) => callsFrom(client.postMessage)),
+			}).toStrictEqual({
+				getNotifications: [[{tag: "batch-100"}]],
+				closed: [[[]], [[]]],
+				shown: [],
+				fetched: [],
+				setBadge: outstanding > 0 ? [[outstanding]] : [],
+				clearBadge: outstanding === 0 ? [[]] : [],
+				messages: [[[{type: "account-state-changed"}]]],
+			});
+		},
+	);
+
 	it.each([
 		["Android", "Mozilla/5.0 (Linux; Android 15)"],
 		["desktop", "Mozilla/5.0 (X11; Linux x86_64)"],

@@ -2,6 +2,8 @@ import {runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import type {UserDurableObject} from "../user-do";
+import {hashToken} from "../auth";
+import {HEARTBEAT_GRACE_MILLISECONDS, RETENTION_MILLISECONDS} from "../validation";
 import {vapidPublicKeyFromJwk} from "../webpush";
 import {API_ORIGIN, createBatchOverHttp, authorizeAgentClient, required, worker} from "./helpers";
 import {createPushReceiver, type PushReceiver} from "./push-helpers";
@@ -84,6 +86,88 @@ describe("POST /api/v1/push/subscribe", () => {
 });
 
 describe("sendBatchPush", () => {
+	it("clears a batch only after every question is answered and preserves other outstanding questions", async () => {
+		const userId = "push-clear-alice";
+		const token = await authorizeAgentClient(userId);
+		const created = await createBatchOverHttp(token, "demo", [
+			{title: "Ship it?", body: ""},
+			{title: "Tag it?", body: ""},
+		]);
+		await createBatchOverHttp(token, "other-demo", [{title: "Keep waiting?", body: ""}]);
+		const receiver = await createPushReceiver("https://push.example.com/send/clear-alice");
+		await subscribe(token, receiver);
+		const stub = env.USER_DO.getByName(userId);
+		await runInDurableObject(stub, async (instance: UserDurableObject) => {
+			const sent: SentPush[] = [];
+			instance.pushTransport = (endpoint, request) => {
+				sent.push({endpoint, ...request});
+				return 201;
+			};
+			await instance.submitAnswers([
+				{question_id: required(created.question_ids[0], "first question"), disposition: "yep"},
+			]);
+			expect(sent).toStrictEqual([]);
+			await instance.submitAnswers([
+				{question_id: required(created.question_ids[1], "second question"), disposition: "nope"},
+			]);
+			expect(
+				await Promise.all(
+					sent.map(async (push) => ({
+						endpoint: push.endpoint,
+						topic: push.headers["Topic"],
+						payload: JSON.parse(await receiver.decrypt(push.body)),
+					})),
+				),
+			).toStrictEqual([
+				{
+					endpoint: receiver.subscription.endpoint,
+					topic: `clear-${(await hashToken(created.batch_id)).slice(0, 26)}`,
+					payload: {type: "clear", batch_id: created.batch_id, outstanding: 1},
+				},
+			]);
+		});
+	});
+
+	it.each(["heartbeat", "retention"])("clears each batch after %s expiry", async (expiry) => {
+		const userId = `push-clear-${expiry}`;
+		const token = await authorizeAgentClient(userId);
+		const first = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}]);
+		const second = await createBatchOverHttp(token, "other-demo", [{title: "Tag it?", body: ""}]);
+		const receiver = await createPushReceiver("https://push.example.com/send/clear-expired");
+		await subscribe(token, receiver);
+		await runInDurableObject(env.USER_DO.getByName(userId), async (instance: UserDurableObject, state) => {
+			const sent: SentPush[] = [];
+			instance.pushTransport = (endpoint, request) => {
+				sent.push({endpoint, ...request});
+				return 201;
+			};
+			if (expiry === "heartbeat") {
+				state.storage.sql.exec(
+					"UPDATE batches SET last_heartbeat_at = last_heartbeat_at - ?",
+					HEARTBEAT_GRACE_MILLISECONDS,
+				);
+			} else {
+				state.storage.sql.exec("UPDATE batches SET created_at = created_at - ?", RETENTION_MILLISECONDS);
+			}
+			await instance.alarm();
+			const actual = await Promise.all(
+				sent.map(async (push) => ({
+					topic: push.headers["Topic"],
+					payload: JSON.parse(await receiver.decrypt(push.body)),
+				})),
+			);
+			const expected = await Promise.all(
+				[first, second].map(async (batch) => ({
+					topic: `clear-${(await hashToken(batch.batch_id)).slice(0, 26)}`,
+					payload: {type: "clear", batch_id: batch.batch_id, outstanding: 0},
+				})),
+			);
+			expect(actual.sort((left, right) => String(left.topic).localeCompare(String(right.topic)))).toStrictEqual(
+				expected.sort((left, right) => left.topic.localeCompare(right.topic)),
+			);
+		});
+	});
+
 	it("sends one push per batch with count, not question text", async () => {
 		const userId = "push-batch";
 		const token = await authorizeAgentClient(userId);

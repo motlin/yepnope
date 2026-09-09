@@ -95,8 +95,16 @@ async function setBadge(outstanding) {
 
 self.addEventListener("push", (event) => {
 	const payload = event.data ? event.data.json() : {};
-	event.waitUntil(showBatchNotification(payload));
+	event.waitUntil(payload.type === "clear" ? clearBatchNotification(payload) : showBatchNotification(payload));
 });
+
+async function clearBatchNotification(payload) {
+	const notifications = await self.registration.getNotifications({tag: payload.batch_id});
+	for (const notification of notifications) {
+		notification.close();
+	}
+	await Promise.all([setBadge(payload.outstanding), refreshOpenClients()]);
+}
 
 function genericTitle(count, project) {
 	return `${count} ${count === 1 ? "question" : "questions"} from ${project}`;

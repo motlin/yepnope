@@ -126,11 +126,16 @@ async function encryptPayload(subscription: PushSubscription, plaintext: Uint8Ar
 export interface BuildPushRequestOptions {
 	subscription: PushSubscription;
 	payload: string;
+	topic?: string;
 	vapidPrivateJwk: JsonWebKey;
 	vapidSubject: string;
 }
 
 export async function buildPushRequest(options: BuildPushRequestOptions): Promise<PushRequest> {
+	const topic = options.topic ?? PUSH_TOPIC;
+	if (!topicIsSendable(topic)) {
+		throw new Error("push topic is not sendable");
+	}
 	const audience = new URL(options.subscription.endpoint).origin;
 	const jwt = await signVapidJwt(audience, options.vapidSubject, options.vapidPrivateJwk);
 	const body = await encryptPayload(options.subscription, new TextEncoder().encode(options.payload));
@@ -141,7 +146,7 @@ export async function buildPushRequest(options: BuildPushRequestOptions): Promis
 			"Content-Encoding": "aes128gcm",
 			"Content-Type": "application/octet-stream",
 			TTL: String(PUSH_TIME_TO_LIVE_SECONDS),
-			Topic: PUSH_TOPIC,
+			Topic: topic,
 			Urgency: "high",
 		},
 		body,

@@ -16,7 +16,7 @@ import {
 	type CreateBatchRequest,
 	type Disposition,
 } from "./validation";
-import {buildPushRequest, parseVapidJwk, type PushSubscription} from "./webpush";
+import {buildPushRequest, parseVapidJwk, PUSH_TOPIC, type PushSubscription} from "./webpush";
 
 export interface CreatedBatch {
 	batchId: string;
@@ -374,6 +374,11 @@ export class UserDurableObject extends DurableObject<Env> {
 			await this.broadcastBatchState(batchId);
 		}
 		await this.broadcastCurrentDeckState();
+		for (const batchId of affectedBatchIds) {
+			if (isComplete(await this.batchDispositions(batchId))) {
+				await this.sendBatchClearPush(batchId);
+			}
+		}
 	}
 
 	// 🧪 Delivery seam: tests replace this to observe pushes without a live push service.
@@ -445,7 +450,17 @@ export class UserDurableObject extends DurableObject<Env> {
 			count: batchQuestions.length,
 			outstanding,
 		});
+		return this.sendPush(payload, PUSH_TOPIC);
+	}
 
+	private async sendBatchClearPush(batchId: string): Promise<number> {
+		const outstanding = (await this.getCurrentQuestions()).length;
+		// Each batch has its own clear topic so queued retractions cannot replace one another.
+		const topic = `clear-${(await hashToken(batchId)).slice(0, 26)}`;
+		return this.sendPush(JSON.stringify({type: "clear", batch_id: batchId, outstanding}), topic);
+	}
+
+	private async sendPush(payload: string, topic: string): Promise<number> {
 		const deviceRows = await this.database.select().from(devices);
 		if (deviceRows.length === 0) {
 			return 0;
@@ -462,6 +477,7 @@ export class UserDurableObject extends DurableObject<Env> {
 			const request = await buildPushRequest({
 				subscription: subscription.data,
 				payload,
+				topic,
 				vapidPrivateJwk,
 				vapidSubject: this.env.VAPID_SUBJECT,
 			});
@@ -647,6 +663,9 @@ export class UserDurableObject extends DurableObject<Env> {
 			}
 		}
 		await this.broadcastCurrentDeckState();
+		for (const batchId of batchIds) {
+			await this.sendBatchClearPush(batchId);
+		}
 	}
 
 	// ⏰ Re-arm for whichever deadline comes sooner: retention on any batch, or heartbeat
