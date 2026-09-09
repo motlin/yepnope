@@ -102,6 +102,34 @@ const currentDeckSocketAttachmentSchema = z.object({
 	connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationStateSchema,
 });
 
+async function readPushFailureBody(response: Response): Promise<string> {
+	if (response.body === null) {
+		return "";
+	}
+	const reader: ReadableStreamDefaultReader<unknown> = response.body.getReader();
+	const decoder = new TextDecoder();
+	let body = "";
+	// Bound diagnostic reads even when a service returns a large error page.
+	let remainingBytes = 8192;
+	try {
+		while (remainingBytes > 0) {
+			const {done, value} = await reader.read();
+			if (done) {
+				break;
+			}
+			if (!(value instanceof Uint8Array)) {
+				throw new Error("Push response body must contain bytes");
+			}
+			const chunk = value.subarray(0, remainingBytes);
+			remainingBytes -= chunk.byteLength;
+			body += decoder.decode(chunk, {stream: true});
+		}
+		return body + decoder.decode();
+	} finally {
+		await reader.cancel();
+	}
+}
+
 export class UserDurableObject extends DurableObject<Env> {
 	private readonly database: DrizzleSqliteDODatabase;
 	private initialization: Promise<void> | undefined;
@@ -385,8 +413,8 @@ export class UserDurableObject extends DurableObject<Env> {
 	pushTransport: (
 		endpoint: string,
 		request: {headers: Record<string, string>; body: Uint8Array},
-	) => number | Promise<number> = async (endpoint, request) =>
-		(await fetch(endpoint, {method: "POST", headers: request.headers, body: request.body})).status;
+	) => Promise<Response> = async (endpoint, request) =>
+		fetch(endpoint, {method: "POST", headers: request.headers, body: request.body});
 
 	async registerDevice(subscription: PushSubscription, label: string, replaces?: string): Promise<void> {
 		await this.initialize();
@@ -492,10 +520,27 @@ export class UserDurableObject extends DurableObject<Env> {
 			});
 			// 🚧 An unreachable push service must not fail the whole loop or the waitUntil.
 			let status = 0;
+			let detail = "";
+			let detailKind = "body";
 			try {
-				status = await this.pushTransport(request.endpoint, {headers: request.headers, body: request.body});
-			} catch {
-				status = 0;
+				const response = await this.pushTransport(request.endpoint, {
+					headers: request.headers,
+					body: request.body,
+				});
+				status = response.status;
+				if (status < 200 || status >= 300) {
+					detail = await readPushFailureBody(response);
+				}
+			} catch (error) {
+				detailKind = "error";
+				detail = error instanceof Error ? error.message : String(error);
+			}
+			if (status < 200 || status >= 300) {
+				const collapsed = detail.replace(/\s+/g, " ").trim();
+				const excerpt = collapsed.length > 200 ? `${collapsed.slice(0, 200)}…` : collapsed;
+				console.warn(
+					`[push] delivery failed origin=${new URL(request.endpoint).origin} status=${status} ${detailKind}=${excerpt}`,
+				);
 			}
 			if (status === 404 || status === 410) {
 				// 🧹 The push service says this subscription is gone for good.

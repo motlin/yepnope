@@ -1,6 +1,6 @@
 import {runInDurableObject} from "cloudflare:test";
 import {env} from "cloudflare:workers";
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import type {UserDurableObject} from "../user-do";
 import {hashToken} from "../auth";
 import {HEARTBEAT_GRACE_MILLISECONDS, RETENTION_MILLISECONDS} from "../validation";
@@ -30,9 +30,9 @@ async function deliverBatchPush(
 	const stub = env.USER_DO.getByName(userId);
 	return runInDurableObject(stub, async (instance: UserDurableObject) => {
 		const sent: SentPush[] = [];
-		instance.pushTransport = (endpoint, request) => {
+		instance.pushTransport = async (endpoint, request) => {
 			sent.push({endpoint, headers: request.headers, body: request.body});
-			return respondWith;
+			return Promise.resolve(new Response(null, {status: respondWith}));
 		};
 		const delivered = await instance.sendBatchPush(batchId);
 		return {sent, delivered};
@@ -142,6 +142,105 @@ describe("POST /api/v1/push/subscribe", () => {
 });
 
 describe("sendBatchPush", () => {
+	it.each([
+		{status: 400, body: '  {"reason": "BadWebPushTopic"}\n', excerpt: '{"reason": "BadWebPushTopic"}'},
+		{status: 403, body: "Invalid\n\t JWT", excerpt: "Invalid JWT"},
+		{status: 404, body: "Not found", excerpt: "Not found"},
+		{status: 410, body: "Gone", excerpt: "Gone"},
+		{status: 429, body: "", excerpt: ""},
+		{status: 503, body: "x".repeat(9000), excerpt: `${"x".repeat(200)}…`},
+		{status: 500, body: "x".repeat(200), excerpt: "x".repeat(200)},
+		{status: 201, body: "", excerpt: ""},
+	])("logs bounded push failure details for status $status", async ({status, body, excerpt}) => {
+		const userId = `push-rejected-alice-${status}`;
+		const token = await authorizeAgentClient(userId);
+		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}]);
+		const receiver = await createPushReceiver("https://push.example.com/send/private-token");
+		await subscribe(token, receiver);
+		await runInDurableObject(env.USER_DO.getByName(userId), async (instance: UserDurableObject, state) => {
+			const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+			try {
+				instance.pushTransport = async () => Promise.resolve(new Response(body, {status}));
+				const delivered = await instance.sendBatchPush(created.batch_id);
+				expect({
+					delivered,
+					warnings: warning.mock.calls,
+					devices: state.storage.sql.exec("SELECT push_subscription FROM devices").toArray(),
+				}).toStrictEqual({
+					delivered: status === 201 ? 1 : 0,
+					warnings:
+						status === 201
+							? []
+							: [
+									[
+										`[push] delivery failed origin=https://push.example.com status=${status} body=${excerpt}`,
+									],
+								],
+					devices:
+						status === 404 || status === 410
+							? []
+							: [{push_subscription: JSON.stringify(receiver.subscription)}],
+				});
+			} finally {
+				warning.mockRestore();
+			}
+		});
+	});
+
+	it.each(["transport", "response body"])("continues delivery after a failed %s", async (failure) => {
+		const userId = `push-unreachable-alice-${failure}`;
+		const token = await authorizeAgentClient(userId);
+		const created = await createBatchOverHttp(token, "demo", [{title: "Ship it?", body: ""}]);
+		const rejected = await createPushReceiver("https://push.example.com/send/rejected");
+		const accepted = await createPushReceiver("https://other-push.example.com/send/accepted");
+		await subscribe(token, rejected);
+		await subscribe(token, accepted);
+		await runInDurableObject(env.USER_DO.getByName(userId), async (instance: UserDurableObject, state) => {
+			const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+			try {
+				instance.pushTransport = async (endpoint) => {
+					if (endpoint === accepted.subscription.endpoint) {
+						return Promise.resolve(new Response(null, {status: 201}));
+					}
+					if (failure === "transport") {
+						return Promise.reject(new Error("Service unavailable"));
+					}
+					const response = new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.error(new Error("Body unavailable"));
+							},
+						}),
+						{status: 410},
+					);
+					return Promise.resolve(response);
+				};
+				const delivered = await instance.sendBatchPush(created.batch_id);
+				expect({
+					delivered,
+					warnings: warning.mock.calls,
+					devices: state.storage.sql
+						.exec("SELECT push_subscription FROM devices ORDER BY push_subscription")
+						.toArray(),
+				}).toStrictEqual({
+					delivered: 1,
+					warnings: [
+						[
+							failure === "transport"
+								? "[push] delivery failed origin=https://push.example.com status=0 error=Service unavailable"
+								: "[push] delivery failed origin=https://push.example.com status=410 error=Body unavailable",
+						],
+					],
+					devices: (failure === "transport" ? [accepted, rejected] : [accepted]).map((receiver) => ({
+						push_subscription: JSON.stringify(receiver.subscription),
+					})),
+				});
+			} finally {
+				warning.mockRestore();
+			}
+		});
+	});
+
 	it("clears a batch only after every question is answered and preserves other outstanding questions", async () => {
 		const userId = "push-clear-alice";
 		const token = await authorizeAgentClient(userId);
@@ -155,9 +254,9 @@ describe("sendBatchPush", () => {
 		const stub = env.USER_DO.getByName(userId);
 		await runInDurableObject(stub, async (instance: UserDurableObject) => {
 			const sent: SentPush[] = [];
-			instance.pushTransport = (endpoint, request) => {
+			instance.pushTransport = async (endpoint, request) => {
 				sent.push({endpoint, ...request});
-				return 201;
+				return Promise.resolve(new Response(null, {status: 201}));
 			};
 			await instance.submitAnswers([
 				{question_id: required(created.question_ids[0], "first question"), disposition: "yep"},
@@ -193,9 +292,9 @@ describe("sendBatchPush", () => {
 		await subscribe(token, receiver);
 		await runInDurableObject(env.USER_DO.getByName(userId), async (instance: UserDurableObject, state) => {
 			const sent: SentPush[] = [];
-			instance.pushTransport = (endpoint, request) => {
+			instance.pushTransport = async (endpoint, request) => {
 				sent.push({endpoint, ...request});
-				return 201;
+				return Promise.resolve(new Response(null, {status: 201}));
 			};
 			if (expiry === "heartbeat") {
 				state.storage.sql.exec(
