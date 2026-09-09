@@ -388,18 +388,27 @@ export class UserDurableObject extends DurableObject<Env> {
 	) => number | Promise<number> = async (endpoint, request) =>
 		(await fetch(endpoint, {method: "POST", headers: request.headers, body: request.body})).status;
 
-	async registerDevice(subscription: PushSubscription, label: string): Promise<void> {
+	async registerDevice(subscription: PushSubscription, label: string, replaces?: string): Promise<void> {
 		await this.initialize();
 		const serialized = JSON.stringify(subscription);
-		await this.database
-			.insert(devices)
-			.values({
-				id: await hashToken(subscription.endpoint),
-				label,
-				pushSubscription: serialized,
-				createdAt: Date.now(),
-			})
-			.onConflictDoUpdate({target: devices.id, set: {pushSubscription: serialized}});
+		const deviceId = await hashToken(subscription.endpoint);
+		const replacedDeviceId =
+			replaces !== undefined && replaces !== subscription.endpoint ? await hashToken(replaces) : null;
+		this.database.transaction((transaction) => {
+			if (replacedDeviceId !== null) {
+				transaction.delete(devices).where(eq(devices.id, replacedDeviceId)).run();
+			}
+			transaction
+				.insert(devices)
+				.values({
+					id: deviceId,
+					label,
+					pushSubscription: serialized,
+					createdAt: Date.now(),
+				})
+				.onConflictDoUpdate({target: devices.id, set: {pushSubscription: serialized}})
+				.run();
+		});
 	}
 
 	async listPushDevices(): Promise<PushDevice[]> {

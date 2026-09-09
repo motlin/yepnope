@@ -285,7 +285,8 @@ async function subscribePush(request: Request, stub: DurableObjectStub<UserDurab
 	if (!parsed.success) {
 		return new Response(null, {status: 400});
 	}
-	await stub.registerDevice(parsed.data, "Browser notifications");
+	const {replaces, ...subscription} = parsed.data;
+	await stub.registerDevice(subscription, "Browser notifications", replaces);
 	return Response.json({status: "ok"});
 }
 

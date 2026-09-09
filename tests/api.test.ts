@@ -15,6 +15,7 @@ import {
 	fetchSession,
 	openCurrentDeckStream,
 	registerAccount,
+	registerPushSubscription,
 	requestPasswordReset,
 	resumeOAuthAuthorization,
 	sendMagicLink,
@@ -180,6 +181,28 @@ describe("account registration", () => {
 			pushDevices: [{id: "push-subscription-management-id", label: "Alice browser", createdAt: 946_684_800_000}],
 		});
 		expect(fetchMock.mock.calls).toStrictEqual([["/api/v1/account/devices", {credentials: "same-origin"}]]);
+	});
+
+	it("forwards the superseded push endpoint with subscription credentials", async () => {
+		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({status: "ok"}));
+		vi.stubGlobal("fetch", fetchMock);
+		const subscription = {
+			endpoint: "https://push.example.com/send/new",
+			keys: {p256dh: "fake-key", auth: "fake-auth"},
+			replaces: "https://push.example.com/send/old",
+		};
+		await registerPushSubscription(subscription);
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/v1/push/subscribe",
+				{
+					credentials: "same-origin",
+					method: "POST",
+					headers: {"Content-Type": "application/json"},
+					body: JSON.stringify(subscription),
+				},
+			],
+		]);
 	});
 
 	it("sends only the email and password authentication fields", async () => {

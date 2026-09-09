@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {fetchVapidPublicKey, registerPushSubscription} from "../src/api";
-import {enablePush, keysMatch} from "../src/push";
+import {enablePush, keysMatch, subscribeBody} from "../src/push";
 
 vi.mock("../src/api", () => ({
 	fetchVapidPublicKey: vi.fn<typeof fetchVapidPublicKey>(),
@@ -10,6 +10,21 @@ vi.mock("../src/api", () => ({
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.resetAllMocks();
+});
+
+describe("push subscription body", () => {
+	const subscription = {endpoint: "https://example.com/push/fresh", keys: {p256dh: "fake-key", auth: "fake-auth"}};
+
+	it.each([null, subscription.endpoint])("omits a predecessor that is %s", (previousEndpoint) => {
+		expect(subscribeBody(subscription, previousEndpoint)).toStrictEqual(subscription);
+	});
+
+	it("names a different predecessor", () => {
+		expect(subscribeBody(subscription, "https://example.com/push/old")).toStrictEqual({
+			...subscription,
+			replaces: "https://example.com/push/old",
+		});
+	});
 });
 
 describe("push application server keys", () => {
@@ -34,6 +49,37 @@ describe("push application server keys", () => {
 });
 
 describe("push enrollment", () => {
+	it("keeps the last registered endpoint when registration fails", async () => {
+		const previousEndpoint = "https://example.com/push/old";
+		const subscription = {endpoint: "https://example.com/push/fresh"};
+		const setItem = vi.fn<Storage["setItem"]>();
+		const removeItem = vi.fn<Storage["removeItem"]>();
+		vi.stubGlobal("localStorage", {getItem: () => previousEndpoint, setItem, removeItem});
+		const notification = {requestPermission: async () => Promise.resolve("granted")};
+		vi.stubGlobal("window", {PushManager: {}, Notification: notification});
+		vi.stubGlobal("Notification", notification);
+		vi.stubGlobal("navigator", {
+			serviceWorker: {
+				ready: Promise.resolve({
+					pushManager: {
+						getSubscription: async () => Promise.resolve(null),
+						subscribe: async () =>
+							Promise.resolve({endpoint: subscription.endpoint, toJSON: () => subscription}),
+					},
+				}),
+			},
+		});
+		vi.mocked(fetchVapidPublicKey).mockResolvedValue("AH__");
+		vi.mocked(registerPushSubscription).mockRejectedValue(new Error("registration failed"));
+
+		await expect(enablePush()).rejects.toThrow("registration failed");
+		expect({
+			registerCalls: vi.mocked(registerPushSubscription).mock.calls,
+			writes: setItem.mock.calls,
+			removals: removeItem.mock.calls,
+		}).toStrictEqual({registerCalls: [[{...subscription, replaces: previousEndpoint}]], writes: [], removals: []});
+	});
+
 	it.each([
 		{scenario: "creates a subscription when none exists", existing: false, key: null, replaces: false},
 		{
@@ -51,6 +97,18 @@ describe("push enrollment", () => {
 		{scenario: "replaces a subscription without a key", existing: true, key: null, replaces: true},
 	])("$scenario", async ({existing, key, replaces}) => {
 		const events: string[] = [];
+		const storage = new Map([["yepnope:push-endpoint", "https://example.com/push/existing"]]);
+		vi.stubGlobal("localStorage", {
+			getItem: (key: string) => storage.get(key) ?? null,
+			setItem: (key: string, value: string) => {
+				storage.set(key, value);
+				events.push("remembered");
+			},
+			removeItem: (key: string) => {
+				storage.delete(key);
+				events.push("forgotten");
+			},
+		});
 		const existingSubscriptionJson = {endpoint: "https://example.com/push/existing"};
 		const freshSubscriptionJson = {endpoint: "https://example.com/push/fresh"};
 		const unsubscribe = vi.fn<PushSubscription["unsubscribe"]>(async () => {
@@ -58,13 +116,14 @@ describe("push enrollment", () => {
 			events.push("unsubscribed");
 			return true;
 		});
-		const subscribe = vi.fn<(options: PushSubscriptionOptionsInit) => Promise<Pick<PushSubscription, "toJSON">>>(
-			async () => {
-				events.push("subscribed");
-				return Promise.resolve({toJSON: () => freshSubscriptionJson});
-			},
-		);
+		const subscribe = vi.fn<
+			(options: PushSubscriptionOptionsInit) => Promise<Pick<PushSubscription, "toJSON" | "endpoint">>
+		>(async () => {
+			events.push("subscribed");
+			return Promise.resolve({endpoint: freshSubscriptionJson.endpoint, toJSON: () => freshSubscriptionJson});
+		});
 		const existingSubscription = {
+			endpoint: existingSubscriptionJson.endpoint,
 			options: {applicationServerKey: key},
 			unsubscribe,
 			toJSON: () => existingSubscriptionJson,
@@ -96,6 +155,7 @@ describe("push enrollment", () => {
 			subscribeCalls: subscribe.mock.calls,
 			registerCalls: vi.mocked(registerPushSubscription).mock.calls,
 			events,
+			storage,
 		}).toStrictEqual({
 			result: "subscribed",
 			permissionCalls: [[]],
@@ -106,12 +166,24 @@ describe("push enrollment", () => {
 				!existing || replaces
 					? [[{userVisibleOnly: true, applicationServerKey: new Uint8Array([0, 127, 255])}]]
 					: [],
-			registerCalls: [[!existing || replaces ? freshSubscriptionJson : existingSubscriptionJson]],
+			registerCalls: [
+				[
+					!existing || replaces
+						? {...freshSubscriptionJson, replaces: existingSubscriptionJson.endpoint}
+						: existingSubscriptionJson,
+				],
+			],
+			storage: new Map([
+				[
+					"yepnope:push-endpoint",
+					!existing || replaces ? freshSubscriptionJson.endpoint : existingSubscriptionJson.endpoint,
+				],
+			]),
 			events: replaces
-				? ["unsubscribed", "subscribed", "registered"]
+				? ["unsubscribed", "forgotten", "subscribed", "registered", "remembered"]
 				: existing
-					? ["registered"]
-					: ["subscribed", "registered"],
+					? ["registered", "remembered"]
+					: ["subscribed", "registered", "remembered"],
 		});
 	});
 });

@@ -1110,7 +1110,11 @@ export async function fetchVapidPublicKey(): Promise<string> {
 	return body.public_key;
 }
 
-export async function registerPushSubscription(subscription: unknown): Promise<void> {
+export interface PushSubscribeBody extends PushSubscriptionJSON {
+	replaces?: string;
+}
+
+export async function registerPushSubscription(subscription: PushSubscribeBody): Promise<void> {
 	await requestJson(
 		"/api/v1/push/subscribe",
 		{method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(subscription)},

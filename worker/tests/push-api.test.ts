@@ -69,6 +69,62 @@ describe("POST /api/v1/push/subscribe", () => {
 		expect(response.status).toBe(400);
 	});
 
+	it("replaces only the named device for the authenticated user", async () => {
+		const userId = "push-replace-alice";
+		const token = await authorizeAgentClient(userId);
+		const oldReceiver = await createPushReceiver("https://push.example.com/send/old");
+		const newReceiver = await createPushReceiver("https://push.example.com/send/new");
+		const otherReceiver = await createPushReceiver("https://push.example.com/send/other");
+		await subscribe(token, oldReceiver);
+		await subscribe(token, otherReceiver);
+		const bobToken = await authorizeAgentClient("push-replace-bob");
+		await subscribe(bobToken, oldReceiver);
+
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/push/subscribe`, {
+			method: "POST",
+			headers: {Authorization: `Bearer ${token}`},
+			body: JSON.stringify({...newReceiver.subscription, replaces: oldReceiver.subscription.endpoint}),
+		});
+		expect(response.status).toBe(200);
+		await runInDurableObject(env.USER_DO.getByName(userId), (_instance, state) => {
+			expect(
+				state.storage.sql.exec("SELECT push_subscription FROM devices ORDER BY push_subscription").toArray(),
+			).toStrictEqual(
+				[newReceiver, otherReceiver].map((receiver) => ({
+					push_subscription: JSON.stringify(receiver.subscription),
+				})),
+			);
+		});
+		await runInDurableObject(env.USER_DO.getByName("push-replace-bob"), (_instance, state) => {
+			expect(state.storage.sql.exec("SELECT push_subscription FROM devices").toArray()).toStrictEqual([
+				{push_subscription: JSON.stringify(oldReceiver.subscription)},
+			]);
+		});
+	});
+
+	it("keeps a device's identity when it names itself as predecessor", async () => {
+		const userId = "push-replace-self";
+		const token = await authorizeAgentClient(userId);
+		const receiver = await createPushReceiver("https://push.example.com/send/self");
+		await subscribe(token, receiver);
+		await runInDurableObject(env.USER_DO.getByName(userId), (_instance, state) => {
+			state.storage.sql.exec("UPDATE devices SET label = ?, created_at = ?", "Alice phone", 1000);
+		});
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/push/subscribe`, {
+			method: "POST",
+			headers: {Authorization: `Bearer ${token}`},
+			body: JSON.stringify({...receiver.subscription, replaces: receiver.subscription.endpoint}),
+		});
+		expect(response.status).toBe(200);
+		await runInDurableObject(env.USER_DO.getByName(userId), (_instance, state) => {
+			expect(
+				state.storage.sql.exec("SELECT label, created_at, push_subscription FROM devices").toArray(),
+			).toStrictEqual([
+				{label: "Alice phone", created_at: 1000, push_subscription: JSON.stringify(receiver.subscription)},
+			]);
+		});
+	});
+
 	it("stores the device, deduplicated by endpoint", async () => {
 		const userId = "push-subscribe";
 		const token = await authorizeAgentClient(userId);
