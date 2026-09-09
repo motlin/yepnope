@@ -74,8 +74,8 @@ importers:
         specifier: ^10.5.8
         version: 10.5.8(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))
       '@storybook/addon-docs':
-        specifier: ^10.5.8
-        version: 10.5.8(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))
+        specifier: ^10.6.0
+        version: 10.6.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))
       '@storybook/addon-onboarding':
         specifier: ^10.5.8
         version: 10.5.8(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))
@@ -2278,11 +2278,11 @@ packages:
     peerDependencies:
       storybook: ^10.5.8
 
-  '@storybook/addon-docs@10.5.8':
-    resolution: {integrity: sha512-NlHiMKW/UvW/uL8HXFDCEVwoH3qZeGYZ/qlWax4d7H471b/T54MBq2KcB4ZrdA785FfIH3numAJdBb5jwn00Mg==}
+  '@storybook/addon-docs@10.6.0':
+    resolution: {integrity: sha512-Fk3rUQWeGyCfL170OkmRp6Ruyv7MHPb/xrKa6YNk7FlGmlVLi5tKzh2T/0J13vWEy8wiu2MV3IBu8iRsaUR+Cw==}
     peerDependencies:
       '@types/react': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      storybook: ^10.5.8
+      storybook: ^10.6.0
     peerDependenciesMeta:
       '@types/react':
         optional: true
@@ -2334,24 +2334,6 @@ packages:
       webpack:
         optional: true
 
-  '@storybook/csf-plugin@10.5.8':
-    resolution: {integrity: sha512-/FHiMyOWWEXfwK/lM0WxmkP9GLzbSJJuzGtfeuNWSOVDnvAMbjavitxfHb5wSbWKIQo0XYC1EJ2Y7x91XNYP4w==}
-    peerDependencies:
-      esbuild: '*'
-      rollup: '*'
-      storybook: ^10.5.8
-      vite: '*'
-      webpack: '*'
-    peerDependenciesMeta:
-      esbuild:
-        optional: true
-      rollup:
-        optional: true
-      vite:
-        optional: true
-      webpack:
-        optional: true
-
   '@storybook/global@5.0.0':
     resolution: {integrity: sha512-FcOqPAXACP0I3oJ/ws6/rrPT9WGhu915Cg8D02a9YxLo0DE9zI+a9A5gRGvmQ09fiWPukqI8ZAEoQEdWUKMQdQ==}
 
@@ -2374,14 +2356,14 @@ packages:
       '@types/react-dom':
         optional: true
 
-  '@storybook/react-dom-shim@10.5.8':
-    resolution: {integrity: sha512-N8D13/Xny+V3kfe1KBgsAHS0nKWXLLdgOOXS9poKdYzVwVCN+CGEGBxWX0zMMtdCptqa6/57em9coPlZMoO+bg==}
+  '@storybook/react-dom-shim@10.6.0':
+    resolution: {integrity: sha512-ZE0l4xL6d00rKFeJhRDuh0t3r+/2ffhx47lIyaSWrTD5kuM3nDjKDxCIWwX4E3gLV+oNX8E1prXRMuEWJUJwJg==}
     peerDependencies:
       '@types/react': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       '@types/react-dom': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      storybook: ^10.5.8
+      storybook: ^10.6.0
     peerDependenciesMeta:
       '@types/react':
         optional: true
@@ -7876,24 +7858,20 @@ snapshots:
       axe-core: 4.13.0
       storybook: 10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2))
 
-  '@storybook/addon-docs@10.5.8(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))':
+  '@storybook/addon-docs@10.6.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))':
     dependencies:
       '@mdx-js/react': 3.1.1(@types/react@19.2.18)(react@19.2.8)
-      '@storybook/csf-plugin': 10.5.8(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))
       '@storybook/icons': 2.1.0(react@19.2.8)
-      '@storybook/react-dom-shim': 10.5.8(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))
+      '@storybook/react-dom-shim': 10.6.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
       storybook: 10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2))
       ts-dedent: 2.3.0
+      unplugin: 2.3.11
     optionalDependencies:
       '@types/react': 19.2.18
     transitivePeerDependencies:
       - '@types/react-dom'
-      - esbuild
-      - rollup
-      - vite
-      - webpack
 
   '@storybook/addon-onboarding@10.5.8(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))':
     dependencies:
@@ -7930,14 +7908,6 @@ snapshots:
       esbuild: 0.28.2
       vite: '@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2)'
 
-  '@storybook/csf-plugin@10.5.8(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))':
-    dependencies:
-      storybook: 10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2))
-      unplugin: 2.3.11
-    optionalDependencies:
-      esbuild: 0.28.2
-      vite: '@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2)'
-
   '@storybook/global@5.0.0': {}
 
   '@storybook/icons@2.1.0(react@19.2.8)':
@@ -7953,7 +7923,7 @@ snapshots:
       '@types/react': 19.2.18
       '@types/react-dom': 19.2.5(@types/react@19.2.18)
 
-  '@storybook/react-dom-shim@10.5.8(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))':
+  '@storybook/react-dom-shim@10.6.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.5(@types/react@19.2.18)(react@19.2.8)(vite-plus@0.2.7(@types/node@26.1.2)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(typescript@7.0.2))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(tsx@4.23.12)(typescript@7.0.2)))':
     dependencies:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
