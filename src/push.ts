@@ -9,6 +9,14 @@ function base64UrlToBytes(encoded: string): Uint8Array<ArrayBuffer> {
 	return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
+export function keysMatch(subscriptionKey: ArrayBuffer | null, publicKey: Uint8Array): boolean {
+	if (subscriptionKey === null || subscriptionKey.byteLength !== publicKey.byteLength) {
+		return false;
+	}
+	const bytes = new Uint8Array(subscriptionKey);
+	return bytes.every((byte, index) => byte === publicKey[index]);
+}
+
 function pushSupported(): boolean {
 	return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
@@ -33,12 +41,17 @@ export async function enablePush(): Promise<PushSetupResult> {
 		return "denied";
 	}
 	const registration = await navigator.serviceWorker.ready;
-	const existing = await registration.pushManager.getSubscription();
+	const applicationServerKey = base64UrlToBytes(await fetchVapidPublicKey());
+	let existing = await registration.pushManager.getSubscription();
+	if (existing !== null && !keysMatch(existing.options.applicationServerKey, applicationServerKey)) {
+		await existing.unsubscribe();
+		existing = null;
+	}
 	const subscription =
 		existing ??
 		(await registration.pushManager.subscribe({
 			userVisibleOnly: true,
-			applicationServerKey: base64UrlToBytes(await fetchVapidPublicKey()),
+			applicationServerKey,
 		}));
 	await registerPushSubscription(subscription.toJSON());
 	return "subscribed";
