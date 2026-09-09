@@ -82,11 +82,10 @@ async function assertViewportScrollsSettings(page: Page): Promise<void> {
 	expect(initialGeometry.viewportScrollHeight).toBeGreaterThan(initialGeometry.viewportHeight);
 
 	await back.scrollIntoViewIfNeeded();
-	const scrolledGeometry = await page.evaluate(() => {
+	const scrolledGeometry = await privacy.evaluate((privacyElement) => {
 		const settingsElement = document.querySelector<HTMLElement>(".settings");
-		const privacyElement = document.querySelector<HTMLElement>(".settings .hint:nth-last-of-type(1)");
 		const backElement = document.querySelector<HTMLElement>(".settings .back");
-		if (settingsElement === null || privacyElement === null || backElement === null) {
+		if (settingsElement === null || backElement === null) {
 			throw new Error("settings controls are missing");
 		}
 		const privacyBounds = privacyElement.getBoundingClientRect();
@@ -186,7 +185,7 @@ test("settings separates account access, MCP clients, and browser notifications"
 		await expect(page.getByText("Alice phone")).toBeVisible();
 		// The per-client steps live on /connect now, so settings stays account-focused.
 		expect(await page.locator(".settings code").count()).toBe(0);
-		expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("pair");
+		await expect(page.getByRole("button", {name: "Create QR code", exact: true})).toHaveText("Create QR code");
 		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-account-access.png")});
 		await page.getByRole("button", {name: "Connect an MCP client"}).click();
 		await expect(page).toHaveURL(/\/connect$/);

@@ -40,6 +40,21 @@ export const sessions = sqliteTable(
 	(table) => [index("session_user_id_idx").on(table.userId)],
 );
 
+export const phonePairings = sqliteTable(
+	"phone_pairing",
+	{
+		id: text("id").primaryKey(),
+		sessionId: text("session_id")
+			.notNull()
+			.unique()
+			.references(() => sessions.id, {onDelete: "cascade"}),
+		codeHash: text("code_hash").notNull(),
+		expiresAt: integer("expires_at", {mode: "timestamp_ms"}).notNull(),
+		attempts: integer("attempts").notNull().default(0),
+	},
+	(table) => [index("phone_pairing_expiry_idx").on(table.expiresAt)],
+);
+
 export const accounts = sqliteTable(
 	"account",
 	{

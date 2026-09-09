@@ -1,3 +1,6 @@
+import {hashToken} from "./webcrypto";
+export {hashToken} from "./webcrypto";
+import {phonePairing} from "./phone-pairing";
 import {mcp} from "@better-auth/mcp";
 import {drizzleAdapter} from "@better-auth/drizzle-adapter";
 import {oauthDeviceAuthorization} from "@better-auth/oauth-provider";
@@ -18,6 +21,7 @@ import {
 	oauthRefreshTokens,
 	oauthResources,
 	passkeys,
+	phonePairings,
 	sessions,
 	users,
 	verifications,
@@ -185,6 +189,7 @@ const authenticationSchema = {
 	oauthRefreshToken: oauthRefreshTokens,
 	oauthResource: oauthResources,
 	passkey: passkeys,
+	phonePairing: phonePairings,
 	session: sessions,
 	user: users,
 	verification: verifications,
@@ -906,6 +911,7 @@ export function createAuthentication(
 			schema: authenticationSchema,
 		}),
 		plugins: [
+			phonePairing(environment.DB, new URL(environment.BETTER_AUTH_URL).origin),
 			jwt(),
 			magicLink({
 				expiresIn: MAGIC_LINK_EXPIRY_SECONDS,
@@ -1258,13 +1264,6 @@ export async function workerAuthenticationFor(
 		);
 	}
 	return cached.withPasskeys;
-}
-
-export async function hashToken(token: string): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-	return Array.from(new Uint8Array(digest))
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
 }
 
 export async function authenticateBrowserSession(

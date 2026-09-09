@@ -1,3 +1,4 @@
+import {PairPhone, PhonePairingPanel} from "./phone-pairing";
 import {useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent} from "react";
 import {
 	consumePasswordResetToken,
@@ -141,7 +142,8 @@ type AppView =
 	| "forgot-password"
 	| "reset-password"
 	| "oauth-consent"
-	| "device";
+	| "device"
+	| "pair-phone";
 
 function viewFromPath(pathname: string): AppView {
 	switch (pathname) {
@@ -161,6 +163,8 @@ function viewFromPath(pathname: string): AppView {
 			return "reset-password";
 		case "/oauth/consent":
 			return "oauth-consent";
+		case "/pair-phone":
+			return "pair-phone";
 		case "/device":
 			return "device";
 		default:
@@ -186,6 +190,8 @@ function pathForView(view: AppView): string {
 			return "/reset-password";
 		case "oauth-consent":
 			return "/oauth/consent";
+		case "pair-phone":
+			return "/pair-phone";
 		case "device":
 			return "/device";
 		case "deck":
@@ -2198,6 +2204,7 @@ function Settings({
 					</>
 				)}
 			</div>
+			{session !== null && <PhonePairingPanel />}
 			{session !== null && <SignInMethodsPanel onSignedOut={onSignedOut} />}
 			<AppearancePanel theme={theme} />
 			<div className="hint connected-clients" role="region" aria-label="Connected MCP clients">
@@ -2257,8 +2264,8 @@ function Settings({
 			<div className="hint">
 				<h3>Signed-in browsers</h3>
 				<p>
-					Another phone or browser signs into this same YepNope account directly; no setup codes are needed.
-					Browser sessions do not authorize MCP clients or receive notifications by themselves.
+					Another phone or browser can sign into this account directly or use Pair a phone above. Browser
+					sessions do not authorize MCP clients or receive notifications by themselves.
 				</p>
 				{session === null ? (
 					<p>Sign in to see active browser sessions.</p>
@@ -2459,6 +2466,7 @@ export function App(): ReactElement {
 			"reset-password": "Choose a password · YepNope",
 			"oauth-consent": "Authorize MCP client · YepNope",
 			device: "Approve a device · YepNope",
+			"pair-phone": "Pair a phone · YepNope",
 		};
 		document.title = titles[view];
 	}, [view]);
@@ -2771,6 +2779,8 @@ export function App(): ReactElement {
 					return <div className="loading">Sign in is required to continue.</div>;
 				}
 				return <OAuthConsent />;
+			case "pair-phone":
+				return <PairPhone />;
 			case "device":
 				if (!sessionReady) {
 					return <div className="loading">Checking your session…</div>;

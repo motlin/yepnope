@@ -1,4 +1,4 @@
-// 🔐 Byte plumbing shared by the push sender and the test push receiver.
+// 🔐 Cryptographic byte and hash helpers shared by authentication and web push.
 
 export function base64UrlEncode(bytes: Uint8Array): string {
 	let binary = "";
@@ -36,4 +36,11 @@ export function asArrayBuffer(exported: ArrayBuffer | JsonWebKey): ArrayBuffer {
 		throw new Error("expected raw key bytes");
 	}
 	return exported;
+}
+
+export async function hashToken(token: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+	return Array.from(new Uint8Array(digest))
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
 }

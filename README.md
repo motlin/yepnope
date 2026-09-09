@@ -13,8 +13,12 @@ mis-swipe can be taken back. The agent blocks until every card is answered.
 Installing the agent integration is only half of it; the questions have to land
 somewhere.
 
-1. Open <https://yepnope.app> on the phone and create an account. Email and
-   password, an emailed sign-in link, a passkey, and any configured social
+1. Already signed in on a desktop? Open **Settings -> Pair a phone -> Create QR
+   code**, scan it with your phone camera, and tap **Sign in this phone**. The
+   code works once, expires after 10 minutes, and is cancelled by five wrong
+   attempts, replacing it, or signing out on the desktop. Only scan codes you
+   created yourself; anyone holding one can sign in to your account.
+   Otherwise, open <https://yepnope.app> and create an account. Email and password, an emailed sign-in link, a passkey, and any configured social
    provider all reach the same account; see
    [Sign-in methods](#sign-in-methods).
 2. On iPhone, install the app before anything else: tap **Share**, choose

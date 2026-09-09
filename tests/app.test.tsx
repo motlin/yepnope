@@ -1068,7 +1068,7 @@ describe("App live question synchronization", () => {
 		expect(screen.getByRole("heading", {name: "Install first"})).toBeDefined();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
 		expect(screen.getByRole("button", {name: CONNECT_PAGE_LABEL})).toBeDefined();
-		expect(document.body.textContent.toLowerCase()).not.toContain("pair");
+		expect(screen.getByRole("button", {name: "Create QR code"}).textContent).toBe("Create QR code");
 	});
 
 	it("keeps per-client instructions off settings and sends the reader to the connect page", async () => {

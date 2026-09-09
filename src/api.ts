@@ -1122,3 +1122,24 @@ export async function registerPushSubscription(subscription: PushSubscribeBody):
 		"Push notifications could not be enabled. Try again in a moment.",
 	);
 }
+
+const phonePairingSchema = z.object({id: z.uuid(), code: z.string(), expiresAt: z.number()});
+export type PhonePairing = z.infer<typeof phonePairingSchema>;
+
+export async function createPhonePairing(): Promise<PhonePairing> {
+	return requestJson(
+		"/api/auth/phone-pairing/create",
+		jsonRequest({}),
+		phonePairingSchema,
+		"Could not create a pairing code. Try signing in again.",
+	);
+}
+
+export async function claimPhonePairing(id: string, code: string): Promise<void> {
+	await requestJson(
+		"/api/auth/phone-pairing/claim",
+		jsonRequest({id, code}),
+		z.object({status: z.literal("ok")}),
+		"Could not pair this phone. Create a new QR code on your desktop.",
+	);
+}
