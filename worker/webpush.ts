@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {HEARTBEAT_GRACE_MILLISECONDS} from "./validation";
 import {asArrayBuffer, asKeyPair, base64UrlDecode, base64UrlEncode, concatBytes} from "./webcrypto";
 
 // 🔐 Web push per RFC 8291 (aes128gcm) and RFC 8292 (VAPID): WebCrypto only, no push vendor (spec §6.1).
@@ -16,6 +17,14 @@ export interface PushRequest {
 
 const RECORD_SIZE = 4096;
 const VAPID_JWT_LIFETIME_SECONDS = 12 * 60 * 60;
+// A single topic replaces older queued notifications for each subscription.
+export const PUSH_TOPIC = "yepnope-pending";
+export const PUSH_TIME_TO_LIVE_SECONDS = HEARTBEAT_GRACE_MILLISECONDS / 1000;
+
+export function topicIsSendable(topic: string): boolean {
+	// Apple decodes the URL-safe base64 topic and rejects lengths congruent to 1 mod 4.
+	return topic.length > 0 && topic.length <= 32 && topic.length % 4 !== 1 && !/[^A-Za-z0-9_-]/u.test(topic);
+}
 
 const vapidJwkSchema = z.object({
 	kty: z.literal("EC"),
@@ -131,7 +140,8 @@ export async function buildPushRequest(options: BuildPushRequestOptions): Promis
 			Authorization: `vapid t=${jwt}, k=${vapidPublicKeyFromJwk(options.vapidPrivateJwk)}`,
 			"Content-Encoding": "aes128gcm",
 			"Content-Type": "application/octet-stream",
-			TTL: "86400",
+			TTL: String(PUSH_TIME_TO_LIVE_SECONDS),
+			Topic: PUSH_TOPIC,
 			Urgency: "high",
 		},
 		body,

@@ -1,11 +1,51 @@
 import {env} from "cloudflare:workers";
 import {describe, expect, it} from "vitest";
 import {base64UrlDecode} from "../webcrypto";
-import {buildPushRequest, vapidPublicKeyFromJwk} from "../webpush";
+import {HEARTBEAT_GRACE_MILLISECONDS} from "../validation";
+import {
+	buildPushRequest,
+	PUSH_TIME_TO_LIVE_SECONDS,
+	PUSH_TOPIC,
+	topicIsSendable,
+	vapidPublicKeyFromJwk,
+} from "../webpush";
 import {createPushReceiver} from "./push-helpers";
 import {required} from "./helpers";
 
 const ENDPOINT = "https://push.example.com/send/abc123";
+
+describe("push delivery options", () => {
+	it("keeps the configured collapse topic sendable on Apple push services", () => {
+		expect(topicIsSendable(PUSH_TOPIC)).toBe(true);
+	});
+
+	it("expires queued notifications after the heartbeat grace period", () => {
+		expect(PUSH_TIME_TO_LIVE_SECONDS).toBe(300);
+		expect(PUSH_TIME_TO_LIVE_SECONDS * 1000).toBe(HEARTBEAT_GRACE_MILLISECONDS);
+	});
+});
+
+describe("topicIsSendable", () => {
+	it.each([
+		["", false],
+		["a", false],
+		["ab", true],
+		["abc", true],
+		["abcd", true],
+		["a".repeat(13), false],
+		["a".repeat(29), false],
+		["a".repeat(32), true],
+		["a".repeat(34), false],
+		["AZaz09_-", true],
+		["ab+c", false],
+		["ab/c", false],
+		["abc=", false],
+		["ab c", false],
+		["abc\n", false],
+	])("validates topic %j as %s", (topic, sendable) => {
+		expect(topicIsSendable(topic)).toBe(sendable);
+	});
+});
 
 function vapidPrivateJwk(): JsonWebKey {
 	return JSON.parse(env.VAPID_PRIVATE_JWK) as JsonWebKey;
@@ -30,9 +70,15 @@ describe("buildPushRequest", () => {
 			vapidSubject: env.VAPID_SUBJECT,
 		});
 		expect(request.endpoint).toBe(ENDPOINT);
-		expect(request.headers["Content-Encoding"]).toBe("aes128gcm");
-		expect(request.headers["TTL"]).toBe("86400");
-		expect(request.headers["Urgency"]).toBe("high");
+		const {Authorization: _authorization, ...deliveryHeaders} = request.headers;
+		expect(deliveryHeaders).toStrictEqual({
+			"Content-Encoding": "aes128gcm",
+			"Content-Type": "application/octet-stream",
+			TTL: "300",
+			Topic: PUSH_TOPIC,
+			Urgency: "high",
+		});
+		expect(topicIsSendable(required(request.headers["Topic"], "Topic header"))).toBe(true);
 	});
 
 	it("encrypts the payload so only the subscription keys can read it", async () => {
