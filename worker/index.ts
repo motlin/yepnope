@@ -32,7 +32,7 @@ import {
 	pushSubscriptionSchema,
 	submitAnswersRequestSchema,
 } from "./validation";
-import {parseVapidJwk, vapidPublicKeyFromJwk} from "./webpush";
+import {defaultPushDeviceLabel, parseVapidJwk, vapidPublicKeyFromJwk} from "./webpush";
 
 export {UserDurableObject} from "./user-do";
 
@@ -286,7 +286,7 @@ async function subscribePush(request: Request, stub: DurableObjectStub<UserDurab
 		return new Response(null, {status: 400});
 	}
 	const {replaces, ...subscription} = parsed.data;
-	await stub.registerDevice(subscription, "Browser notifications", replaces);
+	await stub.registerDevice(subscription, defaultPushDeviceLabel(request.headers.get("User-Agent")), replaces);
 	return Response.json({status: "ok"});
 }
 

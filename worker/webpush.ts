@@ -9,6 +9,15 @@ export interface PushSubscription {
 	keys: {p256dh: string; auth: string};
 }
 
+export function defaultPushDeviceLabel(userAgent: string | null): string {
+	const label =
+		userAgent
+			?.replace(/[\r\n]/gu, "")
+			.trim()
+			.slice(0, 160) ?? "";
+	return label === "" ? "Browser notifications" : label;
+}
+
 export interface PushRequest {
 	endpoint: string;
 	headers: Record<string, string>;

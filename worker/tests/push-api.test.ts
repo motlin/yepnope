@@ -4,7 +4,7 @@ import {describe, expect, it, vi} from "vitest";
 import type {UserDurableObject} from "../user-do";
 import {hashToken} from "../auth";
 import {HEARTBEAT_GRACE_MILLISECONDS, RETENTION_MILLISECONDS} from "../validation";
-import {vapidPublicKeyFromJwk} from "../webpush";
+import {defaultPushDeviceLabel, vapidPublicKeyFromJwk} from "../webpush";
 import {API_ORIGIN, createBatchOverHttp, authorizeAgentClient, required, worker} from "./helpers";
 import {createPushReceiver, type PushReceiver} from "./push-helpers";
 
@@ -50,6 +50,50 @@ describe("GET /api/v1/push/public-key", () => {
 });
 
 describe("POST /api/v1/push/subscribe", () => {
+	it.each([
+		{userAgent: null, label: "Browser notifications"},
+		{userAgent: " \t\r\n ", label: "Browser notifications"},
+		{userAgent: "  TestBrowser/1.0 (Alice phone)  ", label: "TestBrowser/1.0 (Alice phone)"},
+		{userAgent: "TestBrowser/1.0\r\n (Alice phone)\n", label: "TestBrowser/1.0 (Alice phone)"},
+		{userAgent: "x".repeat(200), label: "x".repeat(160)},
+	])("derives a bounded device label from $userAgent", ({userAgent, label}) => {
+		expect(defaultPushDeviceLabel(userAgent)).toBe(label);
+	});
+
+	it("uses the registering browser's User-Agent as its device label", async () => {
+		const userId = "push-label-alice";
+		const token = await authorizeAgentClient(userId);
+		const receiver = await createPushReceiver("https://push.example.com/send/alice-label");
+		const response = await worker.fetch(`${API_ORIGIN}/api/v1/push/subscribe`, {
+			method: "POST",
+			headers: {Authorization: `Bearer ${token}`, "User-Agent": "  TestBrowser/1.0 (Alice phone)  "},
+			body: JSON.stringify(receiver.subscription),
+		});
+		expect({status: response.status, body: await response.json()}).toStrictEqual({
+			status: 200,
+			body: {status: "ok"},
+		});
+		await runInDurableObject(env.USER_DO.getByName(userId), (_instance, state) => {
+			expect(state.storage.sql.exec("SELECT label FROM devices").toArray()).toStrictEqual([
+				{label: "TestBrowser/1.0 (Alice phone)"},
+			]);
+		});
+	});
+
+	it("preserves a renamed label while refreshing the same endpoint's subscription", async () => {
+		const receiver = await createPushReceiver("https://push.example.com/send/alice-renamed");
+		const refreshedReceiver = await createPushReceiver(receiver.subscription.endpoint);
+		const stub = env.USER_DO.getByName("push-label-renamed-alice");
+		await stub.registerDevice(receiver.subscription, "TestBrowser/1.0");
+		expect(await stub.renamePushDevice(await hashToken(receiver.subscription.endpoint), "Alice phone")).toBe(true);
+		await stub.registerDevice(refreshedReceiver.subscription, "TestBrowser/2.0");
+		await runInDurableObject(stub, (_instance, state) => {
+			expect(state.storage.sql.exec("SELECT label, push_subscription FROM devices").toArray()).toStrictEqual([
+				{label: "Alice phone", push_subscription: JSON.stringify(refreshedReceiver.subscription)},
+			]);
+		});
+	});
+
 	it("requires authentication", async () => {
 		const receiver = await createPushReceiver("https://push.example.com/send/noauth");
 		const response = await worker.fetch(`${API_ORIGIN}/api/v1/push/subscribe`, {
