@@ -1,4 +1,3 @@
-import {fileURLToPath} from "node:url";
 import {describe, expect, it, vi} from "vitest";
 import {
 	planRelease,
@@ -101,30 +100,23 @@ function dependencies(run: ReturnType<typeof releaseRunner>): ReleaseDependencie
 }
 
 describe("just release", () => {
-	it.each([0, 1])("resolves secret references before any release work and preserves exit code %i", async (code) => {
-		using output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-		const run = releaseRunner([{code, output: "example release output\n"}]);
+	it.each([
+		{arguments: [], command: "op run -- just release"},
+		{arguments: ["--dry-run"], command: "op run -- just release --dry-run"},
+	])("refuses unresolved references and suggests $command", async ({arguments: commandArguments, command}) => {
+		using output = vi.spyOn(console, "error").mockImplementation(() => {});
+		const run = releaseRunner([]);
 
-		const result = await releaseMain(dependencies(run), {CLOUDFLARE_API_TOKEN: "op://Example/Cloudflare/token"}, [
-			"--dry-run",
-		]);
+		const result = await releaseMain(
+			dependencies(run),
+			{CLOUDFLARE_API_TOKEN: "op://Example/Cloudflare/token"},
+			commandArguments,
+		);
 
 		expect({code: result, calls: run.mock.calls, output: output.mock.calls}).toStrictEqual({
-			code,
-			calls: [
-				[
-					"op",
-					[
-						"run",
-						"--",
-						process.execPath,
-						"--experimental-strip-types",
-						fileURLToPath(new URL("../scripts/release.ts", import.meta.url)),
-						"--dry-run",
-					],
-				],
-			],
-			output: [["example release output\n"]],
+			code: 1,
+			calls: [],
+			output: [[`Unresolved 1Password secret references in the environment. Run \`${command}\` instead.`]],
 		});
 	});
 

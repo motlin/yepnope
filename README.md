@@ -628,10 +628,9 @@ deploy reported, and pushes the tag last.
 ### The deployment preflight
 
 If the release environment contains 1Password secret references (`op://…`),
-the release script runs itself through `op run` once before its Git and Cloudflare
-checks. Install and sign in to the 1Password CLI for this setup. Resolved tokens
-and Wrangler login credentials work without it. This also applies to
-`just release --dry-run`; references must be resolved before Wrangler can authenticate.
+the release script stops before its Git and Cloudflare checks and tells you to
+run `op run -- just release`. For a dry run, use `op run -- just release --dry-run`.
+Resolved tokens and Wrangler login credentials work without the 1Password CLI.
 
 Every other guard asks the repository a question. `scripts/preflight.ts` asks
 Cloudflare one, because a perfect repository can still be deployed onto a Worker

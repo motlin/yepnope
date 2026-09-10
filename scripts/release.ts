@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {readFile} from "node:fs/promises";
-import {fileURLToPath, pathToFileURL} from "node:url";
+import {pathToFileURL} from "node:url";
 // Node runs this file directly, so the relative import carries the extension TypeScript allows.
 import {preflightDeployment, PRODUCTION_HOSTNAME, STAGING_CONFIG, type CommandResult} from "./preflight.ts";
 
@@ -213,18 +213,10 @@ export async function releaseMain(
 	environment: Readonly<Record<string, string | undefined>>,
 	commandArguments: readonly string[],
 ): Promise<number> {
-	// Resolve references once for the whole release, including its deployment checks.
 	if (Object.values(environment).some((value) => value?.startsWith("op://") ?? false)) {
-		const result = await dependencies.run("op", [
-			"run",
-			"--",
-			process.execPath,
-			"--experimental-strip-types",
-			fileURLToPath(import.meta.url),
-			...commandArguments,
-		]);
-		process.stdout.write(result.output);
-		return result.code;
+		const command = `op run -- just release${commandArguments.includes("--dry-run") ? " --dry-run" : ""}`;
+		console.error(`Unresolved 1Password secret references in the environment. Run \`${command}\` instead.`);
+		return 1;
 	}
 	if (commandArguments.includes("--dry-run")) {
 		const plan = await planRelease(dependencies);
