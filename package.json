@@ -51,7 +51,7 @@
 		"qrcode.react": "^4.2.0",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
-		"zod": "^4.4.3"
+		"zod": "^4.5.4"
 	},
 	"devDependencies": {
 		"@better-auth/memory-adapter": "1.7.0",
