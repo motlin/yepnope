@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from "vitest";
-import {planRelease, runRelease, type CommandResult, type ReleaseDependencies} from "../scripts/release";
+import {planRelease, runRelease, spawnCommand, type CommandResult, type ReleaseDependencies} from "../scripts/release";
 
 const NOW = new Date("2026-08-20T12:00:00.000Z");
 const TAG = "v2026.08.20-abc1234";
@@ -93,6 +93,33 @@ function dependencies(run: ReturnType<typeof releaseRunner>): ReleaseDependencie
 }
 
 describe("just release", () => {
+	it.each([0, 1])("keeps stderr diagnostics out of parsed command output with exit code %i", async (code) => {
+		using diagnostics = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+		const result = await spawnCommand(process.execPath, [
+			"-e",
+			`process.stdout.write("stdout\\n"); process.stderr.write("diagnostic\\n"); process.exitCode = ${code};`,
+		]);
+
+		expect(result).toStrictEqual({code, output: "stdout\n"});
+		expect(diagnostics.mock.calls.flat().join("").split("\n").sort()).toStrictEqual(["", "diagnostic", "stdout"]);
+	});
+
+	it("plans a clean release when Git prints a filesystem monitor diagnostic", async () => {
+		using diagnostics = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const diagnostic = "error: fsmonitor_ipc__send_query: unspecified error on '.git/fsmonitor--daemon.ipc'\n";
+		const status = await spawnCommand(process.execPath, [
+			"-e",
+			"process.stderr.write(process.argv[1]);",
+			diagnostic,
+		]);
+		const run = releaseRunner([status, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, UNUSED_TAG]);
+
+		expect(await planRelease(dependencies(run))).toStrictEqual({commit: "abc1234", remote: "origin", tag: TAG});
+		expect(run.mock.calls).toStrictEqual(PLAN_CALLS);
+		expect(diagnostics.mock.calls.flat().join("")).toBe(diagnostic);
+	});
+
 	it("plans a release from the date and the commit without touching the repository", async () => {
 		const run = releaseRunner([CLEAN_TREE, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, UNUSED_TAG]);
 

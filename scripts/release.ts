@@ -184,17 +184,20 @@ export async function runRelease(dependencies: ReleaseDependencies): Promise<Rel
 	return {...plan, version_id: versionId};
 }
 
-async function spawnCommand(command: string, commandArguments: readonly string[]): Promise<CommandResult> {
+export async function spawnCommand(command: string, commandArguments: readonly string[]): Promise<CommandResult> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, [...commandArguments], {
 			env: {...process.env, NO_COLOR: "1"},
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let output = "";
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk: string) => {
+			output += chunk;
+		});
 		for (const stream of [child.stdout, child.stderr]) {
 			stream.setEncoding("utf8");
 			stream.on("data", (chunk: string) => {
-				output += chunk;
 				process.stderr.write(chunk);
 			});
 		}
