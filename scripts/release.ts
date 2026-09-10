@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {readFile} from "node:fs/promises";
-import {pathToFileURL} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 // Node runs this file directly, so the relative import carries the extension TypeScript allows.
 import {preflightDeployment, PRODUCTION_HOSTNAME, STAGING_CONFIG, type CommandResult} from "./preflight.ts";
 
@@ -208,25 +208,42 @@ export async function spawnCommand(command: string, commandArguments: readonly s
 	});
 }
 
-async function main(): Promise<void> {
-	const dependencies: ReleaseDependencies = {
-		now: () => new Date(),
-		readTextFile: async (path) => readFile(path, "utf8"),
-		run: spawnCommand,
-	};
-	if (process.argv.includes("--dry-run")) {
+export async function releaseMain(
+	dependencies: ReleaseDependencies,
+	environment: Readonly<Record<string, string | undefined>>,
+	commandArguments: readonly string[],
+): Promise<number> {
+	// Resolve references once for the whole release, including its deployment checks.
+	if (Object.values(environment).some((value) => value?.startsWith("op://") ?? false)) {
+		const result = await dependencies.run("op", [
+			"run",
+			"--",
+			process.execPath,
+			"--experimental-strip-types",
+			fileURLToPath(import.meta.url),
+			...commandArguments,
+		]);
+		process.stdout.write(result.output);
+		return result.code;
+	}
+	if (commandArguments.includes("--dry-run")) {
 		const plan = await planRelease(dependencies);
 		// The preflight reads Cloudflare and changes nothing, so the dry run gets it too: an
 		// unconfigured production is exactly what someone runs a dry run to find out about.
 		const deployment = await preflightDeployment(dependencies);
 		console.log(JSON.stringify({...plan, deployment, status: "planned"}, null, 2));
-		return;
+		return 0;
 	}
 	const report = await runRelease(dependencies);
 	console.log(JSON.stringify({...report, status: "released"}, null, 2));
+	return 0;
 }
 
 const entryPath = process.argv.at(1);
 if (entryPath !== undefined && import.meta.url === pathToFileURL(entryPath).href) {
-	await main();
+	process.exitCode = await releaseMain(
+		{now: () => new Date(), readTextFile: async (path) => readFile(path, "utf8"), run: spawnCommand},
+		process.env,
+		process.argv.slice(2),
+	);
 }

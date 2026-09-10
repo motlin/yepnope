@@ -1,5 +1,13 @@
+import {fileURLToPath} from "node:url";
 import {describe, expect, it, vi} from "vitest";
-import {planRelease, runRelease, spawnCommand, type CommandResult, type ReleaseDependencies} from "../scripts/release";
+import {
+	planRelease,
+	releaseMain,
+	runRelease,
+	spawnCommand,
+	type CommandResult,
+	type ReleaseDependencies,
+} from "../scripts/release";
 
 const NOW = new Date("2026-08-20T12:00:00.000Z");
 const TAG = "v2026.08.20-abc1234";
@@ -93,6 +101,48 @@ function dependencies(run: ReturnType<typeof releaseRunner>): ReleaseDependencie
 }
 
 describe("just release", () => {
+	it.each([0, 1])("resolves secret references before any release work and preserves exit code %i", async (code) => {
+		using output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+		const run = releaseRunner([{code, output: "example release output\n"}]);
+
+		const result = await releaseMain(dependencies(run), {CLOUDFLARE_API_TOKEN: "op://Example/Cloudflare/token"}, [
+			"--dry-run",
+		]);
+
+		expect({code: result, calls: run.mock.calls, output: output.mock.calls}).toStrictEqual({
+			code,
+			calls: [
+				[
+					"op",
+					[
+						"run",
+						"--",
+						process.execPath,
+						"--experimental-strip-types",
+						fileURLToPath(new URL("../scripts/release.ts", import.meta.url)),
+						"--dry-run",
+					],
+				],
+			],
+			output: [["example release output\n"]],
+		});
+	});
+
+	it.each([{}, {CLOUDFLARE_API_TOKEN: "example-resolved-token"}])(
+		"runs the preflight directly without secret references: %j",
+		async (environment) => {
+			using _output = vi.spyOn(console, "log").mockImplementation(() => {});
+			const run = releaseRunner([CLEAN_TREE, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, UNUSED_TAG, ...PREFLIGHT]);
+
+			const result = await releaseMain(dependencies(run), environment, ["--dry-run"]);
+
+			expect({code: result, calls: run.mock.calls}).toStrictEqual({
+				code: 0,
+				calls: [...PLAN_CALLS, ...PREFLIGHT_CALLS],
+			});
+		},
+	);
+
 	it.each([0, 1])("keeps stderr diagnostics out of parsed command output with exit code %i", async (code) => {
 		using diagnostics = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
