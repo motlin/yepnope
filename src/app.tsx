@@ -1,5 +1,15 @@
 import {PairPhone, PhonePairingPanel} from "./phone-pairing";
-import {useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent} from "react";
+import {
+	useCallback,
+	useEffect,
+	useEffectEvent,
+	useRef,
+	useState,
+	type ReactElement,
+	type ReactNode,
+	type SyntheticEvent,
+} from "react";
+import {browserSupportsWebAuthnAutofill} from "@simplewebauthn/browser";
 import {
 	consumePasswordResetToken,
 	decideDeviceAuthorization,
@@ -635,6 +645,34 @@ function passkeysUsable(methods: AuthenticationMethods): boolean {
 	return methods.passkey && "PublicKeyCredential" in window;
 }
 
+function usePasskeyAutofill(enabled: boolean, onAuthenticated: (user: AuthenticationUser) => void): () => void {
+	const pending = useRef<AbortController | null>(null);
+	const complete = useEffectEvent(onAuthenticated);
+	const cancel = useCallback(() => pending.current?.abort(), []);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		pending.current = controller;
+		async function offerPasskey(): Promise<void> {
+			if (!(await browserSupportsWebAuthnAutofill())) {
+				return;
+			}
+			controller.signal.throwIfAborted();
+			const user = await signInWithPasskey(true, controller.signal);
+			controller.signal.throwIfAborted();
+			complete(user);
+		}
+		// Autofill is optional: cancellation or unavailable credentials must leave the form usable.
+		if (enabled) {
+			void offerPasskey().catch(() => {});
+		}
+		return () => {
+			controller.abort();
+		};
+	}, [enabled]);
+	return cancel;
+}
+
 interface EmailedSignInLinkProps {
 	/**
 	 * Where the emailed link lands once it has signed the visitor in: the deck, or the signed
@@ -701,6 +739,7 @@ function EmailedSignInLink({
 }
 
 interface AlternativeSignInProps {
+	onStart: () => void;
 	callbackURL: string;
 	email: string;
 	methods: AuthenticationMethods;
@@ -713,6 +752,7 @@ interface AlternativeSignInProps {
 }
 
 function AlternativeSignIn({
+	onStart,
 	callbackURL,
 	email,
 	methods,
@@ -725,6 +765,7 @@ function AlternativeSignIn({
 	const passkeyAvailable = passkeysUsable(methods);
 
 	async function run(action: () => Promise<void>): Promise<void> {
+		onStart();
 		setBusy(true);
 		onError(null);
 		try {
@@ -777,7 +818,10 @@ function AlternativeSignIn({
 					disabled={busy || verificationBlocked}
 					email={email}
 					onError={onError}
-					verificationToken={verificationToken}
+					verificationToken={async () => {
+						onStart();
+						return verificationToken();
+					}}
 				/>
 			)}
 		</div>
@@ -794,9 +838,11 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 	const [error, setError] = useState<string | null>(signInRedirectError);
 	const [submitting, setSubmitting] = useState(false);
 	const displayedError = error ?? discoveryError;
+	const cancelPasskeyAutofill = usePasskeyAutofill(passkeysUsable(methods), onAuthenticated);
 
 	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
 		event.preventDefault();
+		cancelPasskeyAutofill();
 		setSubmitting(true);
 		setError(null);
 		try {
@@ -834,7 +880,7 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 					<input
 						type="email"
 						name="email"
-						autoComplete="email"
+						autoComplete="username webauthn"
 						required
 						value={email}
 						onChange={(event) => {
@@ -866,6 +912,7 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 				</button>
 			</form>
 			<AlternativeSignIn
+				onStart={cancelPasskeyAutofill}
 				callbackURL={authenticationCallbackPath(oauthQuery, "/")}
 				email={email}
 				methods={methods}

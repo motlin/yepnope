@@ -1,6 +1,7 @@
 import {
 	startAuthentication,
 	startRegistration,
+	WebAuthnAbortService,
 	type PublicKeyCredentialCreationOptionsJSON,
 	type PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/browser";
@@ -447,22 +448,31 @@ export async function registerPasskey(name: string): Promise<void> {
 	);
 }
 
-export async function signInWithPasskey(): Promise<AuthenticationUser> {
+export async function signInWithPasskey(useBrowserAutofill = false, signal?: AbortSignal): Promise<AuthenticationUser> {
+	signal?.throwIfAborted();
 	const options = await requestJson(
 		"/api/auth/passkey/generate-authenticate-options",
-		{cache: "no-store"},
+		{cache: "no-store", signal: signal ?? null},
 		passkeyAuthenticationOptionsSchema,
 		PASSKEY_SIGN_IN_FAILURE_MESSAGE,
 	);
+	signal?.throwIfAborted();
+	const cancel = (): void => {
+		WebAuthnAbortService.cancelCeremony();
+	};
+	signal?.addEventListener("abort", cancel, {once: true});
 	let assertion: unknown;
 	try {
-		assertion = await startAuthentication({optionsJSON: options});
+		assertion = await startAuthentication({optionsJSON: options, useBrowserAutofill});
 	} catch (caught) {
 		throw passkeyCeremonyError(caught, PASSKEY_CANCELLED_MESSAGE);
+	} finally {
+		signal?.removeEventListener("abort", cancel);
 	}
+	signal?.throwIfAborted();
 	const result = await requestJson(
 		"/api/auth/passkey/verify-authentication",
-		jsonRequest({response: assertion}),
+		{...jsonRequest({response: assertion}), signal: signal ?? null},
 		authenticatedResponseSchema,
 		PASSKEY_SIGN_IN_FAILURE_MESSAGE,
 	);

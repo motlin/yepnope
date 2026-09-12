@@ -183,7 +183,9 @@ const linkSocialAccount = vi.hoisted(() => vi.fn<(_provider: SocialProvider) => 
 const fetchLinkedAccounts = vi.hoisted(() => vi.fn<() => Promise<LinkedAccount[]>>(async () => Promise.resolve([])));
 const unlinkAccount = vi.hoisted(() => vi.fn<(_accountId: string) => Promise<void>>(async () => Promise.resolve()));
 const registerPasskey = vi.hoisted(() => vi.fn<(_name: string) => Promise<void>>(async () => Promise.resolve()));
-const signInWithPasskey = vi.hoisted(() => vi.fn<() => Promise<AuthenticationUser>>());
+const signInWithPasskey = vi.hoisted(() =>
+	vi.fn<(autofill?: boolean, signal?: AbortSignal) => Promise<AuthenticationUser>>(),
+);
 const fetchPasskeys = vi.hoisted(() => vi.fn<() => Promise<RegisteredPasskey[]>>(async () => Promise.resolve([])));
 const deletePasskey = vi.hoisted(() => vi.fn<(_id: string) => Promise<void>>(async () => Promise.resolve()));
 
@@ -1861,6 +1863,15 @@ afterEach(() => {
 });
 
 describe("Alternative sign-in methods", () => {
+	function supportPasskeyAutofill(): void {
+		Object.defineProperty(window, "PublicKeyCredential", {
+			configurable: true,
+			value: Object.assign(vi.fn<() => void>(), {
+				isConditionalMediationAvailable: async () => Promise.resolve(true),
+			}),
+		});
+	}
+
 	async function renderSignIn(): Promise<void> {
 		fetchSession.mockResolvedValue(null);
 		window.history.replaceState({}, "", "/sign-in");
@@ -1929,6 +1940,68 @@ describe("Alternative sign-in methods", () => {
 		await waitFor(() => {
 			expect(window.location.pathname).toBe("/settings");
 		});
+	});
+
+	it("signs in from passkey autofill without clicking the passkey button", async () => {
+		supportPasskeyAutofill();
+		signInWithPasskey.mockResolvedValue(alice);
+		await renderSignIn();
+		await waitFor(() => {
+			expect(window.location.pathname).toBe("/settings");
+		});
+		expect(
+			signInWithPasskey.mock.calls.map(([autofill, signal]) => ({autofill, aborted: signal?.aborted})),
+		).toStrictEqual([{autofill: true, aborted: true}]);
+	});
+
+	it("keeps one autofill request while typing and cancels it before explicit passkey sign-in", async () => {
+		supportPasskeyAutofill();
+		await renderSignIn();
+		await waitFor(() => {
+			expect(signInWithPasskey.mock.calls.length).toBe(1);
+		});
+		expect(screen.getByRole("textbox", {name: "Email"}).getAttribute("autocomplete")).toBe("username webauthn");
+		fireEvent.change(screen.getByRole("textbox", {name: "Email"}), {target: {value: "alice@example.com"}});
+		fireEvent.click(screen.getByRole("button", {name: "Sign in with a passkey"}));
+		expect(
+			signInWithPasskey.mock.calls.map(([autofill, signal]) => ({autofill, aborted: signal?.aborted})),
+		).toStrictEqual([
+			{autofill: true, aborted: true},
+			{autofill: undefined, aborted: undefined},
+		]);
+	});
+
+	it("cancels autofill on navigation and ignores a late sign-in result", async () => {
+		supportPasskeyAutofill();
+		let resolveUser: (value: AuthenticationUser) => void = () => undefined;
+		const pending = new Promise<AuthenticationUser>((resolve) => {
+			resolveUser = resolve;
+		});
+		signInWithPasskey.mockReturnValue(pending);
+		await renderSignIn();
+		await waitFor(() => {
+			expect(signInWithPasskey.mock.calls.length).toBe(1);
+		});
+		fireEvent.click(screen.getByRole("button", {name: "Create an account"}));
+		await act(async () => {
+			resolveUser(alice);
+			await pending;
+		});
+		expect(window.location.pathname).toBe("/register");
+		expect(
+			signInWithPasskey.mock.calls.map(([autofill, signal]) => ({autofill, aborted: signal?.aborted})),
+		).toStrictEqual([{autofill: true, aborted: true}]);
+	});
+
+	it("leaves password sign-in usable when optional autofill fails", async () => {
+		supportPasskeyAutofill();
+		signInWithPasskey.mockRejectedValue(new Error("Passkey sign-in was cancelled."));
+		await renderSignIn();
+		await waitFor(() => {
+			expect(signInWithPasskey.mock.calls.length).toBe(1);
+		});
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(screen.getByRole<HTMLButtonElement>("button", {name: "Sign in"}).disabled).toBe(false);
 	});
 
 	it("stays on the sign-in route when the passkey ceremony is cancelled", async () => {

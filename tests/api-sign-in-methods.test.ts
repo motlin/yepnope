@@ -16,8 +16,13 @@ import {
 
 const startAuthentication = vi.hoisted(() => vi.fn<(_options: {optionsJSON: unknown}) => Promise<unknown>>());
 const startRegistration = vi.hoisted(() => vi.fn<(_options: {optionsJSON: unknown}) => Promise<unknown>>());
+const cancelCeremony = vi.hoisted(() => vi.fn<() => void>());
 
-vi.mock("@simplewebauthn/browser", () => ({startAuthentication, startRegistration}));
+vi.mock("@simplewebauthn/browser", () => ({
+	startAuthentication,
+	startRegistration,
+	WebAuthnAbortService: {cancelCeremony},
+}));
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -206,22 +211,69 @@ describe("passkeys", () => {
 		]);
 	});
 
-	it("runs the authentication ceremony and returns the signed-in user", async () => {
-		const options = {challenge: "authentication-challenge", rpId: "yepnope.app"};
-		const assertion = {id: "credential-id", type: "public-key"};
-		startAuthentication.mockResolvedValue(assertion);
-		respondWith((path) =>
-			path.includes("generate-authenticate-options")
-				? options
-				: {user: {id: "user-alice", email: "alice@example.com", emailVerified: true}},
-		);
+	it.each([false, true])(
+		"runs the authentication ceremony with autofill %s and returns the signed-in user",
+		async (autofill) => {
+			const options = {challenge: "authentication-challenge", rpId: "yepnope.app"};
+			const assertion = {id: "credential-id", type: "public-key"};
+			startAuthentication.mockResolvedValue(assertion);
+			respondWith((path) =>
+				path.includes("generate-authenticate-options")
+					? options
+					: {user: {id: "user-alice", email: "alice@example.com", emailVerified: true}},
+			);
 
-		expect(await signInWithPasskey()).toStrictEqual({
-			id: "user-alice",
-			email: "alice@example.com",
-			emailVerified: true,
+			expect(await signInWithPasskey(autofill)).toStrictEqual({
+				id: "user-alice",
+				email: "alice@example.com",
+				emailVerified: true,
+			});
+			expect(startAuthentication.mock.calls).toStrictEqual([
+				[{optionsJSON: options, useBrowserAutofill: autofill}],
+			]);
+		},
+	);
+
+	it("does not start a ceremony when the form leaves before options arrive", async () => {
+		let resolveResponse: (value: Response) => void = () => undefined;
+		const response = new Promise<Response>((resolve) => {
+			resolveResponse = resolve;
 		});
-		expect(startAuthentication.mock.calls).toStrictEqual([[{optionsJSON: options}]]);
+		vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockReturnValue(response));
+		const controller = new AbortController();
+		const pending = signInWithPasskey(true, controller.signal);
+		controller.abort();
+		resolveResponse(Response.json({challenge: "example-challenge"}));
+
+		await expect(pending).rejects.toThrow(controller.signal.reason);
+		expect(startAuthentication.mock.calls).toStrictEqual([]);
+	});
+
+	it("cancels a pending autofill ceremony and refuses to verify a late assertion", async () => {
+		let resolveAssertion: (value: unknown) => void = () => undefined;
+		const assertion = new Promise<unknown>((resolve) => {
+			resolveAssertion = resolve;
+		});
+		startAuthentication.mockReturnValue(assertion);
+		const fetchMock = respondWith(() => ({challenge: "example-challenge"}));
+		const controller = new AbortController();
+		const pending = signInWithPasskey(true, controller.signal);
+		await vi.waitFor(() => {
+			expect(startAuthentication.mock.calls).toStrictEqual([
+				[{optionsJSON: {challenge: "example-challenge"}, useBrowserAutofill: true}],
+			]);
+		});
+		controller.abort();
+		resolveAssertion({id: "example-credential"});
+
+		await expect(pending).rejects.toThrow(controller.signal.reason);
+		expect(cancelCeremony.mock.calls).toStrictEqual([[]]);
+		expect(fetchMock.mock.calls).toStrictEqual([
+			[
+				"/api/auth/passkey/generate-authenticate-options",
+				{credentials: "same-origin", cache: "no-store", signal: controller.signal},
+			],
+		]);
 	});
 
 	it("reports a cancelled ceremony as a plain sign-in failure", async () => {

@@ -62,6 +62,18 @@ test("an emailed sign-in link creates a session without a password", async ({pag
 
 test("a passkey registered in settings signs the same account back in", async ({browser, request}) => {
 	await withVirtualAuthenticator(browser, async (page) => {
+		await page.addInitScript(() => {
+			const get = navigator.credentials.get.bind(navigator.credentials);
+			navigator.credentials.get = async (options) => {
+				if (options?.mediation === "conditional") {
+					document.documentElement.dataset["passkeyAutofill"] = "pending";
+					options.signal?.addEventListener("abort", () => {
+						document.documentElement.dataset["passkeyAutofill"] = "cancelled";
+					});
+				}
+				return get(options);
+			};
+		});
 		const email = uniqueEmail("passkey-browser");
 		await registerVerifiedAccount(page, request, email);
 
@@ -72,9 +84,12 @@ test("a passkey registered in settings signs the same account back in", async ({
 
 		await page.getByRole("button", {name: "Sign out"}).click();
 		await page.goto("/sign-in");
+		await expect(page.getByRole("textbox", {name: "Email"})).toHaveAttribute("autocomplete", "username webauthn");
+		await expect(page.locator("html")).toHaveAttribute("data-passkey-autofill", "pending");
 		await page.getByRole("button", {name: "Sign in with a passkey"}).click();
 
 		await expect(page).toHaveURL(/\/settings$/);
+		await expect(page.locator("html")).toHaveAttribute("data-passkey-autofill", "cancelled");
 		expect(await sessionEmail(page)).toBe(email);
 	});
 });
