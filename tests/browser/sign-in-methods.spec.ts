@@ -40,7 +40,7 @@ async function registerVerifiedAccount(page: Page, request: APIRequestContext, e
 	await page.getByRole("button", {name: "Create account", exact: true}).click();
 	await page.goto(await mailboxLink(request, verificationSubject, email));
 	await expect(page).toHaveURL(/\/$/);
-	await page.goto("/settings");
+	await page.goto("/settings/account");
 	await expect(page.getByText(email)).toBeVisible();
 }
 

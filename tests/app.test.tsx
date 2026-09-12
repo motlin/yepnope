@@ -855,6 +855,7 @@ describe("App live question synchronization", () => {
 			});
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("link", {name: /^MCP clients/}));
 		expect(await screen.findByText("No connected MCP clients.")).toBeDefined();
 		fetchAccountDevices.mockResolvedValue({
 			browserSessions: [],
@@ -1033,9 +1034,18 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 
-		expect(screen.getByRole("heading", {name: "Connected MCP clients"})).toBeDefined();
-		expect(screen.getByRole("heading", {name: "Signed-in browsers"})).toBeDefined();
-		expect(screen.getByRole("heading", {name: "Browser notifications"})).toBeDefined();
+		expect(
+			[...screen.getByRole("navigation", {name: "Settings pages"}).querySelectorAll("a")].map((link) =>
+				link.getAttribute("href"),
+			),
+		).toStrictEqual([
+			"/settings/account",
+			"/settings/devices",
+			"/settings/appearance",
+			"/settings/clients",
+			"/settings/notifications",
+			"/settings/privacy",
+		]);
 		expect(screen.getByRole("button", {name: "Close settings"})).toBeDefined();
 	});
 
@@ -1066,10 +1076,12 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("link", {name: /^Notifications/}));
 
 		expect(screen.getByRole("heading", {name: "Install first"})).toBeDefined();
 		expect(screen.queryByRole("button", {name: "Enable notifications"})).toBeNull();
-		expect(screen.getByRole("button", {name: CONNECT_PAGE_LABEL})).toBeDefined();
+		fireEvent.click(screen.getByRole("link", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("link", {name: /^Phones and browsers/}));
 		expect(screen.getByRole("button", {name: "Create QR code"}).textContent).toBe("Create QR code");
 	});
 
@@ -1082,6 +1094,7 @@ describe("App live question synchronization", () => {
 			publishQuestions?.([]);
 		});
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("link", {name: /^MCP clients/}));
 
 		const settingsPanel = screen.getByRole("region", {name: "Connected MCP clients"});
 		expect({
@@ -1226,6 +1239,7 @@ describe("App live question synchronization", () => {
 		});
 
 		fireEvent.click(screen.getByRole("button", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("link", {name: /^Privacy/}));
 
 		expect(screen.getByRole("heading", {name: "Privacy and retention"}).parentElement?.textContent).toBe(
 			"Privacy and retentionYepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies and current answers are deleted seven days after each batch is created. Activity outcomes are kept so your history totals remain explainable.",
@@ -1379,9 +1393,17 @@ describe("Better Auth account routes", () => {
 		}).toStrictEqual({headers: [], harnesses: [], pathname: "/reset-password", settingsControls: []});
 	});
 
-	it("redirects direct signed-out settings navigation to the landing state", async () => {
+	it.each([
+		"/settings",
+		"/settings/account",
+		"/settings/devices",
+		"/settings/appearance",
+		"/settings/clients",
+		"/settings/notifications",
+		"/settings/privacy",
+	])("redirects direct signed-out %s navigation to the landing state", async (path) => {
 		fetchSession.mockResolvedValue(null);
-		window.history.replaceState({}, "", "/settings");
+		window.history.replaceState({}, "", path);
 
 		render(<App />);
 
@@ -1668,7 +1690,7 @@ describe("Better Auth account routes", () => {
 	});
 
 	it("shows verified session state in account settings", async () => {
-		window.history.replaceState({}, "", "/settings");
+		window.history.replaceState({}, "", "/settings/account");
 		render(<App />);
 
 		expect(await screen.findByText("alice@example.com")).toBeDefined();
@@ -1676,7 +1698,7 @@ describe("Better Auth account routes", () => {
 	});
 
 	it("clears the authenticated shell on logout and ignores stale stream state", async () => {
-		window.history.replaceState({}, "", "/settings");
+		window.history.replaceState({}, "", "/settings/account");
 		const {container} = render(<App />);
 		await screen.findByText("alice@example.com");
 
@@ -1750,7 +1772,7 @@ describe("Better Auth account routes", () => {
 			};
 			return await Promise.resolve(0);
 		});
-		window.history.replaceState({}, "", "/settings");
+		window.history.replaceState({}, "", "/settings/clients");
 		render(<App />);
 
 		const clientRow = (await screen.findByText("Alice Codex")).closest("li");
@@ -1762,6 +1784,8 @@ describe("Better Auth account routes", () => {
 			clientRow.textContent.includes("Granted scopes: Ask questions (yepnope:questions)"),
 		]).toStrictEqual([true, true]);
 		expect(within(clientRow).queryByRole("button", {name: "Rename"})).toBeNull();
+		fireEvent.click(screen.getByRole("link", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("link", {name: /^Notifications/}));
 		const pushRow = screen.getByText("Alice phone").closest("li");
 		if (pushRow === null) {
 			throw new Error("missing push device row");
@@ -1774,7 +1798,9 @@ describe("Better Auth account routes", () => {
 			);
 		});
 
-		fireEvent.click(within(clientRow).getByRole("button", {name: "Revoke"}));
+		fireEvent.click(screen.getByRole("link", {name: "Settings"}));
+		fireEvent.click(screen.getByRole("link", {name: /^MCP clients/}));
+		fireEvent.click(screen.getByRole("button", {name: "Revoke"}));
 		await waitFor(() => {
 			expect(revokeConnectedMcpClient.mock.calls).toStrictEqual([["a".repeat(64)]]);
 			expect(screen.getByText("No connected MCP clients.").textContent).toBe("No connected MCP clients.");
@@ -1814,7 +1840,7 @@ describe("Better Auth account routes", () => {
 				currentDeck: streamedQuestions,
 			});
 		});
-		fireEvent.click(screen.getByRole("button", {name: "Back to the deck"}));
+		fireEvent.click(screen.getByRole("link", {name: "Back to the deck"}));
 
 		expect(screen.getByText("Deploy the streamed test change?").textContent).toBe(
 			"Deploy the streamed test change?",
@@ -1948,10 +1974,10 @@ describe("Alternative sign-in methods", () => {
 		await renderSignIn();
 		await waitFor(() => {
 			expect(window.location.pathname).toBe("/settings");
+			expect(
+				signInWithPasskey.mock.calls.map(([autofill, signal]) => ({autofill, aborted: signal?.aborted})),
+			).toStrictEqual([{autofill: true, aborted: true}]);
 		});
-		expect(
-			signInWithPasskey.mock.calls.map(([autofill, signal]) => ({autofill, aborted: signal?.aborted})),
-		).toStrictEqual([{autofill: true, aborted: true}]);
 	});
 
 	it("keeps one autofill request while typing and cancels it before explicit passkey sign-in", async () => {
@@ -2044,7 +2070,7 @@ describe("Alternative sign-in methods", () => {
 
 describe("Sign-in method management", () => {
 	async function renderSettings(): Promise<void> {
-		window.history.replaceState({}, "", "/settings");
+		window.history.replaceState({}, "", "/settings/account");
 		render(<App />);
 		await waitFor(() => {
 			expect(fetchPasskeys).toHaveBeenCalled();
@@ -2073,7 +2099,7 @@ describe("Sign-in method management", () => {
 		fireEvent.click(await screen.findByRole("button", {name: "Connect Google"}));
 
 		await waitFor(() => {
-			expect(linkSocialAccount.mock.calls).toStrictEqual([["google", "/settings"]]);
+			expect(linkSocialAccount.mock.calls).toStrictEqual([["google", "/settings/account"]]);
 			expect(assign.mock.calls).toStrictEqual([["https://accounts.google.com/o/oauth2/auth?state=abc"]]);
 		});
 	});
@@ -2265,7 +2291,7 @@ describe("Gated public authentication", () => {
 // choice outranks the system in both directions and survives a reload of this browser.
 describe("Theme", () => {
 	async function openAppearance(): Promise<void> {
-		window.history.replaceState({}, "", "/settings");
+		window.history.replaceState({}, "", "/settings/appearance");
 		render(<App />);
 		await screen.findByRole("region", {name: "Appearance"});
 	}

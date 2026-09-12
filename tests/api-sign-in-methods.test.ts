@@ -136,8 +136,22 @@ describe("social sign-in", () => {
 	it("links a provider to the signed-in account through the same redirect", async () => {
 		const fetchMock = respondWith(() => ({redirect: true, url: "https://accounts.google.com/o/oauth2/auth?x=1"}));
 
-		expect(await linkSocialAccount("google", "/settings")).toBe("https://accounts.google.com/o/oauth2/auth?x=1");
-		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/auth/link-social");
+		expect(await linkSocialAccount("google", "/settings/account")).toBe(
+			"https://accounts.google.com/o/oauth2/auth?x=1",
+		);
+		expect(fetchMock.mock.calls[0]).toStrictEqual([
+			"/api/auth/link-social",
+			{
+				body: JSON.stringify({
+					provider: "google",
+					callbackURL: "/settings/account",
+					errorCallbackURL: "/settings/account",
+				}),
+				credentials: "same-origin",
+				headers: {"Content-Type": "application/json"},
+				method: "POST",
+			},
+		]);
 	});
 
 	it("refuses a redirect that is not HTTP", async () => {

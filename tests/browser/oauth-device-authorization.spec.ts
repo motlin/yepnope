@@ -199,7 +199,7 @@ test("a device-authorized hook is approved in the browser and dies the moment Se
 		});
 
 		const authorizedHook = await callHook(request, tokens.access_token);
-		await page.goto("/settings");
+		await page.goto("/settings/clients");
 		const hookRow = page.getByRole("listitem").filter({hasText: hookClientName});
 		await expect(hookRow).toBeVisible();
 		expect({
@@ -227,7 +227,7 @@ test("a device-authorized hook is approved in the browser and dies the moment Se
 		const deniedDetail = await page.locator(".oauth-handoff span").textContent();
 		const deniedHeadline = await page.locator(".oauth-handoff strong").textContent();
 		const refused = await pollForToken(request, strangerClientId, strangerCode.device_code);
-		await page.goto("/settings");
+		await page.goto("/settings/clients");
 		await expect(hookRow).toBeVisible();
 		expect({
 			connectedClients: await page.locator(".connected-clients .device-list li strong").allTextContents(),

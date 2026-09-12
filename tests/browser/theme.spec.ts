@@ -39,7 +39,7 @@ const SURFACES: Surface[] = [
 		name: "settings",
 		signedIn: true,
 		open: async (page) => {
-			await page.goto("/settings");
+			await page.goto("/settings/appearance");
 			await expect(page.getByRole("heading", {name: "Appearance"})).toBeVisible();
 		},
 	},
@@ -239,7 +239,7 @@ for (const theme of ["light", "dark"] as ResolvedTheme[]) {
 test("an explicit choice outranks the system palette in both directions and survives a reload", async ({browser}) => {
 	const page = await openThemedContext(browser, "dark", DESKTOP);
 	try {
-		await page.goto("/settings");
+		await page.goto("/settings/appearance");
 		await expect(page.getByRole("heading", {name: "Appearance"})).toBeVisible();
 		await expect
 			.poll(async () => paintedTheme(page))
@@ -294,7 +294,7 @@ test("an explicit choice outranks the system palette in both directions and surv
 test("handing the theme back to the system makes it live again without a reload", async ({browser}) => {
 	const page = await openThemedContext(browser, "light", DESKTOP);
 	try {
-		await page.goto("/settings");
+		await page.goto("/settings/appearance");
 		await page.getByRole("radio", {name: "Dark"}).check();
 		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 

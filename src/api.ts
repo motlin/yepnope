@@ -355,10 +355,10 @@ export async function startSocialSignIn(provider: SocialProvider, callbackURL = 
 	return normalizedOAuthRedirectUrl(result.url);
 }
 
-export async function linkSocialAccount(provider: SocialProvider, callbackURL = "/settings"): Promise<string> {
+export async function linkSocialAccount(provider: SocialProvider, callbackURL = "/settings/account"): Promise<string> {
 	const result = await requestJson(
 		"/api/auth/link-social",
-		jsonRequest({provider, callbackURL, errorCallbackURL: "/settings"}),
+		jsonRequest({provider, callbackURL, errorCallbackURL: callbackURL}),
 		oauthRedirectResponseSchema,
 		"That account could not be linked. Try again in a moment.",
 	);

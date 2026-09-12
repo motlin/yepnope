@@ -11,7 +11,7 @@ test("a desktop QR signs in an independent phone browser once", async ({page, br
 	await page.getByLabel("Password", {exact: true}).fill("fake-phone-pairing-password");
 	await page.getByRole("button", {name: "Create account", exact: true}).click();
 	await page.goto(await mailboxLink(page.request, "Verify your YepNope email", email));
-	await page.goto("/settings");
+	await page.goto("/settings/devices");
 	const created = page.waitForResponse("**/api/auth/phone-pairing/create");
 	await page.getByRole("button", {name: "Create QR code", exact: true}).click();
 	const pairing = pairingSchema.parse(await (await created).json());

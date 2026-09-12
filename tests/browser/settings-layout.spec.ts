@@ -5,6 +5,8 @@ import {fulfillJson} from "./helpers";
 const screenshotDirectory = resolve(import.meta.dirname, "../../.llm/screenshots");
 
 async function routeSettingsData(page: Page): Promise<void> {
+	await page.route("**/api/auth/list-accounts", async (route) => fulfillJson(route, []));
+	await page.route("**/api/auth/passkey/list-user-passkeys", async (route) => fulfillJson(route, []));
 	await page.route("**/api/auth/get-session", async (route) =>
 		fulfillJson(route, {
 			user: {id: "user-alice", email: "alice@example.com", emailVerified: true},
@@ -49,12 +51,14 @@ async function routeSettingsData(page: Page): Promise<void> {
 	});
 }
 
-async function openSettings(page: Page): Promise<void> {
-	await routeSettingsData(page);
-	await page.goto("/settings");
-	await expect(page.getByRole("heading", {name: "Privacy and retention"})).toBeVisible();
-	await expect(page.getByRole("button", {name: "Back to the deck"})).toBeVisible();
-}
+const destinations = [
+	{path: "/settings/account", title: "Account and sign-in", region: "Sign-in methods"},
+	{path: "/settings/devices", title: "Phones and browsers", region: "Pair a phone"},
+	{path: "/settings/appearance", title: "Appearance", region: "Appearance"},
+	{path: "/settings/clients", title: "MCP clients", region: "Connected MCP clients"},
+	{path: "/settings/notifications", title: "Notifications", region: null},
+	{path: "/settings/privacy", title: "Privacy", region: null},
+];
 
 async function openConnect(page: Page): Promise<void> {
 	await routeSettingsData(page);
@@ -63,135 +67,80 @@ async function openConnect(page: Page): Promise<void> {
 	await expect(page.getByRole("button", {name: "Back to the deck"})).toBeVisible();
 }
 
-async function assertViewportScrollsSettings(page: Page): Promise<void> {
-	const settings = page.locator(".settings");
-	const privacy = page.getByRole("heading", {name: "Privacy and retention"}).locator("xpath=..");
-	const back = page.getByRole("button", {name: "Back to the deck"});
-
-	const initialGeometry = await settings.evaluate((element) => ({
-		clientHeight: element.clientHeight,
-		overflowY: getComputedStyle(element).overflowY,
-		scrollHeight: element.scrollHeight,
-		scrollTop: element.scrollTop,
-		viewportScrollHeight: document.documentElement.scrollHeight,
-		viewportHeight: document.documentElement.clientHeight,
-	}));
-	expect(initialGeometry.clientHeight).toBe(initialGeometry.scrollHeight);
-	expect(initialGeometry.overflowY).toBe("visible");
-	expect(initialGeometry.scrollTop).toBe(0);
-	expect(initialGeometry.viewportScrollHeight).toBeGreaterThan(initialGeometry.viewportHeight);
-
-	await back.scrollIntoViewIfNeeded();
-	const scrolledGeometry = await privacy.evaluate((privacyElement) => {
-		const settingsElement = document.querySelector<HTMLElement>(".settings");
-		const backElement = document.querySelector<HTMLElement>(".settings .back");
-		if (settingsElement === null || backElement === null) {
-			throw new Error("settings controls are missing");
+for (const width of [320, 390, 1440]) {
+	test(`settings destinations fit a ${width}px viewport and load directly`, async ({browser}) => {
+		const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width}});
+		const page = await context.newPage();
+		try {
+			await routeSettingsData(page);
+			await page.goto("/settings");
+			await expect(page.getByRole("heading", {name: "Settings", exact: true})).toBeVisible();
+			expect(
+				await page
+					.getByRole("navigation", {name: "Settings pages"})
+					.getByRole("link")
+					.evaluateAll((links) => links.map((link) => link.getAttribute("href"))),
+			).toStrictEqual(destinations.map((destination) => destination.path));
+			await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, `settings-${width}.png`)});
+			for (const destination of destinations) {
+				await page.goto(destination.path);
+				await expect(page.getByRole("heading", {name: destination.title, exact: true})).toBeVisible();
+				await expect(page).toHaveTitle(`${destination.title} · Settings · YepNope`);
+				if (destination.region !== null)
+					await expect(page.getByRole("region", {name: destination.region})).toBeVisible();
+				await expect(page.getByRole("link", {name: "Settings", exact: true})).toHaveAttribute(
+					"href",
+					"/settings",
+				);
+				await expect(page.getByRole("link", {name: "Back to the deck"})).toHaveAttribute("href", "/");
+				expect(
+					await page.locator(".settings").evaluate((element) => ({
+						overflow: getComputedStyle(element).overflowY,
+						scrollWidth: document.documentElement.scrollWidth,
+						width: window.innerWidth,
+					})),
+				).toStrictEqual({overflow: "visible", scrollWidth: width, width});
+				await page.screenshot({
+					fullPage: true,
+					path: resolve(screenshotDirectory, `settings-${destination.path.split("/").at(-1)}-${width}.png`),
+				});
+			}
+		} finally {
+			await context.close();
 		}
-		const privacyBounds = privacyElement.getBoundingClientRect();
-		const backBounds = backElement.getBoundingClientRect();
-		return {
-			backBottom: backBounds.bottom,
-			backLeft: backBounds.left,
-			backRight: backBounds.right,
-			privacyBottom: privacyBounds.bottom,
-			privacyLeft: privacyBounds.left,
-			privacyRight: privacyBounds.right,
-			privacyTop: privacyBounds.top,
-			settingsLeft: settingsElement.getBoundingClientRect().left,
-			settingsRight: settingsElement.getBoundingClientRect().right,
-			settingsScrollTop: settingsElement.scrollTop,
-			viewportHeight: window.innerHeight,
-			viewportScrollTop: document.scrollingElement?.scrollTop ?? 0,
-		};
 	});
-	expect(scrolledGeometry.settingsScrollTop).toBe(0);
-	expect(scrolledGeometry.viewportScrollTop).toBeGreaterThan(0);
-	expect(scrolledGeometry.privacyTop).toBeGreaterThanOrEqual(0);
-	expect(scrolledGeometry.privacyBottom).toBeLessThanOrEqual(scrolledGeometry.viewportHeight);
-	expect(scrolledGeometry.backBottom).toBeLessThanOrEqual(scrolledGeometry.viewportHeight);
-	expect(scrolledGeometry.privacyLeft).toBeGreaterThanOrEqual(scrolledGeometry.settingsLeft);
-	expect(scrolledGeometry.privacyRight).toBeLessThanOrEqual(scrolledGeometry.settingsRight);
-	expect(scrolledGeometry.backLeft).toBeGreaterThanOrEqual(scrolledGeometry.settingsLeft);
-	expect(scrolledGeometry.backRight).toBeLessThanOrEqual(scrolledGeometry.settingsRight);
-
-	await expect(privacy).toBeVisible();
-	await expect(back).toBeVisible();
 }
 
-test("settings uses a bounded desktop container and the viewport scrollbar", async ({browser}) => {
-	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
-	const page = await context.newPage();
-	try {
-		await openSettings(page);
-		const applicationBounds = await page.locator(".app").boundingBox();
-		if (applicationBounds === null) {
-			throw new Error("application bounds are missing");
-		}
-		expect(applicationBounds.width).toBe(880);
-		expect(applicationBounds.x).toBe(280);
-		expect(applicationBounds.y).toBe(0);
-		expect(applicationBounds.height).toBeGreaterThan(768);
-		await assertViewportScrollsSettings(page);
-		await page.evaluate(() => {
-			window.scrollTo(0, 0);
-		});
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-desktop.png")});
-	} finally {
-		await context.close();
-	}
-});
-
-test("settings keeps phone-width padding and full-page scrolling", async ({browser}) => {
-	const context = await browser.newContext({
-		ignoreHTTPSErrors: true,
-		isMobile: true,
-		viewport: {height: 844, width: 390},
-	});
-	const page = await context.newPage();
-	try {
-		await openSettings(page);
-		const applicationBounds = await page.locator(".app").boundingBox();
-		const settingsBounds = await page.locator(".settings").boundingBox();
-		if (applicationBounds === null || settingsBounds === null) {
-			throw new Error("responsive settings bounds are missing");
-		}
-		expect(applicationBounds.width).toBe(390);
-		expect(applicationBounds.x).toBe(0);
-		expect(applicationBounds.y).toBe(0);
-		expect(applicationBounds.height).toBeGreaterThanOrEqual(844);
-		expect(settingsBounds.width).toBe(358);
-		expect(settingsBounds.x).toBe(16);
-		await assertViewportScrollsSettings(page);
-		await page.evaluate(() => {
-			window.scrollTo(0, 0);
-		});
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-mobile.png")});
-	} finally {
-		await context.close();
-	}
-});
-
-test("settings separates account access, MCP clients, and browser notifications", async ({browser}) => {
-	const context = await browser.newContext({ignoreHTTPSErrors: true, viewport: {height: 768, width: 1440}});
-	const page = await context.newPage();
-	try {
-		await openSettings(page);
-		await expect(page.getByRole("heading", {name: "Connected MCP clients"})).toBeVisible();
-		await expect(page.getByRole("heading", {name: "Signed-in browsers"})).toBeVisible();
-		await expect(page.getByRole("heading", {name: "Browser notifications"})).toBeVisible();
-		await expect(page.getByText("Alice laptop")).toBeVisible();
-		await expect(page.getByText("Safari on iPhone · This browser")).toBeVisible();
-		await expect(page.getByText("Alice phone")).toBeVisible();
-		// The per-client steps live on /connect now, so settings stays account-focused.
-		expect(await page.locator(".settings code").count()).toBe(0);
-		await expect(page.getByRole("button", {name: "Create QR code", exact: true})).toHaveText("Create QR code");
-		await page.screenshot({fullPage: true, path: resolve(screenshotDirectory, "settings-account-access.png")});
-		await page.getByRole("button", {name: "Connect an MCP client"}).click();
-		await expect(page).toHaveURL(/\/connect$/);
-	} finally {
-		await context.close();
-	}
+test("settings navigation supports the keyboard, browser history, and the deck", async ({page}) => {
+	await routeSettingsData(page);
+	await page.goto("/settings");
+	await expect(page.getByRole("heading", {name: "Settings", exact: true})).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(page.getByRole("link", {name: /^Account and sign-in/})).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(page).toHaveURL(/\/settings\/account$/);
+	await expect(page.getByRole("heading", {name: "Account and sign-in"})).toBeFocused();
+	await page.goBack();
+	await expect(page.getByRole("heading", {name: "Settings", exact: true})).toBeFocused();
+	await page.goForward();
+	await expect(page.getByRole("heading", {name: "Account and sign-in"})).toBeFocused();
+	await page.getByRole("link", {name: "Settings", exact: true}).click();
+	await page.getByRole("link", {name: /^Phones and browsers/}).click();
+	await expect(page.getByText("Safari on iPhone · This browser")).toBeVisible();
+	await expect(page.getByRole("button", {name: "Create QR code"})).toBeVisible();
+	await expect(page.getByRole("heading", {name: "Browser notifications"})).toHaveCount(0);
+	await page.getByRole("link", {name: "Settings", exact: true}).click();
+	await page.getByRole("link", {name: /^Notifications/}).click();
+	await expect(page.getByText("Alice phone")).toBeVisible();
+	await page.getByRole("link", {name: "Settings", exact: true}).click();
+	await page.getByRole("link", {name: /^MCP clients/}).click();
+	await expect(page.getByText("Alice laptop")).toBeVisible();
+	await page.getByRole("button", {name: "Connect an MCP client"}).click();
+	await expect(page).toHaveURL(/\/connect$/);
+	await page.goBack();
+	await expect(page.getByRole("heading", {name: "MCP clients", exact: true})).toBeFocused();
+	await page.getByRole("link", {name: "Back to the deck"}).click();
+	await expect(page).toHaveURL("https://localhost:4173/");
 });
 
 test("the connect page carries the setup steps for every supported client", async ({browser}) => {

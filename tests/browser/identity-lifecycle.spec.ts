@@ -130,9 +130,13 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		contexts.push(secondContext);
 		const secondPage = await secondContext.newPage();
 		await signIn(secondPage, originalPassword);
-		await expect(secondPage.getByText("No connected MCP clients.")).toBeVisible();
+		await secondPage.getByRole("link", {name: /^Phones and browsers/}).click();
 		await expect(secondPage.getByRole("heading", {name: "Signed-in browsers"})).toBeVisible();
 		await expect(secondPage.getByRole("listitem").filter({hasText: "This browser"})).toHaveCount(1);
+		await secondPage.getByRole("link", {name: "Settings", exact: true}).click();
+		await secondPage.getByRole("link", {name: /^MCP clients/}).click();
+		await expect(secondPage.getByText("No connected MCP clients.")).toBeVisible();
+		await firstPage.getByRole("link", {name: /^MCP clients/}).click();
 		const authorization = await request.post("/api/__e2e__/authorize-mcp-client", {data: {user_id: userId}});
 		expect({body: await authorization.json(), status: authorization.status()}).toStrictEqual({
 			body: {status: "authorized"},
@@ -141,7 +145,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		await expect(firstPage.getByText("Browser test MCP client")).toBeVisible();
 		await secondPage.reload();
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
-		await firstPage.getByRole("button", {name: "Back to the deck"}).click();
+		await firstPage.getByRole("link", {name: "Back to the deck"}).click();
 		await expect(firstPage.locator(".app-header .account-status")).toHaveCount(0);
 		await expect(firstPage.getByRole("button", {name: "Settings"})).toBeVisible();
 		await expect(firstPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
@@ -212,8 +216,9 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 		// Proving it here meant sitting through the real backoff and a further silent wait; the
 		// live reconnect above is what this spec still needs a real browser for.
 
-		await expect(secondPage.getByText(email)).toBeVisible();
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
+		await secondPage.goto("/settings/account");
+		await expect(secondPage.getByText(email)).toBeVisible();
 		await secondPage.getByRole("button", {name: "Sign out"}).click();
 		await expect(secondPage).toHaveURL(/\/$/);
 
@@ -260,6 +265,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 			status: invalidatedSession.status(),
 		}).toStrictEqual({body: null, resetRequests: 1, status: 200});
 		await secondPage.getByRole("button", {name: "Try signing in again"}).click();
+		await secondPage.getByRole("link", {name: /^MCP clients/}).click();
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 		await expect(secondPage.locator(".app-header .afk-toggle")).toHaveCount(0);
 		expect(resetRequests).toBe(1);
@@ -271,7 +277,7 @@ test("identity registration, recovery, connected clients, answers, revocation, a
 			resetRequests,
 			resetTokenError: new URL(secondPage.url()).searchParams.get("error"),
 		}).toStrictEqual({path: "/reset-password", resetRequests: 1, resetTokenError: "INVALID_TOKEN"});
-		await secondPage.goto("/settings");
+		await secondPage.goto("/settings/clients");
 		await expect(secondPage.getByText("Browser test MCP client")).toBeVisible();
 
 		const mcpClientRow = secondPage.getByRole("listitem").filter({hasText: "Browser test MCP client"});

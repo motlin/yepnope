@@ -373,6 +373,9 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		});
 		const clientId = await registerClient(request, "Browser OAuth MCP client", redirectUri);
 		const context = await browser.newContext({ignoreHTTPSErrors: true});
+		await context.addInitScript(() => {
+			PublicKeyCredential.isConditionalMediationAvailable = async () => Promise.resolve(false);
+		});
 		contexts.push(context);
 		const page = await context.newPage();
 		await page.goto(await authorizationUrl(clientId, redirectUri, codeVerifier, oauthState));
@@ -496,8 +499,8 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 		clients.push(secondClient);
 		expect(await secondClient.listTools()).toStrictEqual(expectedTools);
 
-		await page.goto("/settings");
-		await secondPage.goto("/settings");
+		await page.goto("/settings/clients");
+		await secondPage.goto("/settings/clients");
 		for (const settingsPage of [page, secondPage]) {
 			await expect(settingsPage.getByText("Browser OAuth MCP client", {exact: true})).toBeVisible();
 			await expect(settingsPage.getByText("Second browser OAuth MCP client", {exact: true})).toBeVisible();
@@ -573,7 +576,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			await expect(deckPage.getByRole("heading", {name: "All caught up"})).toBeVisible();
 		}
 
-		await secondPage.goto("/settings");
+		await secondPage.goto("/settings/clients");
 		const secondClientRow = secondPage
 			.getByRole("listitem")
 			.filter({has: secondPage.getByText("Second browser OAuth MCP client", {exact: true})});
@@ -614,6 +617,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			"Magic link browser OAuth MCP client",
 			magicLinkRedirectUri,
 		);
+		await secondPage.goto("/settings/account");
 		await secondPage.getByRole("button", {name: "Sign out"}).click();
 		await secondPage.goto(
 			await authorizationUrl(magicLinkClientId, magicLinkRedirectUri, magicLinkCodeVerifier, magicLinkOauthState),
@@ -630,13 +634,14 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			error: magicLinkCallback.searchParams.get("error"),
 			state: magicLinkCallback.searchParams.get("state"),
 		}).toStrictEqual({error: "access_denied", state: magicLinkOauthState});
-		await secondPage.goto("/settings");
+		await secondPage.goto("/settings/clients");
 
 		const recoveryClientId = await registerClient(
 			request,
 			"Recovery browser OAuth MCP client",
 			recoveryRedirectUri,
 		);
+		await secondPage.goto("/settings/account");
 		await secondPage.getByRole("button", {name: "Sign out"}).click();
 		await secondPage.goto(
 			await authorizationUrl(recoveryClientId, recoveryRedirectUri, recoveryCodeVerifier, recoveryOauthState),
@@ -683,7 +688,7 @@ test("browser OAuth authorizes a real Streamable HTTP MCP client", async ({brows
 			error: recoveryCallback.searchParams.get("error"),
 			state: recoveryCallback.searchParams.get("state"),
 		}).toStrictEqual({error: "access_denied", state: recoveryOauthState});
-		await secondPage.goto("/settings");
+		await secondPage.goto("/settings/clients");
 
 		const deletion = await secondPage.evaluate(async (accountPassword) => {
 			const response = await fetch("/api/auth/delete-user", {

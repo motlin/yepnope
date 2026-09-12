@@ -123,11 +123,30 @@ function AfkToggle({afk, connectedMcpClientCount, onConnectClient, onToggle}: Af
 	);
 }
 
+const SETTINGS_PAGES = {
+	"settings/account": {
+		title: "Account and sign-in",
+		description: "Email, passkeys, linked accounts, and signing out.",
+	},
+	"settings/devices": {title: "Phones and browsers", description: "Pair a phone and see your signed-in browsers."},
+	"settings/appearance": {title: "Appearance", description: "Choose a light, dark, or system theme."},
+	"settings/clients": {title: "MCP clients", description: "Connect agents and manage their access."},
+	"settings/notifications": {title: "Notifications", description: "Enable notifications and manage push devices."},
+	"settings/privacy": {title: "Privacy", description: "How question content and history are retained."},
+} as const;
+
+type SettingsView = "settings" | keyof typeof SETTINGS_PAGES;
+
+function isSettingsView(view: AppView): view is SettingsView {
+	return view === "settings" || view in SETTINGS_PAGES;
+}
+
 interface SettingsProps {
+	view: SettingsView;
+	onNavigate: (view: AppView) => void;
 	session: AuthenticationUser | null;
 	connectedMcpClientCount: number | null;
 	theme: Theme;
-	onBack: () => void;
 	onConnectClient: () => void;
 	onSignIn: () => void;
 	onRegister: () => void;
@@ -144,7 +163,7 @@ interface ConnectClientsProps {
 
 type AppView =
 	| "deck"
-	| "settings"
+	| SettingsView
 	| "connect"
 	| "sign-in"
 	| "register"
@@ -157,6 +176,19 @@ type AppView =
 
 function viewFromPath(pathname: string): AppView {
 	switch (pathname) {
+		case "/settings/account":
+			return "settings/account";
+		case "/settings/devices":
+			return "settings/devices";
+		case "/settings/appearance":
+			return "settings/appearance";
+		case "/settings/clients":
+			return "settings/clients";
+		case "/settings/notifications":
+			return "settings/notifications";
+		case "/settings/privacy":
+			return "settings/privacy";
+
 		case "/settings":
 			return "settings";
 		case "/connect":
@@ -184,6 +216,13 @@ function viewFromPath(pathname: string): AppView {
 
 function pathForView(view: AppView): string {
 	switch (view) {
+		case "settings/account":
+		case "settings/devices":
+		case "settings/appearance":
+		case "settings/clients":
+		case "settings/notifications":
+		case "settings/privacy":
+			return `/${view}`;
 		case "settings":
 			return "/settings";
 		case "connect":
@@ -2059,7 +2098,7 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 						onClick={() =>
 							void run(async () => {
 								if (linked === undefined) {
-									followOAuthRedirect(await linkSocialAccount(provider, "/settings"));
+									followOAuthRedirect(await linkSocialAccount(provider, "/settings/account"));
 									return;
 								}
 								await unlinkAccount(linked.id);
@@ -2125,7 +2164,6 @@ interface AppearancePanelProps {
 function AppearancePanel({theme}: AppearancePanelProps): ReactElement {
 	return (
 		<div className="hint appearance" role="region" aria-label="Appearance">
-			<h3>Appearance</h3>
 			<p>
 				Light, dark, or whatever this device is set to. The choice is remembered on this browser only; it is not
 				part of your account.
@@ -2151,16 +2189,44 @@ function AppearancePanel({theme}: AppearancePanelProps): ReactElement {
 	);
 }
 
+function SettingsLink({
+	view,
+	onNavigate,
+	children,
+}: {
+	view: AppView;
+	onNavigate: (view: AppView) => void;
+	children: ReactNode;
+}): ReactElement {
+	return (
+		<a
+			href={pathForView(view)}
+			onClick={(event) => {
+				if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+				event.preventDefault();
+				onNavigate(view);
+			}}
+		>
+			{children}
+		</a>
+	);
+}
+
 function Settings({
+	view,
+	onNavigate,
 	session,
 	connectedMcpClientCount,
 	theme,
-	onBack,
 	onConnectClient,
 	onSignIn,
 	onRegister,
 	onSignedOut,
 }: SettingsProps): ReactElement {
+	const heading = useRef<HTMLHeadingElement | null>(null);
+	useEffect(() => {
+		heading.current?.focus();
+	}, [view]);
 	const requiresIosInstall = isIos() && !isStandalone();
 	const [accountError, setAccountError] = useState<string | null>(null);
 	const [accountDevices, setAccountDevices] = useState<AccountDevices | null>(null);
@@ -2212,199 +2278,249 @@ function Settings({
 	}
 
 	return (
-		<div className="settings">
-			<div className="hint account-summary">
-				<h3>Account</h3>
-				{session === null ? (
-					<>
-						<p>Sign in to receive live questions and use the same account on every browser.</p>
-						<div className="settings-actions">
+		<main className="settings">
+			<nav className="settings-breadcrumbs" aria-label="Settings navigation">
+				{view !== "settings" && (
+					<SettingsLink view="settings" onNavigate={onNavigate}>
+						Settings
+					</SettingsLink>
+				)}
+				<SettingsLink view="deck" onNavigate={onNavigate}>
+					Back to the deck
+				</SettingsLink>
+			</nav>
+			<h1 ref={heading} tabIndex={-1}>
+				{view === "settings" ? "Settings" : SETTINGS_PAGES[view].title}
+			</h1>
+			{view === "settings" && (
+				<>
+					<p className="account-email">{session?.email}</p>
+					<nav className="settings-destinations" aria-label="Settings pages">
+						{Object.entries(SETTINGS_PAGES).map(([destination, page]) => (
+							<SettingsLink
+								key={destination}
+								view={viewFromPath(`/${destination}`)}
+								onNavigate={onNavigate}
+							>
+								<strong>{page.title}</strong>
+								<span>{page.description}</span>
+							</SettingsLink>
+						))}
+					</nav>
+				</>
+			)}
+			{view === "settings/account" && (
+				<>
+					<div className="hint account-summary">
+						<h3>Account</h3>
+						{session === null ? (
+							<>
+								<p>Sign in to receive live questions and use the same account on every browser.</p>
+								<div className="settings-actions">
+									<button type="button" onClick={onSignIn}>
+										Sign in
+									</button>
+									<button type="button" className="secondary" onClick={onRegister}>
+										Create account
+									</button>
+								</div>
+							</>
+						) : (
+							<>
+								<p className="account-email">{session.email}</p>
+								<p>✓ Verified email · Session active</p>
+								<button
+									type="button"
+									className="secondary"
+									onClick={() => {
+										setAccountError(null);
+										void signOut().then(onSignedOut, (caught: unknown) => {
+											setAccountError(errorMessage(caught));
+										});
+									}}
+								>
+									Sign out
+								</button>
+								{accountError !== null && (
+									<p className="form-error" role="alert">
+										{accountError}
+									</p>
+								)}
+							</>
+						)}
+					</div>
+					{session !== null && <SignInMethodsPanel onSignedOut={onSignedOut} />}
+				</>
+			)}
+			{view === "settings/appearance" && <AppearancePanel theme={theme} />}
+			{view === "settings/clients" && (
+				<div className="hint connected-clients" role="region" aria-label="Connected MCP clients">
+					<h3>Connected MCP clients</h3>
+					<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>
+					{session === null ? (
+						<>
+							<p>Sign in before authorizing a client.</p>
 							<button type="button" onClick={onSignIn}>
 								Sign in
 							</button>
-							<button type="button" className="secondary" onClick={onRegister}>
-								Create account
+						</>
+					) : accountDevices === null ? (
+						<p>{devicesLoading ? "Loading connected clients…" : "Connected clients are unavailable."}</p>
+					) : accountDevices.connectedMcpClients.length === 0 ? (
+						<p>No connected MCP clients.</p>
+					) : (
+						<ul className="device-list">
+							{accountDevices.connectedMcpClients.map((client) => (
+								<ManagedDeviceRow
+									key={client.id}
+									label={client.displayName}
+									metadata={`Authorized ${new Date(client.authorizedAt).toLocaleString()} · ${client.lastUsedAt === null ? "Not used yet" : `Last used ${new Date(client.lastUsedAt).toLocaleString()}`} · Granted scopes: ${grantedScopeSummary(client.grantedScopes)} · ${client.status}`}
+									{...(client.status === "active"
+										? {
+												onRevoke: async () =>
+													runDeviceAction(async () => {
+														await revokeConnectedMcpClient(client.id);
+													}),
+											}
+										: {})}
+								/>
+							))}
+						</ul>
+					)}
+					<div className="settings-actions client-actions">
+						<button type="button" onClick={onConnectClient}>
+							Connect an MCP client
+						</button>
+						{session !== null && (
+							<button
+								type="button"
+								className="secondary"
+								disabled={devicesLoading}
+								onClick={() => void reloadDevices()}
+							>
+								{devicesLoading ? "Refreshing…" : "Refresh connected clients"}
 							</button>
-						</div>
-					</>
-				) : (
-					<>
-						<p className="account-email">{session.email}</p>
-						<p>✓ Verified email · Session active</p>
-						<button
-							type="button"
-							className="secondary"
-							onClick={() => {
-								setAccountError(null);
-								void signOut().then(onSignedOut, (caught: unknown) => {
-									setAccountError(errorMessage(caught));
-								});
-							}}
-						>
-							Sign out
-						</button>
-						{accountError !== null && (
-							<p className="form-error" role="alert">
-								{accountError}
-							</p>
 						)}
-					</>
-				)}
-			</div>
-			{session !== null && <PhonePairingPanel />}
-			{session !== null && <SignInMethodsPanel onSignedOut={onSignedOut} />}
-			<AppearancePanel theme={theme} />
-			<div className="hint connected-clients" role="region" aria-label="Connected MCP clients">
-				<h3>Connected MCP clients</h3>
-				<p>OAuth-authorized clients can ask questions and manage only the capabilities you approve.</p>
-				{session === null ? (
-					<>
-						<p>Sign in before authorizing a client.</p>
-						<button type="button" onClick={onSignIn}>
-							Sign in
-						</button>
-					</>
-				) : accountDevices === null ? (
-					<p>{devicesLoading ? "Loading connected clients…" : "Connected clients are unavailable."}</p>
-				) : accountDevices.connectedMcpClients.length === 0 ? (
-					<p>No connected MCP clients.</p>
-				) : (
-					<ul className="device-list">
-						{accountDevices.connectedMcpClients.map((client) => (
-							<ManagedDeviceRow
-								key={client.id}
-								label={client.displayName}
-								metadata={`Authorized ${new Date(client.authorizedAt).toLocaleString()} · ${client.lastUsedAt === null ? "Not used yet" : `Last used ${new Date(client.lastUsedAt).toLocaleString()}`} · Granted scopes: ${grantedScopeSummary(client.grantedScopes)} · ${client.status}`}
-								{...(client.status === "active"
-									? {
-											onRevoke: async () =>
-												runDeviceAction(async () => {
-													await revokeConnectedMcpClient(client.id);
-												}),
-										}
-									: {})}
-							/>
-						))}
-					</ul>
-				)}
-				<div className="settings-actions client-actions">
-					<button type="button" onClick={onConnectClient}>
-						Connect an MCP client
-					</button>
-					{session !== null && (
-						<button
-							type="button"
-							className="secondary"
-							disabled={devicesLoading}
-							onClick={() => void reloadDevices()}
-						>
-							{devicesLoading ? "Refreshing…" : "Refresh connected clients"}
-						</button>
+					</div>
+					{devicesError !== null && (
+						<p className="form-error" role="alert">
+							{devicesError}
+						</p>
 					)}
 				</div>
-				{devicesError !== null && (
-					<p className="form-error" role="alert">
-						{devicesError}
-					</p>
-				)}
-			</div>
-			<div className="hint">
-				<h3>Signed-in browsers</h3>
-				<p>
-					Another phone or browser can sign into this account directly or use Pair a phone above. Browser
-					sessions do not authorize MCP clients or receive notifications by themselves.
-				</p>
-				{session === null ? (
-					<p>Sign in to see active browser sessions.</p>
-				) : accountDevices === null ? (
-					<p>Loading browser sessions…</p>
-				) : accountDevices.browserSessions.length === 0 ? (
-					<p>No active browser sessions.</p>
-				) : (
-					<ul className="device-list">
-						{accountDevices.browserSessions.map((browserSession) => (
-							<ManagedDeviceRow
-								key={browserSession.id}
-								label={`${browserSession.displayName}${browserSession.current ? " · This browser" : ""}`}
-								metadata={`Signed in ${new Date(browserSession.createdAt).toLocaleString()} · Last active ${new Date(browserSession.lastActiveAt).toLocaleString()} · Expires ${new Date(browserSession.expiresAt).toLocaleString()}`}
-							/>
-						))}
-					</ul>
-				)}
-			</div>
-			<IosInstallHint required={requiresIosInstall} />
-			<div className="hint">
-				<h3>Browser notifications</h3>
-				<p>
-					Enabling notifications registers only this browser's push subscription. It does not sign in another
-					browser or authorize an MCP client.
-				</p>
-				{session === null ? (
-					<>
-						<p>Sign in before enabling notifications.</p>
-						<button type="button" onClick={onSignIn}>
-							Sign in
-						</button>
-					</>
-				) : requiresIosInstall ? (
-					<p>Available after you open the installed Home Screen app.</p>
-				) : pushState === "subscribed" ? (
-					<p>Enabled on this browser. One notification is sent per batch of questions.</p>
-				) : (
-					<>
-						<button
-							type="button"
-							onClick={() => {
-								void enablePush().then(
-									(result) => {
-										setPushState(result);
-										if (result === "subscribed") {
-											void reloadDevices();
+			)}
+			{view === "settings/devices" && (
+				<>
+					{session !== null && <PhonePairingPanel />}
+					<div className="hint">
+						<h3>Signed-in browsers</h3>
+						<p>
+							Another phone or browser can sign into this account directly or use Pair a phone above.
+							Browser sessions do not authorize MCP clients or receive notifications by themselves.
+						</p>
+						{session === null ? (
+							<p>Sign in to see active browser sessions.</p>
+						) : accountDevices === null ? (
+							<p>Loading browser sessions…</p>
+						) : accountDevices.browserSessions.length === 0 ? (
+							<p>No active browser sessions.</p>
+						) : (
+							<ul className="device-list">
+								{accountDevices.browserSessions.map((browserSession) => (
+									<ManagedDeviceRow
+										key={browserSession.id}
+										label={`${browserSession.displayName}${browserSession.current ? " · This browser" : ""}`}
+										metadata={`Signed in ${new Date(browserSession.createdAt).toLocaleString()} · Last active ${new Date(browserSession.lastActiveAt).toLocaleString()} · Expires ${new Date(browserSession.expiresAt).toLocaleString()}`}
+									/>
+								))}
+							</ul>
+						)}
+					</div>
+				</>
+			)}
+			{view === "settings/notifications" && (
+				<>
+					<IosInstallHint required={requiresIosInstall} />
+					<div className="hint">
+						<h3>Browser notifications</h3>
+						<p>
+							Enabling notifications registers only this browser's push subscription. It does not sign in
+							another browser or authorize an MCP client.
+						</p>
+						{session === null ? (
+							<>
+								<p>Sign in before enabling notifications.</p>
+								<button type="button" onClick={onSignIn}>
+									Sign in
+								</button>
+							</>
+						) : requiresIosInstall ? (
+							<p>Available after you open the installed Home Screen app.</p>
+						) : pushState === "subscribed" ? (
+							<p>Enabled on this browser. One notification is sent per batch of questions.</p>
+						) : (
+							<>
+								<button
+									type="button"
+									onClick={() => {
+										void enablePush().then(
+											(result) => {
+												setPushState(result);
+												if (result === "subscribed") {
+													void reloadDevices();
+												}
+											},
+											() => {
+												setPushState("error");
+											},
+										);
+									}}
+								>
+									Enable notifications
+								</button>
+								{pushState === "denied" && (
+									<p>Notifications are blocked for this app in system settings.</p>
+								)}
+								{pushState === "unsupported" && <p>This browser does not support web push.</p>}
+								{pushState === "error" && <p>Could not subscribe. Try again.</p>}
+							</>
+						)}
+						{session !== null && accountDevices !== null && accountDevices.pushDevices.length === 0 ? (
+							<p>No browsers receive notifications.</p>
+						) : (
+							<ul className="device-list">
+								{accountDevices?.pushDevices.map((device) => (
+									<ManagedDeviceRow
+										key={device.id}
+										label={device.label}
+										metadata={`Notifications enabled ${new Date(device.createdAt).toLocaleString()}`}
+										onRename={async (label) =>
+											runDeviceAction(async () => renamePushDevice(device.id, label))
 										}
-									},
-									() => {
-										setPushState("error");
-									},
-								);
-							}}
-						>
-							Enable notifications
-						</button>
-						{pushState === "denied" && <p>Notifications are blocked for this app in system settings.</p>}
-						{pushState === "unsupported" && <p>This browser does not support web push.</p>}
-						{pushState === "error" && <p>Could not subscribe. Try again.</p>}
-					</>
-				)}
-				{session !== null && accountDevices !== null && accountDevices.pushDevices.length === 0 ? (
-					<p>No browsers receive notifications.</p>
-				) : (
-					<ul className="device-list">
-						{accountDevices?.pushDevices.map((device) => (
-							<ManagedDeviceRow
-								key={device.id}
-								label={device.label}
-								metadata={`Notifications enabled ${new Date(device.createdAt).toLocaleString()}`}
-								onRename={async (label) =>
-									runDeviceAction(async () => renamePushDevice(device.id, label))
-								}
-								onRevoke={async () => runDeviceAction(async () => revokePushDevice(device.id))}
-							/>
-						))}
-					</ul>
-				)}
-			</div>
-			<div className="hint">
-				<h3>Privacy and retention</h3>
-				<p>
-					YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP.{" "}
-					Question bodies and current answers are deleted seven days after each batch is created. Activity
-					outcomes are kept so your history totals remain explainable.
+										onRevoke={async () => runDeviceAction(async () => revokePushDevice(device.id))}
+									/>
+								))}
+							</ul>
+						)}
+					</div>
+				</>
+			)}
+			{view === "settings/privacy" && (
+				<div className="hint">
+					<h3>Privacy and retention</h3>
+					<p>
+						YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP.{" "}
+						Question bodies and current answers are deleted seven days after each batch is created. Activity
+						outcomes are kept so your history totals remain explainable.
+					</p>
+				</div>
+			)}
+			{devicesError !== null && view !== "settings/clients" && (
+				<p className="form-error" role="alert">
+					{devicesError}
 				</p>
-			</div>
-			<button type="button" className="back" onClick={onBack}>
-				Back to the deck
-			</button>
-		</div>
+			)}
+		</main>
 	);
 }
 
@@ -2505,6 +2621,13 @@ export function App(): ReactElement {
 		const titles: Record<AppView, string> = {
 			deck: "YepNope",
 			settings: "Settings · YepNope",
+			"settings/account": `${SETTINGS_PAGES["settings/account"].title} · Settings · YepNope`,
+			"settings/devices": `${SETTINGS_PAGES["settings/devices"].title} · Settings · YepNope`,
+			"settings/appearance": `${SETTINGS_PAGES["settings/appearance"].title} · Settings · YepNope`,
+			"settings/clients": `${SETTINGS_PAGES["settings/clients"].title} · Settings · YepNope`,
+			"settings/notifications": `${SETTINGS_PAGES["settings/notifications"].title} · Settings · YepNope`,
+			"settings/privacy": `${SETTINGS_PAGES["settings/privacy"].title} · Settings · YepNope`,
+
 			connect: "Connect an MCP client · YepNope",
 			"sign-in": "Sign in · YepNope",
 			register: "Create account · YepNope",
@@ -2597,7 +2720,7 @@ export function App(): ReactElement {
 						window.history.replaceState({}, "", `/device${deviceHandoffQuery("device")}`);
 						setView("device");
 					}
-					if (user === null && window.location.pathname === "/settings") {
+					if (user === null && isSettingsView(viewFromPath(window.location.pathname))) {
 						showSignedOutLanding();
 						return;
 					}
@@ -2719,6 +2842,12 @@ export function App(): ReactElement {
 
 	function currentView(): ReactElement {
 		switch (view) {
+			case "settings/account":
+			case "settings/devices":
+			case "settings/appearance":
+			case "settings/clients":
+			case "settings/notifications":
+			case "settings/privacy":
 			case "settings":
 				if (!sessionReady) {
 					return <div className="loading">Checking your session…</div>;
@@ -2728,12 +2857,11 @@ export function App(): ReactElement {
 				}
 				return (
 					<Settings
+						view={view}
+						onNavigate={navigate}
 						session={session}
 						connectedMcpClientCount={connectedMcpClientCount}
 						theme={theme}
-						onBack={() => {
-							navigate("deck");
-						}}
 						onConnectClient={() => {
 							navigate("connect");
 						}}
@@ -2847,10 +2975,10 @@ export function App(): ReactElement {
 		}
 		return unreachableView(view);
 	}
-	const showApplicationHeader = sessionReady && session !== null && (view === "deck" || view === "settings");
+	const showApplicationHeader = sessionReady && session !== null && (view === "deck" || isSettingsView(view));
 
 	return (
-		<div className={view === "settings" || view === "connect" ? "app app-settings" : "app"}>
+		<div className={isSettingsView(view) || view === "connect" ? "app app-settings" : "app"}>
 			{showApplicationHeader && (
 				<div className="app-header">
 					<span className="meta">
@@ -2868,7 +2996,7 @@ export function App(): ReactElement {
 						<button
 							type="button"
 							className="settings-button"
-							aria-label={view === "settings" ? "Close settings" : "Settings"}
+							aria-label={isSettingsView(view) ? "Close settings" : "Settings"}
 							onClick={() => {
 								navigate(view === "deck" ? "settings" : "deck");
 							}}

@@ -388,7 +388,7 @@ test("a deployed YepNope answers an authorized MCP client's blocking question fr
 		);
 		clients.push(secondClient);
 		await deploymentStep("answer the second MCP client's question", async () => {
-			await signedInSettingsPage.goto("/settings");
+			await signedInSettingsPage.goto("/settings/clients");
 			for (const name of [firstClientName, secondClientName]) {
 				await expect(signedInSettingsPage.getByText(name, {exact: true})).toBeVisible();
 			}
@@ -432,7 +432,9 @@ test("a deployed YepNope answers an authorized MCP client's blocking question fr
 			// authorized client turns routing off by itself, so the toggle here is only for the
 			// runs where a revocation did not land.
 			process.stderr.write("[deployed core loop] open settings for cleanup\n");
-			await settingsPage.goto("/settings", {timeout: CLEANUP_TIMEOUT_MILLISECONDS}).catch(() => undefined);
+			await settingsPage
+				.goto("/settings/clients", {timeout: CLEANUP_TIMEOUT_MILLISECONDS})
+				.catch(() => undefined);
 			process.stderr.write("[deployed core loop] open settings for cleanup complete\n");
 			for (const name of [firstClientName, secondClientName]) {
 				process.stderr.write(`[deployed core loop] revoke ${name}\n`);

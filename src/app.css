@@ -895,6 +895,7 @@ body {
 }
 
 .settings-actions {
+	flex-wrap: wrap;
 	display: flex;
 	gap: 8px;
 }
@@ -1100,4 +1101,47 @@ body {
 	padding: 10px;
 	font-size: 14px;
 	cursor: pointer;
+}
+
+.settings h1 {
+	margin: 4px 0;
+	font-size: 26px;
+	color: var(--text-strong);
+}
+.settings h1:focus {
+	outline: none;
+}
+.settings-breadcrumbs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 24px;
+}
+.settings-breadcrumbs a {
+	padding: 12px 0;
+	color: var(--text-body);
+}
+.settings-destinations {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+	gap: 12px;
+}
+.settings-destinations a {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 18px;
+	border: 1px solid var(--border-panel);
+	border-radius: 14px;
+	background: var(--surface-panel);
+	color: var(--text-strong);
+	text-decoration: none;
+}
+.settings-destinations span {
+	color: var(--text-secondary);
+	font-size: 14px;
+	line-height: 1.4;
+}
+.settings a:focus-visible {
+	outline: 2px solid var(--success-text);
+	outline-offset: 4px;
 }

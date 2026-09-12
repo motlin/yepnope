@@ -104,8 +104,8 @@ export function PairPhone(): ReactElement {
 				</p>
 				{id === null ? (
 					<p>
-						Create a QR code under Settings → Pair a phone on your signed-in desktop, then scan it with this
-						phone.
+						Create a QR code under Settings → Phones and browsers → Pair a phone on your signed-in desktop,
+						then scan it with this phone.
 					</p>
 				) : (
 					<form
