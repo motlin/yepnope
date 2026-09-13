@@ -17,7 +17,7 @@ describe("YepNope plugin distribution", () => {
 	it("publishes one Codex plugin with both skills and the remote MCP server", () => {
 		expect(readJson("../plugins/yepnope/.codex-plugin/plugin.json")).toStrictEqual({
 			name: "yepnope",
-			version: "0.1.0",
+			version: "0.1.1",
 			description: "Route every yes-or-no coding-agent question to your phone first.",
 			author: {name: "YepNope"},
 			homepage: "https://yepnope.app",
@@ -116,7 +116,7 @@ describe("YepNope plugin distribution", () => {
 			$schema: "https://anthropic.com/claude-code/plugin.schema.json",
 			name: "yepnope",
 			displayName: "YepNope",
-			version: "0.1.0",
+			version: "0.1.1",
 			description: "Route brief yes-or-no coding-agent questions to your phone.",
 			author: {name: "YepNope"},
 			homepage: "https://yepnope.app",
@@ -169,7 +169,7 @@ describe("YepNope plugin distribution", () => {
 				{
 					name: "yepnope",
 					description: "Route brief yes-or-no coding-agent questions to your phone.",
-					version: "0.1.0",
+					version: "0.1.1",
 					author: {name: "YepNope"},
 					source: "./plugins/yepnope",
 					category: "productivity",
@@ -227,6 +227,43 @@ describe("YepNope plugin distribution", () => {
 			localInstallerRejectsDirectCodexRegistration: true,
 			npxBothSkills: true,
 			setupKeepsCodexSourcesExclusive: true,
+		});
+	});
+
+	it("tells the user that phone delivery also needs the app-side routing switch", () => {
+		const setupSkill = readFileSync(
+			new URL("../plugins/yepnope/skills/yepnope-setup/SKILL.md", import.meta.url),
+			"utf8",
+		);
+		expect({
+			namesTheSwitch: setupSkill.includes("phone routing is on in the YepNope app"),
+			explainsNativeFallback: setupSkill.includes("reason: afk_off") && setupSkill.includes("route: native"),
+			callsItAWorkingSetup: setupSkill.includes("not a setup failure"),
+			forbidsProbingRoutingState:
+				setupSkill.includes("Do not read routing state") && setupSkill.includes("Never invoke `ask_yep_nope`"),
+		}).toStrictEqual({
+			namesTheSwitch: true,
+			explainsNativeFallback: true,
+			callsItAWorkingSetup: true,
+			forbidsProbingRoutingState: true,
+		});
+	});
+
+	it("verifies the Claude Code blocking-call budget during setup", () => {
+		const setupSkill = readFileSync(
+			new URL("../plugins/yepnope/skills/yepnope-setup/SKILL.md", import.meta.url),
+			"utf8",
+		);
+		expect({
+			namesClaudeCodeTimeoutKey: setupSkill.includes('"timeout": 691200000'),
+			explainsRetractionIsDestructive:
+				setupSkill.includes("retracts the batch") && setupSkill.includes("mid-answer"),
+			refusesToPatchItForTheUser:
+				setupSkill.includes("Do not edit the file") && setupSkill.includes("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"),
+		}).toStrictEqual({
+			namesClaudeCodeTimeoutKey: true,
+			explainsRetractionIsDestructive: true,
+			refusesToPatchItForTheUser: true,
 		});
 	});
 

@@ -2,7 +2,7 @@
 	"$schema": "https://anthropic.com/claude-code/plugin.schema.json",
 	"name": "yepnope",
 	"displayName": "YepNope",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Route brief yes-or-no coding-agent questions to your phone.",
 	"author": {
 		"name": "YepNope"

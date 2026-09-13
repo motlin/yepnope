@@ -1,6 +1,6 @@
 {
 	"name": "yepnope",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Route every yes-or-no coding-agent question to your phone first.",
 	"author": {
 		"name": "YepNope"
