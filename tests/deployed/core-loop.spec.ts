@@ -4,6 +4,7 @@ import {isDeepStrictEqual} from "node:util";
 import {expect, test, type APIRequestContext, type BrowserContext, type CDPSession, type Page} from "playwright/test";
 import {z} from "zod";
 import {resolveDeploymentTarget} from "../../scripts/deployment-check.ts";
+import {holdPasskeyAutofill} from "../browser/helpers.ts";
 import {TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA} from "../../worker/ask-tool.ts";
 
 /**
@@ -236,6 +237,7 @@ async function signInWithAutomationPasskey(context: BrowserContext): Promise<Pag
 			userHandle: target.passkey.userHandle,
 		},
 	});
+	await holdPasskeyAutofill(page);
 	await page.goto("/sign-in");
 	await page.getByRole("button", {name: "Sign in with a passkey"}).click();
 	await expect(page).toHaveURL(/\/settings$/);

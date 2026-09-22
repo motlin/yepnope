@@ -1,5 +1,5 @@
 import {expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page} from "playwright/test";
-import {mailboxLink, sessionEmail} from "./helpers";
+import {holdPasskeyAutofill, mailboxLink, sessionEmail} from "./helpers";
 
 const magicLinkSubject = "Sign in to YepNope";
 const verificationSubject = "Verify your YepNope email";
@@ -62,18 +62,7 @@ test("an emailed sign-in link creates a session without a password", async ({pag
 
 test("a passkey registered in settings signs the same account back in", async ({browser, request}) => {
 	await withVirtualAuthenticator(browser, async (page) => {
-		await page.addInitScript(() => {
-			const get = navigator.credentials.get.bind(navigator.credentials);
-			navigator.credentials.get = async (options) => {
-				if (options?.mediation === "conditional") {
-					document.documentElement.dataset["passkeyAutofill"] = "pending";
-					options.signal?.addEventListener("abort", () => {
-						document.documentElement.dataset["passkeyAutofill"] = "cancelled";
-					});
-				}
-				return get(options);
-			};
-		});
+		await holdPasskeyAutofill(page);
 		const email = uniqueEmail("passkey-browser");
 		await registerVerifiedAccount(page, request, email);
 

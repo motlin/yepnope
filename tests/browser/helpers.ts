@@ -83,3 +83,28 @@ export async function sessionEmail(page: Page): Promise<string> {
 export async function fulfillJson(route: Route, body: unknown, status = 200): Promise<void> {
 	await route.fulfill({json: body, status});
 }
+
+/**
+ * 🔑 Chrome's virtual authenticator answers a conditional (autofill) passkey request by itself, which
+ * no person does — real autofill waits until someone picks the credential. Left alone, the page signs
+ * itself in a moment after loading, racing any click on the explicit passkey button. Holding those
+ * requests open until the page aborts them makes the explicit button the only way in, as it is for a
+ * person who ignores the autofill prompt, and records on <html> whether the page cancelled it.
+ */
+export async function holdPasskeyAutofill(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const get = navigator.credentials.get.bind(navigator.credentials);
+		navigator.credentials.get = async (options) => {
+			if (options?.mediation !== "conditional") {
+				return get(options);
+			}
+			document.documentElement.dataset["passkeyAutofill"] = "pending";
+			return new Promise<Credential | null>((_resolve, reject) => {
+				options.signal?.addEventListener("abort", () => {
+					document.documentElement.dataset["passkeyAutofill"] = "cancelled";
+					reject(new DOMException("The passkey autofill request was aborted.", "AbortError"));
+				});
+			});
+		};
+	});
+}
