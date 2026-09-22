@@ -59,7 +59,7 @@ import {
 } from "./api";
 import {Deck, type DeckQuestion, type Disposition} from "./deck";
 import {HumanVerificationField} from "./human-verification";
-import {enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
+import {currentPushState, enablePush, isIos, isStandalone, updateBadge, type PushSetupResult} from "./push";
 import {THEME_CHOICES, useTheme, type ResolvedTheme, type Theme} from "./theme";
 import {humanVerificationBlocksSubmit, useHumanVerification, type HumanVerification} from "./turnstile";
 
@@ -2232,9 +2232,16 @@ function Settings({
 	const [accountDevices, setAccountDevices] = useState<AccountDevices | null>(null);
 	const [devicesError, setDevicesError] = useState<string | null>(null);
 	const [devicesLoading, setDevicesLoading] = useState(false);
-	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">(
-		"Notification" in window && Notification.permission === "granted" ? "subscribed" : "idle",
-	);
+	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">("idle");
+	useEffect(() => {
+		void currentPushState().then(setPushState, () => {
+			setPushState("idle");
+		});
+	}, []);
+	// 🔔 The server is what delivers, so a browser that registered once but has no device left on the
+	// account still needs setup rather than a claim that notifications are working here.
+	const pushRegistered =
+		pushState === "subscribed" && (accountDevices === null || accountDevices.pushDevices.length > 0);
 	const onSignedOutRef = useRef(onSignedOut);
 	onSignedOutRef.current = onSignedOut;
 
@@ -2456,7 +2463,7 @@ function Settings({
 							</>
 						) : requiresIosInstall ? (
 							<p>Available after you open the installed Home Screen app.</p>
-						) : pushState === "subscribed" ? (
+						) : pushRegistered ? (
 							<p>Enabled on this browser. One notification is sent per batch of questions.</p>
 						) : (
 							<>

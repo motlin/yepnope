@@ -39,6 +39,20 @@ export function subscribeBody(subscription: PushSubscriptionJSON, previousEndpoi
 
 export type PushSetupResult = "subscribed" | "denied" | "unsupported";
 
+// 🔔 A granted permission is not a registration. This browser counts as subscribed only while it still
+// holds the very subscription it last registered, which is what a server-side prune invalidates.
+export async function currentPushState(): Promise<"subscribed" | "idle"> {
+	if (!pushSupported() || Notification.permission !== "granted") {
+		return "idle";
+	}
+	const registration = await navigator.serviceWorker.ready;
+	const subscription = await registration.pushManager.getSubscription();
+	if (subscription === null) {
+		return "idle";
+	}
+	return localStorage.getItem(REGISTERED_ENDPOINT_KEY) === subscription.endpoint ? "subscribed" : "idle";
+}
+
 // Call from a click handler: iOS refuses permission prompts outside a user gesture.
 export async function enablePush(): Promise<PushSetupResult> {
 	if (!pushSupported()) {

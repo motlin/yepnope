@@ -294,6 +294,7 @@ vi.mock("../src/api", () => ({
 }));
 
 vi.mock("../src/push", () => ({
+	currentPushState: vi.fn<() => Promise<"subscribed" | "idle">>(async () => Promise.resolve("idle")),
 	enablePush: vi.fn<() => Promise<"subscribed">>(async () => Promise.resolve("subscribed")),
 	isIos: vi.fn<() => boolean>(() => false),
 	isStandalone: vi.fn<() => boolean>(() => false),
@@ -1061,6 +1062,36 @@ describe("App live question synchronization", () => {
 		expect({deviceRequests: fetchAccountDevices.mock.calls, path: window.location.pathname}).toStrictEqual({
 			deviceRequests: [[]],
 			path: "/",
+		});
+	});
+
+	it("still offers setup when permission is granted but the account has no push device", async () => {
+		vi.stubGlobal("Notification", {
+			permission: "granted",
+			requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+		});
+		fetchAccountDevices.mockResolvedValue({browserSessions: [], connectedMcpClients: [], pushDevices: []});
+		window.history.replaceState({}, "", "/settings/notifications");
+
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+		await waitFor(() => {
+			expect(screen.getByText("No browsers receive notifications.")).toBeDefined();
+		});
+
+		expect({
+			claimsThisBrowserIsEnabled: screen.queryByText(/Enabled on this browser/) !== null,
+			reportsNoDeliveryTarget: screen.queryByText("No browsers receive notifications.") !== null,
+			offersSetup: screen.queryByRole("button", {name: "Enable notifications"}) !== null,
+		}).toStrictEqual({
+			claimsThisBrowserIsEnabled: false,
+			reportsNoDeliveryTarget: true,
+			offersSetup: true,
 		});
 	});
 
