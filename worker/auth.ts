@@ -1,6 +1,7 @@
 import {hashToken} from "./webcrypto";
 export {hashToken} from "./webcrypto";
 import {phonePairing} from "./phone-pairing";
+import {surfacingDriverMessages} from "./database-adapter";
 import {mcp} from "@better-auth/mcp";
 import {drizzleAdapter} from "@better-auth/drizzle-adapter";
 import {oauthDeviceAuthorization} from "@better-auth/oauth-provider";
@@ -906,10 +907,12 @@ export function createAuthentication(
 				});
 			},
 		},
-		database: drizzleAdapter(database, {
-			provider: "sqlite",
-			schema: authenticationSchema,
-		}),
+		database: surfacingDriverMessages(
+			drizzleAdapter(database, {
+				provider: "sqlite",
+				schema: authenticationSchema,
+			}),
+		),
 		plugins: [
 			phonePairing(environment.DB, new URL(environment.BETTER_AUTH_URL).origin),
 			jwt(),
