@@ -1,5 +1,5 @@
 import {expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page} from "playwright/test";
-import {holdPasskeyAutofill, mailboxLink, sessionEmail} from "./helpers";
+import {holdPasskeyAutofill, mailboxLink, registerPlatformPasskeysOnly, sessionEmail} from "./helpers";
 
 const magicLinkSubject = "Sign in to YepNope";
 const verificationSubject = "Verify your YepNope email";
@@ -27,6 +27,7 @@ async function withVirtualAuthenticator(browser: Browser, body: (page: Page) => 
 				automaticPresenceSimulation: true,
 			},
 		});
+		await registerPlatformPasskeysOnly(page);
 		await body(page);
 	} finally {
 		await context.close();

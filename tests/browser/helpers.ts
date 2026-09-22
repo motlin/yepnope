@@ -108,3 +108,24 @@ export async function holdPasskeyAutofill(page: Page): Promise<void> {
 		};
 	});
 }
+
+/**
+ * 🧷 Chrome's virtual authenticator stands in for a platform authenticator, but the page's
+ * registration options leave the attachment open, so Chrome also weighs security keys and phones.
+ * About one ceremony in two hundred it wanders into that transport choice, which has no UI to show
+ * under automation, and the browser wedges inside `navigator.credentials.create` until the test
+ * times out. Asking only for the platform authenticator — the one actually attached — keeps every
+ * ceremony on the virtual device. Real browsers still offer every transport.
+ */
+export async function registerPlatformPasskeysOnly(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const create = navigator.credentials.create.bind(navigator.credentials);
+		navigator.credentials.create = async (options) => {
+			const selection = options?.publicKey?.authenticatorSelection;
+			if (selection !== undefined) {
+				selection.authenticatorAttachment = "platform";
+			}
+			return create(options);
+		};
+	});
+}
