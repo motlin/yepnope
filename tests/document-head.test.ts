@@ -23,4 +23,10 @@ describe("document head", () => {
 			published: [true],
 		});
 	});
+
+	// 📦 Vite preloads the chunks it builds on its own. A hand-written preload of the source entry
+	// survives the build as a data: URI of raw TSX, which the browser refuses to load as a module.
+	it("preloads no source module by hand", () => {
+		expect(linkHrefs("modulepreload")).toStrictEqual([]);
+	});
 });
