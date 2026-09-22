@@ -2602,6 +2602,8 @@ function ConnectClients({session, focusHeading, onBack, onSignIn}: ConnectClient
 export function App(): ReactElement {
 	const theme = useTheme();
 	const [session, setSession] = useState<AuthenticationUser | null>(null);
+	const sessionRef = useRef(session);
+	sessionRef.current = session;
 	const [sessionReady, setSessionReady] = useState(false);
 	const [currentQuestions, setCurrentQuestions] = useState<DeckQuestion[]>([]);
 	const [afk, setAfkState] = useState<boolean | null>(null);
@@ -2668,6 +2670,7 @@ export function App(): ReactElement {
 	}
 
 	const showSignedOutLanding = useCallback(() => {
+		sessionRef.current = null;
 		currentDeckStream.current?.close();
 		currentDeckStream.current = null;
 		setCurrentQuestions([]);
@@ -2683,6 +2686,15 @@ export function App(): ReactElement {
 		}
 		setView("deck");
 	}, []);
+
+	// 🚪 A 401 or 403 means the session that sent the request is over. A request still in flight when
+	// the user signed out is refused after the landing is already showing — often after they have
+	// moved on to sign in again — so a refusal only ends a session that is still current.
+	const endRefusedSession = useCallback(() => {
+		if (sessionRef.current !== null) {
+			showSignedOutLanding();
+		}
+	}, [showSignedOutLanding]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -2756,12 +2768,12 @@ export function App(): ReactElement {
 		}
 		fetchAfk().then(setAfkState, (caught: unknown) => {
 			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
-				showSignedOutLanding();
+				endRefusedSession();
 				return;
 			}
 			setAfkState(null);
 		});
-	}, [session, showSignedOutLanding]);
+	}, [endRefusedSession, session]);
 
 	useEffect(() => {
 		if (session === null) {
@@ -2879,7 +2891,7 @@ export function App(): ReactElement {
 							navigate("register");
 						}}
 						onSignedOut={() => {
-							showSignedOutLanding();
+							endRefusedSession();
 						}}
 					/>
 				);

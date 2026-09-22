@@ -1050,6 +1050,42 @@ describe("App live question synchronization", () => {
 		expect(screen.getByRole("button", {name: "Close settings"})).toBeDefined();
 	});
 
+	it("lets a request rejected after sign-out end nothing once the user has moved on", async () => {
+		let rejectDevices: (reason: unknown) => void = () => undefined;
+		fetchAccountDevices.mockReturnValueOnce(
+			new Promise<AccountDevices>((_resolve, reject) => {
+				rejectDevices = reject;
+			}),
+		);
+		window.history.replaceState({}, "", "/settings/account");
+		render(<App />);
+		await waitFor(() => {
+			expect(publishQuestions).toBeTypeOf("function");
+		});
+		act(() => {
+			publishQuestions?.([]);
+		});
+
+		fireEvent.click(await screen.findByRole("button", {name: "Sign out"}));
+		await waitFor(() => {
+			expect(window.location.pathname).toBe("/");
+		});
+		fireEvent.click(await screen.findByRole("button", {name: "Sign in"}));
+		await waitFor(() => {
+			expect(window.location.pathname).toBe("/sign-in");
+		});
+
+		await act(async () => {
+			rejectDevices(new ApiResponseError("Session expired", 401));
+			await Promise.resolve();
+		});
+
+		expect({
+			path: window.location.pathname,
+			signInFormShown: screen.queryByRole("textbox", {name: "Email"}) !== null,
+		}).toStrictEqual({path: "/sign-in", signInFormShown: true});
+	});
+
 	it.each([401, 403])("ends account refresh after an authenticated request returns %i", async (status) => {
 		window.history.replaceState({}, "", "/settings");
 		fetchAccountDevices.mockRejectedValueOnce(new ApiResponseError("Session expired", status));
