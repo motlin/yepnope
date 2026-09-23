@@ -655,6 +655,14 @@ to be the production origin, since it is the hostname every Turnstile token is
 redeemed against. Social-provider credentials are deliberately not required —
 a deployment without a provider's pair simply never offers that provider.
 
+The preflight also asks `wrangler d1 migrations list yepnope --remote` whether
+production D1 is behind the migrations in `worker/migrations/d1`. Wrangler
+deploys code, never schema, so a release that adds a table would otherwise go
+out against a database without it. Any unapplied migration refuses the release,
+names each file, and gives the fix: `vp exec wrangler d1 migrations apply
+yepnope --remote`. Wrangler exits 0 even when that listing hits an API error, so
+output that reports neither pending migrations nor none also refuses.
+
 Only `just release` runs it. A bare `wrangler deploy` deploys whatever is there.
 
 `package.json` stays at `0.0.0` — nothing installs YepNope from a registry — so
@@ -896,7 +904,7 @@ npm run admin:storage -- cleanup --confirm --expected-count <count>
 # 3. Redeploy, so the baseline the code carries is the one objects apply.
 just release
 
-# 4. Prove it. Expect the 17 schema tables plus d1_migrations and nothing else,
+# 4. Prove it. Expect the 18 schema tables plus d1_migrations and nothing else,
 #    no object with stored data, and a question answered end to end.
 vp exec wrangler d1 execute yepnope --remote --command \
   "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"

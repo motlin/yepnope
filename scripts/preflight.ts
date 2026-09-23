@@ -28,6 +28,16 @@ const STAGING_PLACEHOLDER_HOSTNAME = "REPLACE_WITH_THE_STAGING_ORIGIN";
 const SECRET_LIST: readonly string[] = ["exec", "wrangler", "secret", "list", "--format", "json"];
 const BINDING_LIST: readonly string[] = ["exec", "wrangler", "deploy", "--dry-run"];
 const STAGING_BINDING_LIST: readonly string[] = [...BINDING_LIST, "--config", STAGING_CONFIG];
+const PRODUCTION_DATABASE = "yepnope";
+const MIGRATION_LIST: readonly string[] = [
+	"exec",
+	"wrangler",
+	"d1",
+	"migrations",
+	"list",
+	PRODUCTION_DATABASE,
+	"--remote",
+];
 
 export interface CommandResult {
 	code: number;
@@ -123,6 +133,25 @@ export class DeploymentNotConfiguredError extends Error {
 	}
 }
 
+/**
+ * 🗄️ Refuses the release while production D1 is behind the migrations this tree ships. Wrangler
+ * deploys code, never schema, so a release that adds a table would otherwise go out against a
+ * database that lacks it and fail on the first request that touches it.
+ */
+export class PendingMigrationsError extends Error {
+	readonly pending: readonly string[];
+
+	constructor(pending: readonly string[]) {
+		super(
+			`refusing to release: the ${PRODUCTION_HOSTNAME} D1 database has unapplied migrations the Worker's code expects\n` +
+				pending.map((name) => `  - ${name}`).join("\n") +
+				`\nApply them with \`vp exec wrangler d1 migrations apply ${PRODUCTION_DATABASE} --remote\`, then release again.`,
+		);
+		this.pending = pending;
+		this.name = "PendingMigrationsError";
+	}
+}
+
 const secretListSchema = z.array(z.object({name: z.string()}));
 
 async function deployedSecretNames(dependencies: PreflightDependencies): Promise<ReadonlySet<string>> {
@@ -181,6 +210,32 @@ async function declaredBindings(dependencies: PreflightDependencies): Promise<Re
 		throw new Error(`\`wrangler deploy --dry-run\` listed no bindings, ${cannotTell}`);
 	}
 	return bindings;
+}
+
+/**
+ * The migration files production D1 has not applied. Wrangler exits 0 even after an API error here,
+ * so only one of its two documented outcomes counts as an answer.
+ */
+async function pendingMigrations(dependencies: PreflightDependencies): Promise<readonly string[]> {
+	const result = await dependencies.run("vp", MIGRATION_LIST);
+	const command = `\`wrangler d1 migrations list ${PRODUCTION_DATABASE} --remote\``;
+	const cannotTell = `so this release cannot tell whether the ${PRODUCTION_HOSTNAME} database is current`;
+	if (result.code !== 0) {
+		throw new Error(`${command} failed with exit code ${result.code}, ${cannotTell}`);
+	}
+	if (result.output.includes("No migrations to apply!")) {
+		return [];
+	}
+	const heading = "Migrations to be applied:";
+	const start = result.output.indexOf(heading);
+	if (start === -1) {
+		throw new Error(`${command} reported neither pending migrations nor none, ${cannotTell}`);
+	}
+	return result.output
+		.slice(start + heading.length)
+		.split("\n")
+		.map((line) => /^│\s*(\S+)\s*│$/u.exec(line.trim())?.[1])
+		.filter((name): name is string => name !== undefined && name !== "Name");
 }
 
 /** A var's value as Wrangler prints it, quotes stripped; null for a binding, which has no value. */
@@ -287,6 +342,11 @@ export async function preflightDeployment(dependencies: PreflightDependencies): 
 	}
 	if (problems.length > 0) {
 		throw new DeploymentNotConfiguredError(problems, missing);
+	}
+
+	const pending = await pendingMigrations(dependencies);
+	if (pending.length > 0) {
+		throw new PendingMigrationsError(pending);
 	}
 
 	return {

@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest";
 import {
 	preflightDeployment,
 	DeploymentNotConfiguredError,
+	PendingMigrationsError,
 	type CommandResult,
 	type PreflightDependencies,
 } from "../scripts/preflight";
@@ -60,9 +61,42 @@ function secrets(names: readonly string[] = PRODUCTION_SECRETS): CommandResult {
 	);
 }
 
+// What `wrangler d1 migrations list yepnope --remote` prints when production is current.
+const NO_PENDING_MIGRATIONS = ok(
+	[
+		" ⛅️ wrangler 4.128.0",
+		"───────────────",
+		"Resource location: remote ",
+		"",
+		"✅ No migrations to apply!",
+		"",
+	].join("\n"),
+);
+
+/** The same listing when production is behind, box-drawn table and all. */
+function pendingMigrations(names: readonly string[]): CommandResult {
+	const width = 43;
+	const row = (text: string) => `│ ${text.padEnd(width)} │`;
+	return ok(
+		[
+			" ⛅️ wrangler 4.128.0",
+			"───────────────",
+			"Resource location: remote ",
+			"",
+			"Migrations to be applied:",
+			`┌${"─".repeat(width + 2)}┐`,
+			row("Name"),
+			...names.flatMap((name) => [`├${"─".repeat(width + 2)}┤`, row(name)]),
+			`└${"─".repeat(width + 2)}┘`,
+			"",
+		].join("\n"),
+	);
+}
+
 const PREFLIGHT_CALLS = [
 	["vp", ["exec", "wrangler", "secret", "list", "--format", "json"]],
 	["vp", ["exec", "wrangler", "deploy", "--dry-run"]],
+	["vp", ["exec", "wrangler", "d1", "migrations", "list", "yepnope", "--remote"]],
 ];
 
 const STAGING_ORIGIN = "https://yepnope-staging.example.workers.dev";
@@ -114,7 +148,7 @@ async function refusal(run: ReturnType<typeof preflightRunner>): Promise<Deploym
 
 describe("release preflight", () => {
 	it("accepts a deployment that has every binding and secret the Worker reads", async () => {
-		const run = preflightRunner([secrets(), bindings(), stagingBindings()]);
+		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
 		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual({
 			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
@@ -151,6 +185,7 @@ describe("release preflight", () => {
 				...PRODUCTION_BINDINGS,
 				'env.TURNSTILE_SITE_KEY ("0x4AAAAAAA")                                   Environment Variable      ',
 			]),
+			NO_PENDING_MIGRATIONS,
 			stagingBindings(),
 		]);
 
@@ -264,7 +299,7 @@ describe("release preflight", () => {
 	});
 
 	it("refuses a staging configuration still carrying its placeholder origin", async () => {
-		const run = preflightRunner([secrets(), bindings(), stagingBindings()]);
+		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
 		await expect(
 			preflightDeployment(
@@ -277,7 +312,7 @@ describe("release preflight", () => {
 	});
 
 	it("refuses to rehearse the release on production itself", async () => {
-		const run = preflightRunner([secrets(), bindings(), stagingBindings()]);
+		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
 		await expect(
 			preflightDeployment(preflightDependencies(run, stagingConfiguration("https://yepnope.app"))),
@@ -288,7 +323,7 @@ describe("release preflight", () => {
 	});
 
 	it("refuses a staging configuration that declares no origin", async () => {
-		const run = preflightRunner([secrets(), bindings(), stagingBindings()]);
+		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
 		await expect(preflightDeployment(preflightDependencies(run, stagingConfiguration(null)))).rejects.toThrow(
 			"wrangler.staging.jsonc declares no BETTER_AUTH_URL origin, so this release cannot tell where to " +
@@ -297,7 +332,12 @@ describe("release preflight", () => {
 	});
 
 	it("fails loudly when the staging configuration cannot be resolved", async () => {
-		const run = preflightRunner([secrets(), bindings(), {code: 1, output: "Could not resolve D1 database\n"}]);
+		const run = preflightRunner([
+			secrets(),
+			bindings(),
+			NO_PENDING_MIGRATIONS,
+			{code: 1, output: "Could not resolve D1 database\n"},
+		]);
 
 		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
 			"`wrangler deploy --dry-run --config wrangler.staging.jsonc` failed with exit code 1, so this release " +
@@ -309,6 +349,7 @@ describe("release preflight", () => {
 		const run = preflightRunner([
 			secrets(),
 			bindings(),
+			NO_PENDING_MIGRATIONS,
 			stagingBindings("https://yepnope-staging.example.worke..."),
 		]);
 
@@ -319,5 +360,53 @@ describe("release preflight", () => {
 			target: "yepnope.app",
 		});
 		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
+	});
+	it("refuses a release while production D1 has unapplied migrations, naming each one", async () => {
+		const run = preflightRunner([
+			secrets(),
+			bindings(),
+			pendingMigrations(["002_remove_inactive_mcp_authorizations.sql", "003_phone_pairing.sql"]),
+		]);
+
+		const error = await preflightDeployment(preflightDependencies(run)).then(
+			() => null,
+			(caught: unknown) => caught,
+		);
+
+		expect(error).toBeInstanceOf(PendingMigrationsError);
+		expect((error as PendingMigrationsError).pending).toStrictEqual([
+			"002_remove_inactive_mcp_authorizations.sql",
+			"003_phone_pairing.sql",
+		]);
+		expect((error as PendingMigrationsError).message).toBe(
+			"refusing to release: the yepnope.app D1 database has unapplied migrations the Worker's code expects\n" +
+				"  - 002_remove_inactive_mcp_authorizations.sql\n" +
+				"  - 003_phone_pairing.sql\n" +
+				"Apply them with `vp exec wrangler d1 migrations apply yepnope --remote`, then release again.",
+		);
+		expect(run.mock.calls).toStrictEqual(PREFLIGHT_CALLS);
+	});
+
+	it("fails loudly when the migration list cannot be read", async () => {
+		const run = preflightRunner([secrets(), bindings(), {code: 1, output: "Authentication error [code: 10000]\n"}]);
+
+		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
+			"`wrangler d1 migrations list yepnope --remote` failed with exit code 1, so this release cannot " +
+				"tell whether the yepnope.app database is current",
+		);
+	});
+
+	it("fails loudly when the migration list reports neither outcome, as Wrangler does on an auth error", async () => {
+		// Wrangler exits 0 after printing an API error here, so the exit code alone proves nothing.
+		const run = preflightRunner([
+			secrets(),
+			bindings(),
+			ok("Resource location: remote \n\n✘ [ERROR] A request to the Cloudflare API failed.\n"),
+		]);
+
+		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
+			"`wrangler d1 migrations list yepnope --remote` reported neither pending migrations nor none, so " +
+				"this release cannot tell whether the yepnope.app database is current",
+		);
 	});
 });
