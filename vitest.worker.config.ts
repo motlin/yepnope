@@ -16,6 +16,10 @@ export default defineConfig(async () => {
 	return {
 		plugins: [
 			cloudflareTest({
+				// 🔇 Verbose mode runs workerd at INFO, where it warns on every `.text()` read of a form body.
+				// @better-auth/oauth-provider reads each token request that way to catch repeated fields, so
+				// the suite printed hundreds of copies. Worker console output and errors still come through.
+				verbose: false,
 				wrangler: {configPath: "./wrangler.jsonc"},
 				miniflare: {
 					bindings: {

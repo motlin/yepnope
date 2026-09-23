@@ -1,6 +1,6 @@
 import {fileURLToPath} from "node:url";
 import {defineConfig, mergeConfig} from "vite-plus";
-import viteConfig from "./vite.config";
+import viteConfig from "./vite.config.ts";
 
 const projectJsdomEnvironment = fileURLToPath(new URL("./scripts/vitest-jsdom-environment.ts", import.meta.url));
 
