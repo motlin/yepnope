@@ -171,6 +171,51 @@ describe("Codex question-routing hooks", () => {
 		).toStrictEqual({status: 0, stderr: "", output: {decision: "block", reason: stopContinuation}});
 	});
 
+	it("keeps the agent waiting while its questions are still on the phone", () => {
+		const waitingContinuation =
+			"The questions are still waiting on the user's phone. Call ask_yep_nope again with exactly the " +
+			"same arguments and keep waiting until they are answered; do not ask them natively.";
+		startTurn();
+		runHook(
+			hookInput("PreToolUse", {
+				tool_name: "mcp__yepnope__ask_yep_nope",
+				tool_use_id: "tool-100",
+			}),
+		);
+		runHook(
+			hookInput("PostToolUse", {
+				tool_name: "mcp__yepnope__ask_yep_nope",
+				tool_use_id: "tool-100",
+				tool_response: {
+					content: [{type: "text", text: "Still waiting on the user's phone: 0 of 1 answered."}],
+					structuredContent: {answered: 0, status: "pending", total: 1},
+				},
+			}),
+		);
+
+		expect({
+			nativeQuestion: runHook(
+				hookInput("PreToolUse", {tool_name: "request_user_input", tool_use_id: "tool-200"}),
+			),
+			stopWithoutAsking: runHook(
+				hookInput("Stop", {stop_hook_active: false, last_assistant_message: "Waiting for the answer."}),
+			),
+		}).toStrictEqual({
+			nativeQuestion: {
+				status: 0,
+				stderr: "",
+				output: {
+					hookSpecificOutput: {
+						hookEventName: "PreToolUse",
+						permissionDecision: "deny",
+						permissionDecisionReason: waitingContinuation,
+					},
+				},
+			},
+			stopWithoutAsking: {status: 0, stderr: "", output: {decision: "block", reason: waitingContinuation}},
+		});
+	});
+
 	it("permits native fallback after an MCP error", () => {
 		startTurn();
 		runHook(

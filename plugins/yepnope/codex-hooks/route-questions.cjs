@@ -28,7 +28,11 @@ const STOP_CONTINUATION =
 	"after that attempt returns afk_off or fails; keep input that cannot be represented truthfully as yes " +
 	"or no native.";
 
-const OUTCOMES = new Set(["not_attempted", "pending", "fallback", "answered"]);
+const WAITING_CONTINUATION =
+	"The questions are still waiting on the user's phone. Call ask_yep_nope again with exactly the " +
+	"same arguments and keep waiting until they are answered; do not ask them natively.";
+
+const OUTCOMES = new Set(["not_attempted", "pending", "waiting", "fallback", "answered"]);
 
 function record(value, label) {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -121,6 +125,19 @@ function answeredToolResponse(toolResponse) {
 	return / -> (?:YEP|NOPE|SKIPPED\.)/u.test(text);
 }
 
+// A call whose window closed before the user answered: the cards are still on the phone, and the
+// agent should call again with the same arguments rather than fall back to a native question.
+function waitingToolResponse(toolResponse) {
+	if (toolResponse === null || typeof toolResponse !== "object" || Array.isArray(toolResponse)) {
+		return false;
+	}
+	if (toolResponse.isError === true) {
+		return false;
+	}
+	const structured = toolResponse.structuredContent;
+	return structured !== null && typeof structured === "object" && structured.status === "pending";
+}
+
 function asksDirectQuestion(message) {
 	if (typeof message !== "string") {
 		return false;
@@ -173,14 +190,15 @@ function handleHook(input) {
 		if (!isNativeQuestionTool(toolName)) {
 			throw new Error(`unsupported PreToolUse tool: ${toolName}`);
 		}
-		if (nativeFallbackAllowed(readOutcome(input))) {
+		const outcome = readOutcome(input);
+		if (nativeFallbackAllowed(outcome)) {
 			return undefined;
 		}
 		return {
 			hookSpecificOutput: {
 				hookEventName: "PreToolUse",
 				permissionDecision: "deny",
-				permissionDecisionReason: NATIVE_QUESTION_DENIAL,
+				permissionDecisionReason: outcome === "waiting" ? WAITING_CONTINUATION : NATIVE_QUESTION_DENIAL,
 			},
 		};
 	}
@@ -189,13 +207,21 @@ function handleHook(input) {
 		if (!isAskYepNope(toolName)) {
 			throw new Error(`unsupported PostToolUse tool: ${toolName}`);
 		}
-		writeOutcome(input, answeredToolResponse(input.tool_response) ? "answered" : "fallback");
+		const response = input.tool_response;
+		writeOutcome(
+			input,
+			answeredToolResponse(response) ? "answered" : waitingToolResponse(response) ? "waiting" : "fallback",
+		);
 		return undefined;
 	}
 	if (event === "Stop") {
 		const asksQuestion = asksDirectQuestion(input.last_assistant_message);
 		const outcome = readOutcome(input);
 		clearOutcome(input);
+		// Ending the turn abandons questions still on the phone; the heartbeat alarm would retract them.
+		if (outcome === "waiting" && input.stop_hook_active !== true) {
+			return {decision: "block", reason: WAITING_CONTINUATION};
+		}
 		if (!asksQuestion) {
 			return {};
 		}
