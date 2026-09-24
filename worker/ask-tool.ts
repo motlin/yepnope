@@ -68,8 +68,12 @@ export const TOOL_DESCRIPTION =
 	"yes. Test each question against 'Yes means I will ______.' If that cannot be completed " +
 	"with one concrete action, rewrite it. You may stack any number of questions; they are delivered as one " +
 	"notification. The user may also skip a question, which means they declined to decide: " +
-	"leave that item alone and report it rather than choosing for them. This call blocks until " +
-	"every question is dispositioned, which may take hours. " +
+	"leave that item alone and report it rather than choosing for them. Each call waits a few " +
+	"minutes at most. If the user has not answered by then it returns a pending result and the " +
+	"questions stay on the phone: call this tool again at once with exactly the same arguments, and " +
+	"keep doing so until the answers arrive, which may take hours. Do the same if a call fails " +
+	"because its connection dropped. An identical call rejoins the waiting questions rather than " +
+	"asking twice, and hands back any answer given in between. " +
 	"Whenever you are working in a git repository, fill in repo, branch, worktree, and directory " +
 	"as well; they render on the card as the context the user needs to tell one of your sessions " +
 	"from another. Derive them yourself from the shell, do not ask the user for them, and omit " +
@@ -149,3 +153,22 @@ export const ASK_YEP_NOPE_STANDARD_SCHEMA = {
 		},
 	},
 };
+
+/**
+ * ⏳ What a call returns when its window closes first. It is not an error: the questions stay on the
+ * phone, and an identical call rejoins them and collects any answer given in between.
+ */
+export function pendingResult(answered: number, total: number) {
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text:
+					`Still waiting on the user's phone: ${String(answered)} of ${String(total)} answered. ` +
+					`The questions stay on the phone. Call ${TOOL_NAME} again with exactly the same arguments to ` +
+					"keep waiting; answers given in the meantime are kept.",
+			},
+		],
+		structuredContent: {status: "pending" as const, answered, total},
+	};
+}

@@ -17,13 +17,33 @@ import {authorizeMcpHostClient} from "./oauth-client-helpers";
 const ISSUER = `${API_ORIGIN}/api/auth`;
 const RESOURCE = `${API_ORIGIN}${MCP_RESOURCE_PATH}`;
 const TEST_TIMING: RemoteMcpTiming = {
-	answerTimeoutMilliseconds: 500,
+	callWindowMilliseconds: 500,
 	heartbeatMilliseconds: 20,
 	maximumConsecutiveFailures: 3,
 	maximumReconnectDelayMilliseconds: 20,
 	progressMilliseconds: 20,
+	reattachAnsweredWithinMilliseconds: 600_000,
 	reconnectDelayMilliseconds: 5,
 };
+
+function pendingResponse(answered: number, total: number): unknown {
+	return {
+		id: 1,
+		jsonrpc: "2.0",
+		result: {
+			content: [
+				{
+					text:
+						`Still waiting on the user's phone: ${String(answered)} of ${String(total)} answered. ` +
+						"The questions stay on the phone. Call ask_yep_nope again with exactly the same arguments to " +
+						"keep waiting; answers given in the meantime are kept.",
+					type: "text",
+				},
+			],
+			structuredContent: {answered, status: "pending", total},
+		},
+	};
+}
 
 interface IssuedGrant {
 	accessToken: string;
@@ -89,6 +109,19 @@ function askRequest(accessToken: string, signal?: AbortSignal): Request {
 		},
 		signal,
 	);
+}
+
+function cancellationRequest(accessToken: string, requestId: number): Request {
+	return new Request(`${API_ORIGIN}/mcp`, {
+		method: "POST",
+		headers: {
+			Accept: "application/json, text/event-stream",
+			Authorization: `Bearer ${accessToken}`,
+			"Content-Type": "application/json",
+			"MCP-Protocol-Version": "2025-11-25",
+		},
+		body: JSON.stringify({jsonrpc: "2.0", method: "notifications/cancelled", params: {requestId}}),
+	});
 }
 
 async function responseMessage(response: Response): Promise<unknown> {
@@ -444,27 +477,96 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		);
 	});
 
-	it("retracts outstanding questions on cancellation and timeout", async () => {
-		const cancelledGrant = await issueGrant("mcp-cancelled-alice@example.com");
-		const cancelledStub = env.USER_DO.getByName(cancelledGrant.userId);
-		await cancelledStub.setAfk(true, true);
+	// 📶 A dropped connection is not the agent giving up. The cards stay, the heartbeat alarm retracts
+	// them only if no call comes back within its grace, and an identical call rejoins the same batch.
+	it("keeps the cards when the connection drops and reattaches the same batch on an identical call", async () => {
+		const grant = await issueGrant("mcp-dropped-alice@example.com");
+		const stub = env.USER_DO.getByName(grant.userId);
+		await stub.setAfk(true, true);
 		const controller = new AbortController();
-		const cancelledResponse = await remoteResponse(askRequest(cancelledGrant.accessToken, controller.signal));
-		await waitForQuestionCount(cancelledGrant.userId, 3);
+		const dropped = await remoteResponse(askRequest(grant.accessToken, controller.signal));
+		const asked = await waitForQuestionCount(grant.userId, 3);
 		controller.abort();
-		await cancelledResponse.text().catch(() => "cancelled");
-		await waitForQuestionCount(cancelledGrant.userId, 0);
-		expect(await questionOutcomes(cancelledGrant.userId)).toStrictEqual(["retracted", "retracted", "retracted"]);
-
-		const timedOutGrant = await issueGrant("mcp-timeout-alice@example.com");
-		const timedOutStub = env.USER_DO.getByName(timedOutGrant.userId);
-		await timedOutStub.setAfk(true, true);
-		const timeoutTiming = {...TEST_TIMING, answerTimeoutMilliseconds: 40};
-		const timedOut = await remoteResponse(askRequest(timedOutGrant.accessToken), timeoutTiming);
-		expect(await responseMessage(timedOut)).toStrictEqual(
-			strictTextResponse("The ask_yep_nope call timed out before every question was answered.", true),
+		await dropped.text().catch(() => "dropped");
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, 50);
+		});
+		expect((await stub.getCurrentQuestions()).map(({questionId}) => questionId)).toStrictEqual(
+			asked.map(({questionId}) => questionId),
 		);
-		expect(await timedOutStub.getCurrentQuestions()).toStrictEqual([]);
-		expect(await questionOutcomes(timedOutGrant.userId)).toStrictEqual(["retracted", "retracted", "retracted"]);
+
+		const retried = remoteResponse(askRequest(grant.accessToken));
+		await stub.submitAnswers(
+			asked.map((question) => ({question_id: question.questionId, disposition: "yep" as const})),
+		);
+
+		expect(await responseMessage(await retried)).toStrictEqual(
+			strictTextResponse("Ship it? -> YEP\nDelete it? -> YEP\nMigrate it? -> YEP"),
+		);
+		expect(await questionOutcomes(grant.userId)).toStrictEqual(["yep", "yep", "yep"]);
+	});
+
+	// ⏳ No call outlives a window a client will tolerate. The cards outlive the call, and an answer
+	// given between calls is handed to the next identical one rather than asked again.
+	it("returns a pending result when the call window closes and hands over answers given meanwhile", async () => {
+		const grant = await issueGrant("mcp-window-alice@example.com");
+		const stub = env.USER_DO.getByName(grant.userId);
+		await stub.setAfk(true, true);
+		const windowTiming = {...TEST_TIMING, callWindowMilliseconds: 40};
+
+		const first = await remoteResponse(askRequest(grant.accessToken), windowTiming);
+		expect(await responseMessage(first)).toStrictEqual(pendingResponse(0, 3));
+		const kept = await stub.getCurrentQuestions();
+		expect(kept.length).toBe(3);
+
+		await stub.submitAnswers(
+			kept.map((question) => ({question_id: question.questionId, disposition: "nope" as const})),
+		);
+		const second = await remoteResponse(askRequest(grant.accessToken), windowTiming);
+
+		expect(await responseMessage(second)).toStrictEqual(
+			strictTextResponse("Ship it? -> NOPE\nDelete it? -> NOPE\nMigrate it? -> NOPE"),
+		);
+		expect(await questionOutcomes(grant.userId)).toStrictEqual(["nope", "nope", "nope"]);
+	});
+
+	it("retracts the cards when the client explicitly cancels the call", async () => {
+		const grant = await issueGrant("mcp-cancelled-alice@example.com");
+		const stub = env.USER_DO.getByName(grant.userId);
+		await stub.setAfk(true, true);
+		const asking = remoteResponse(askRequest(grant.accessToken));
+		await waitForQuestionCount(grant.userId, 3);
+
+		await remoteResponse(cancellationRequest(grant.accessToken, 1));
+
+		await waitForQuestionCount(grant.userId, 0);
+		expect(await questionOutcomes(grant.userId)).toStrictEqual(["retracted", "retracted", "retracted"]);
+		await (await asking).text().catch(() => "cancelled");
+		expect(await stub.getCurrentQuestions()).toStrictEqual([]);
+	});
+
+	it("asks afresh when the identical batch was answered longer ago than the reattach window", async () => {
+		const grant = await issueGrant("mcp-fresh-alice@example.com");
+		const stub = env.USER_DO.getByName(grant.userId);
+		await stub.setAfk(true, true);
+		const noReuse = {...TEST_TIMING, reattachAnsweredWithinMilliseconds: 0};
+
+		const first = remoteResponse(askRequest(grant.accessToken), noReuse);
+		const answered = await waitForQuestionCount(grant.userId, 3);
+		await stub.submitAnswers(
+			answered.map((question) => ({question_id: question.questionId, disposition: "yep" as const})),
+		);
+		await (await first).text();
+
+		const second = remoteResponse(askRequest(grant.accessToken), noReuse);
+		const askedAgain = await waitForQuestionCount(grant.userId, 3);
+
+		expect(askedAgain.some(({questionId}) => answered.some((earlier) => earlier.questionId === questionId))).toBe(
+			false,
+		);
+		await stub.submitAnswers(
+			askedAgain.map((question) => ({question_id: question.questionId, disposition: "skip" as const})),
+		);
+		await (await second).text();
 	});
 });

@@ -217,6 +217,60 @@ export class UserDurableObject extends DurableObject<Env> {
 		return {batchId, questionIds: questionRows.map((row) => row.id)};
 	}
 
+	/**
+	 * 🔁 The batch an identical ask would only duplicate: still unanswered, or answered so recently
+	 * that the call it answered may have dropped before the agent heard. Rejoining refreshes the
+	 * heartbeat, so the alarm cannot retract the batch before the new call's first beat.
+	 */
+	async findReattachableBatch(
+		request: CreateBatchRequest,
+		answeredWithinMilliseconds: number,
+	): Promise<CreatedBatch | null> {
+		await this.initialize();
+		const now = Date.now();
+		const candidates = (await this.database.select().from(batches).where(eq(batches.project, request.project)))
+			.filter(
+				(batch) =>
+					batch.repo === (request.repo ?? null) &&
+					batch.branch === (request.branch ?? null) &&
+					batch.worktree === (request.worktree ?? null) &&
+					batch.directory === (request.directory ?? null),
+			)
+			.sort((left, right) => right.createdAt - left.createdAt);
+		for (const batch of candidates) {
+			const rows = await this.database
+				.select()
+				.from(questions)
+				.where(eq(questions.batchId, batch.id))
+				.orderBy(asc(questions.position));
+			const sameQuestions =
+				rows.length === request.questions.length &&
+				rows.every((row, position) => {
+					const asked = request.questions[position];
+					return asked !== undefined && row.title === asked.title && row.body === asked.body;
+				});
+			if (!sameQuestions) {
+				continue;
+			}
+			const answered = await this.database
+				.select({answeredAt: answers.answeredAt})
+				.from(answers)
+				.where(
+					inArray(
+						answers.questionId,
+						rows.map((row) => row.id),
+					),
+				);
+			const lastAnsweredAt = Math.max(0, ...answered.map((row) => row.answeredAt));
+			if (answered.length === rows.length && lastAnsweredAt <= now - answeredWithinMilliseconds) {
+				continue;
+			}
+			await this.database.update(batches).set({lastHeartbeatAt: now}).where(eq(batches.id, batch.id));
+			return {batchId: batch.id, questionIds: rows.map((row) => row.id)};
+		}
+		return null;
+	}
+
 	async retractBatch(batchId: string): Promise<boolean> {
 		await this.initialize();
 		if (!(await this.batchExists(batchId))) {

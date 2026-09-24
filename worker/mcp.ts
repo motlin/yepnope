@@ -5,6 +5,7 @@ import {
 	formatAskYepNopeResult,
 	NATIVE_QUESTION_FALLBACK,
 	NATIVE_QUESTION_FALLBACK_TEXT,
+	pendingResult,
 	TOOL_DESCRIPTION,
 	TOOL_NAME,
 } from "./ask-tool";
@@ -24,11 +25,15 @@ import {
 	externalContextReferenceRejection,
 	findExternalContextReferenceViolations,
 	findLengthViolations,
-	RETENTION_MILLISECONDS,
 	teachingRejection,
 	type Disposition,
 } from "./validation";
 
+// ⏳ Comfortably inside the idle budget a client gives a silent call (Claude Code aborts after about
+// five minutes), so no call is ever cut off by its client; the questions outlive it instead.
+const DEFAULT_CALL_WINDOW_MILLISECONDS = 4 * 60 * 1000;
+// 🔁 How long an answered batch can still be handed to an identical call whose predecessor dropped.
+const DEFAULT_REATTACH_ANSWERED_WITHIN_MILLISECONDS = 10 * 60 * 1000;
 const DEFAULT_HEARTBEAT_MILLISECONDS = 30_000;
 const DEFAULT_PROGRESS_MILLISECONDS = 15_000;
 const DEFAULT_RECONNECT_DELAY_MILLISECONDS = 2_000;
@@ -46,26 +51,29 @@ const mcpMessageSchema = z
 const mcpCancellationParamsSchema = z.object({requestId: mcpRequestIdSchema}).loose();
 
 export interface RemoteMcpTiming {
-	answerTimeoutMilliseconds: number;
+	callWindowMilliseconds: number;
 	heartbeatMilliseconds: number;
 	maximumConsecutiveFailures: number;
 	maximumReconnectDelayMilliseconds: number;
 	progressMilliseconds: number;
+	reattachAnsweredWithinMilliseconds: number;
 	reconnectDelayMilliseconds: number;
 }
 
 const DEFAULT_TIMING: RemoteMcpTiming = {
-	answerTimeoutMilliseconds: RETENTION_MILLISECONDS,
+	callWindowMilliseconds: DEFAULT_CALL_WINDOW_MILLISECONDS,
 	heartbeatMilliseconds: DEFAULT_HEARTBEAT_MILLISECONDS,
 	maximumConsecutiveFailures: DEFAULT_MAXIMUM_CONSECUTIVE_FAILURES,
 	maximumReconnectDelayMilliseconds: DEFAULT_MAXIMUM_RECONNECT_DELAY_MILLISECONDS,
 	progressMilliseconds: DEFAULT_PROGRESS_MILLISECONDS,
+	reattachAnsweredWithinMilliseconds: DEFAULT_REATTACH_ANSWERED_WITHIN_MILLISECONDS,
 	reconnectDelayMilliseconds: DEFAULT_RECONNECT_DELAY_MILLISECONDS,
 };
 
 type StreamResult =
 	| {kind: "resolved"; dispositions: DispositionMap}
 	| {kind: "error"; code: string; message: string}
+	| {kind: "window_closed"}
 	| {kind: "closed"; receivedState: boolean};
 
 function textResult(text: string, isError: boolean) {
@@ -198,18 +206,14 @@ async function waitForAnswers(
 	timing: RemoteMcpTiming,
 	onState: (dispositions: DispositionMap) => void,
 ): Promise<StreamResult> {
-	const deadline = Date.now() + timing.answerTimeoutMilliseconds;
+	const deadline = Date.now() + timing.callWindowMilliseconds;
 	let failures = 0;
 	for (;;) {
 		if (signal.aborted) {
 			throw new DOMException("MCP request cancelled", "AbortError");
 		}
 		if (Date.now() >= deadline) {
-			return {
-				kind: "error",
-				code: "answer_timeout",
-				message: "The ask_yep_nope call timed out before every question was answered.",
-			};
+			return {kind: "window_closed"};
 		}
 		let timeout: ReturnType<typeof setTimeout> | undefined;
 		const result = await Promise.race([
@@ -217,11 +221,7 @@ async function waitForAnswers(
 			new Promise<StreamResult>((resolve) => {
 				timeout = setTimeout(
 					() => {
-						resolve({
-							kind: "error",
-							code: "answer_timeout",
-							message: "The ask_yep_nope call timed out before every question was answered.",
-						});
+						resolve({kind: "window_closed"});
 					},
 					Math.max(0, deadline - Date.now()),
 				);
@@ -279,12 +279,14 @@ function createRemoteMcpServer(
 			if (!(await stub.getAfk(true))) {
 				return nativeQuestionFallbackResult();
 			}
-			const created = await stub.createBatch(batch);
+			const rejoined = await stub.findReattachableBatch(batch, timing.reattachAnsweredWithinMilliseconds);
+			const created = rejoined ?? (await stub.createBatch(batch));
 			if (requestKey !== null) {
 				await stub.registerMcpRequest(requestKey, created.batchId);
 			}
-			executionContext.waitUntil(stub.sendBatchPush(created.batchId));
-			let completed = false;
+			if (rejoined === null) {
+				executionContext.waitUntil(stub.sendBatchPush(created.batchId));
+			}
 			let latest: DispositionMap = {};
 			const progressToken = context.mcpReq._meta?.progressToken;
 			const progress = setInterval(() => {
@@ -313,18 +315,21 @@ function createRemoteMcpServer(
 					if (dispositions === null) {
 						return textResult("The batch resolved without one disposition per question.", true);
 					}
-					completed = true;
 					return textResult(formatAskYepNopeResult(batch.questions, dispositions), false);
+				}
+				if (result.kind === "window_closed") {
+					const answered = Object.values(latest).filter((disposition) => disposition !== null).length;
+					return pendingResult(answered, created.questionIds.length);
 				}
 				if (result.kind === "closed") {
 					throw new Error("answer stream loop returned an unresolved closed connection");
 				}
 				return textResult(result.message, true);
 			} finally {
+				// 📶 A call that ends unanswered is not an agent giving up: its connection may simply
+				// have dropped. The questions stay for the next identical call; an explicit
+				// cancellation retracts them, and the heartbeat alarm does if no call comes back.
 				clearInterval(progress);
-				if (!completed) {
-					await stub.retractBatch(created.batchId);
-				}
 				if (requestKey !== null) {
 					await stub.unregisterMcpRequest(requestKey, created.batchId);
 				}
