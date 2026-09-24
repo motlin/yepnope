@@ -22,13 +22,19 @@ If YepNope is absent, disconnected, or requires authentication, use the client's
 
 If the tool returns `route: native` with `reason: afk_off`, immediately ask the same question through the client's native user-question flow. This is the normal state-based fallback. Do not ask the user to turn routing on and do not change routing from the agent.
 
-If the attempted tool call fails because the connection became unavailable, use the same native fallback. If the tool returns Yep, Nope, or Skip, honor that disposition and do not ask the question again natively.
+Only if the YepNope server itself is unreachable (the call cannot start, or keeps failing to connect) use the native fallback. If the tool returns Yep, Nope, or Skip, honor that disposition and do not ask the question again natively.
 
 Preserve the user's exact decision boundary. The phone receives only the `title`, `body`, and context chips passed in the `ask_yep_nope` call; it cannot see the terminal, chat transcript, or text printed before the call. Copy every exact item needed for the decision into the body even when it already appears elsewhere. For commit approval, include each short SHA and subject. Do not use phrases such as “listed above,” “as discussed,” “these commits,” or “previous message” as a substitute for the details. If the facts do not fit in one card, split them into independent yes-or-no decisions rather than referring to external context.
 
 Fill in the `repo`, `branch`, `worktree`, and `directory` arguments whenever the session is inside a git repository. Derive them from the shell rather than asking the user, and omit any you cannot determine. They render as chips on the card, and they are how the user tells one of your sessions from another when several worktrees of the same repository are open at once.
 
 Use the native question flow for input that cannot be represented truthfully as yes or no, including open-ended input, credentials, secrets, and choices that require more than two answers. Do not force those requests into a misleading binary question.
+
+## Keep waiting through pending results
+
+A call waits a few minutes at most. When it returns `status: pending`, the questions are still on the user's phone: call `ask_yep_nope` again at once with exactly the same arguments, and keep doing so until the answers arrive. Answers can take hours. A pending result is not a failure and not a reason to ask natively.
+
+If a call fails because its connection dropped mid-wait, call it again the same way. An identical call rejoins the questions already on the phone rather than sending new ones, and returns any answer the user gave while the connection was down. Changing any argument, even whitespace, sends a second set of cards instead.
 
 ## Preserve client ownership
 

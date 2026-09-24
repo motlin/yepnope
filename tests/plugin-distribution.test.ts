@@ -17,7 +17,7 @@ describe("YepNope plugin distribution", () => {
 	it("publishes one Codex plugin with both skills and the remote MCP server", () => {
 		expect(readJson("../plugins/yepnope/.codex-plugin/plugin.json")).toStrictEqual({
 			name: "yepnope",
-			version: "0.1.1",
+			version: "0.1.2",
 			description: "Route every yes-or-no coding-agent question to your phone first.",
 			author: {name: "YepNope"},
 			homepage: "https://yepnope.app",
@@ -116,7 +116,7 @@ describe("YepNope plugin distribution", () => {
 			$schema: "https://anthropic.com/claude-code/plugin.schema.json",
 			name: "yepnope",
 			displayName: "YepNope",
-			version: "0.1.1",
+			version: "0.1.2",
 			description: "Route brief yes-or-no coding-agent questions to your phone.",
 			author: {name: "YepNope"},
 			homepage: "https://yepnope.app",
@@ -169,7 +169,7 @@ describe("YepNope plugin distribution", () => {
 				{
 					name: "yepnope",
 					description: "Route brief yes-or-no coding-agent questions to your phone.",
-					version: "0.1.1",
+					version: "0.1.2",
 					author: {name: "YepNope"},
 					source: "./plugins/yepnope",
 					category: "productivity",
