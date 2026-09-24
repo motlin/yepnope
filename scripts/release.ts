@@ -2,7 +2,14 @@ import {spawn} from "node:child_process";
 import {readFile} from "node:fs/promises";
 import {pathToFileURL} from "node:url";
 // Node runs this file directly, so the relative import carries the extension TypeScript allows.
-import {preflightDeployment, PRODUCTION_HOSTNAME, STAGING_CONFIG, type CommandResult} from "./preflight.ts";
+import {
+	MIGRATION_APPLY,
+	pendingMigrations,
+	preflightDeployment,
+	PRODUCTION_HOSTNAME,
+	STAGING_CONFIG,
+	type CommandResult,
+} from "./preflight.ts";
 
 /**
  * 🚀 One-command production release: guard, preflight, verify, rehearse on staging, tag, deploy, push.
@@ -145,6 +152,27 @@ export async function runRelease(dependencies: ReleaseDependencies): Promise<Rel
 			`the core loop failed on ${deployment.staging} with exit code ${coreLoop.code}, so this tree is not ` +
 				"releasable; nothing was tagged or deployed",
 		);
+	}
+
+	// 🗄️ The schema goes first, so the new Worker never runs against a database that lacks what it
+	// reads. Wrangler has exited 0 after an API error, so success is read back from D1 itself, and a
+	// failure either way stops the release before a tag or a deploy exists.
+	if (deployment.pending_migrations.length > 0) {
+		const pending = deployment.pending_migrations.join(", ");
+		const stopped = "nothing was tagged or deployed";
+		const apply = await run("vp", MIGRATION_APPLY);
+		if (apply.code !== 0) {
+			throw new Error(
+				`applying ${pending} to the ${PRODUCTION_HOSTNAME} D1 database failed with exit code ${apply.code}; ${stopped}`,
+			);
+		}
+		const remaining = await pendingMigrations(dependencies);
+		if (remaining.length > 0) {
+			throw new Error(
+				`the ${PRODUCTION_HOSTNAME} D1 database still lists ${remaining.join(", ")} as unapplied after ` +
+					`applying it; ${stopped}`,
+			);
+		}
 	}
 
 	await git(dependencies, ["tag", "--annotate", plan.tag, "--message", pendingAnnotation(plan)]);

@@ -658,10 +658,16 @@ a deployment without a provider's pair simply never offers that provider.
 The preflight also asks `wrangler d1 migrations list yepnope --remote` whether
 production D1 is behind the migrations in `worker/migrations/d1`. Wrangler
 deploys code, never schema, so a release that adds a table would otherwise go
-out against a database without it. Any unapplied migration refuses the release,
-names each file, and gives the fix: `vp exec wrangler d1 migrations apply
-yepnope --remote`. Wrangler exits 0 even when that listing hits an API error, so
-output that reports neither pending migrations nor none also refuses.
+out against a database without it. The release applies any unapplied migration
+itself, after staging has proven the tree and before anything is tagged or
+deployed, then lists again and stops if production still reports one pending.
+`--dry-run` names the migrations it would apply under `pending_migrations`.
+Wrangler exits 0 even when that listing hits an API error, so output that
+reports neither pending migrations nor none refuses the release.
+
+The `CLOUDFLARE_API_TOKEN` the release runs with therefore needs the **D1:
+Edit** account permission. Without it the listing fails with Cloudflare error
+7403 and every release stops at the preflight.
 
 Only `just release` runs it. A bare `wrangler deploy` deploys whatever is there.
 

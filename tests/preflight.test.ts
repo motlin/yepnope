@@ -2,7 +2,6 @@ import {describe, expect, it, vi} from "vitest";
 import {
 	preflightDeployment,
 	DeploymentNotConfiguredError,
-	PendingMigrationsError,
 	type CommandResult,
 	type PreflightDependencies,
 } from "../scripts/preflight";
@@ -154,6 +153,7 @@ describe("release preflight", () => {
 			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
 			secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
 			staging: STAGING_ORIGIN,
+			pending_migrations: [],
 			target: "yepnope.app",
 		});
 		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
@@ -357,34 +357,27 @@ describe("release preflight", () => {
 			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
 			secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
 			staging: STAGING_ORIGIN,
+			pending_migrations: [],
 			target: "yepnope.app",
 		});
 		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
 	});
-	it("refuses a release while production D1 has unapplied migrations, naming each one", async () => {
+	it("hands unapplied migrations to the release rather than refusing, naming each one", async () => {
 		const run = preflightRunner([
 			secrets(),
 			bindings(),
 			pendingMigrations(["002_remove_inactive_mcp_authorizations.sql", "003_phone_pairing.sql"]),
+			stagingBindings(),
 		]);
 
-		const error = await preflightDeployment(preflightDependencies(run)).then(
-			() => null,
-			(caught: unknown) => caught,
-		);
-
-		expect(error).toBeInstanceOf(PendingMigrationsError);
-		expect((error as PendingMigrationsError).pending).toStrictEqual([
-			"002_remove_inactive_mcp_authorizations.sql",
-			"003_phone_pairing.sql",
-		]);
-		expect((error as PendingMigrationsError).message).toBe(
-			"refusing to release: the yepnope.app D1 database has unapplied migrations the Worker's code expects\n" +
-				"  - 002_remove_inactive_mcp_authorizations.sql\n" +
-				"  - 003_phone_pairing.sql\n" +
-				"Apply them with `vp exec wrangler d1 migrations apply yepnope --remote`, then release again.",
-		);
-		expect(run.mock.calls).toStrictEqual(PREFLIGHT_CALLS);
+		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual({
+			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
+			pending_migrations: ["002_remove_inactive_mcp_authorizations.sql", "003_phone_pairing.sql"],
+			secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
+			staging: STAGING_ORIGIN,
+			target: "yepnope.app",
+		});
+		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
 	});
 
 	it("fails loudly when the migration list cannot be read", async () => {

@@ -67,6 +67,21 @@ const STAGING_BINDINGS = ok(`env.BETTER_AUTH_URL ("${STAGING_ORIGIN}")`);
 const STAGING_CONFIGURATION = `{\n\t"vars": {\n\t\t"BETTER_AUTH_URL": "${STAGING_ORIGIN}"\n\t}\n}\n`;
 const CURRENT_DATABASE = ok("✅ No migrations to apply!\n");
 const PREFLIGHT = [CONFIGURED_SECRETS, CONFIGURED_BINDINGS, CURRENT_DATABASE, STAGING_BINDINGS];
+// 🗄️ Production one migration behind this tree, as it was when 003_phone_pairing.sql shipped unapplied.
+const PENDING_DATABASE = ok(
+	[
+		"Migrations to be applied:",
+		"┌───────────────────────┐",
+		"│ Name                  │",
+		"├───────────────────────┤",
+		"│ 003_phone_pairing.sql │",
+		"└───────────────────────┘",
+		"",
+	].join("\n"),
+);
+const MIGRATIONS_APPLIED = ok("│ 003_phone_pairing.sql │ ✅     │\n");
+const MIGRATION_LIST_CALL = ["vp", ["exec", "wrangler", "d1", "migrations", "list", "yepnope", "--remote"]];
+const MIGRATION_APPLY_CALL = ["vp", ["exec", "wrangler", "d1", "migrations", "apply", "yepnope", "--remote"]];
 const PREFLIGHT_CALLS = [
 	["vp", ["exec", "wrangler", "secret", "list", "--format", "json"]],
 	["vp", ["exec", "wrangler", "deploy", "--dry-run"]],
@@ -208,6 +223,117 @@ describe("just release", () => {
 			["vp", ["run", "deploy"]],
 			["git", ["tag", "--annotate", "--force", TAG, "--message", RELEASED_ANNOTATION]],
 			["git", ["push", "origin", `refs/tags/${TAG}`]],
+		]);
+	});
+
+	it("applies unapplied migrations once staging has proven the tree, before anything is tagged", async () => {
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			FETCHED,
+			IN_SYNC,
+			HEAD_COMMIT,
+			UNUSED_TAG,
+			CONFIGURED_SECRETS,
+			CONFIGURED_BINDINGS,
+			PENDING_DATABASE,
+			STAGING_BINDINGS,
+			VERIFIED,
+			BUILT,
+			...REHEARSAL,
+			MIGRATIONS_APPLIED,
+			CURRENT_DATABASE,
+			TAGGED,
+			DEPLOYED,
+			TAGGED,
+			PUSHED,
+		]);
+
+		expect(await runRelease(dependencies(run))).toStrictEqual({
+			commit: "abc1234",
+			remote: "origin",
+			tag: TAG,
+			version_id: VERSION_ID,
+		});
+		expect(run.mock.calls).toStrictEqual([
+			...PLAN_CALLS,
+			...PREFLIGHT_CALLS,
+			["just", ["verify"]],
+			...REHEARSAL_CALLS,
+			MIGRATION_APPLY_CALL,
+			MIGRATION_LIST_CALL,
+			["git", ["tag", "--annotate", TAG, "--message", PENDING_ANNOTATION]],
+			["vp", ["run", "deploy"]],
+			["git", ["tag", "--annotate", "--force", TAG, "--message", RELEASED_ANNOTATION]],
+			["git", ["push", "origin", `refs/tags/${TAG}`]],
+		]);
+	});
+
+	it("stops before tagging when applying the migrations fails", async () => {
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			FETCHED,
+			IN_SYNC,
+			HEAD_COMMIT,
+			UNUSED_TAG,
+			CONFIGURED_SECRETS,
+			CONFIGURED_BINDINGS,
+			PENDING_DATABASE,
+			STAGING_BINDINGS,
+			VERIFIED,
+			BUILT,
+			...REHEARSAL,
+			{
+				code: 1,
+				output: "The given account is not valid or is not authorized to access this service [code: 7403]\n",
+			},
+		]);
+
+		await expect(runRelease(dependencies(run))).rejects.toThrow(
+			"applying 003_phone_pairing.sql to the yepnope.app D1 database failed with exit code 1; " +
+				"nothing was tagged or deployed",
+		);
+		expect(run.mock.calls).toStrictEqual([
+			...PLAN_CALLS,
+			...PREFLIGHT_CALLS,
+			["just", ["verify"]],
+			...REHEARSAL_CALLS,
+			MIGRATION_APPLY_CALL,
+		]);
+	});
+
+	it("stops before tagging when production still lists the migrations after applying them", async () => {
+		// Wrangler has exited 0 after an API error, so success is read back from the database itself.
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			FETCHED,
+			IN_SYNC,
+			HEAD_COMMIT,
+			UNUSED_TAG,
+			CONFIGURED_SECRETS,
+			CONFIGURED_BINDINGS,
+			PENDING_DATABASE,
+			STAGING_BINDINGS,
+			VERIFIED,
+			BUILT,
+			...REHEARSAL,
+			MIGRATIONS_APPLIED,
+			PENDING_DATABASE,
+		]);
+
+		await expect(runRelease(dependencies(run))).rejects.toThrow(
+			"the yepnope.app D1 database still lists 003_phone_pairing.sql as unapplied after applying it; " +
+				"nothing was tagged or deployed",
+		);
+		expect(run.mock.calls).toStrictEqual([
+			...PLAN_CALLS,
+			...PREFLIGHT_CALLS,
+			["just", ["verify"]],
+			...REHEARSAL_CALLS,
+			MIGRATION_APPLY_CALL,
+			MIGRATION_LIST_CALL,
 		]);
 	});
 
