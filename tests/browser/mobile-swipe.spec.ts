@@ -11,6 +11,18 @@ import {fulfillJson} from "./helpers";
 /** Twice the fly-out, so a card still on screen afterwards really did stay put. */
 const FLY_OUT_GRACE_MILLISECONDS = FLY_OUT_MILLISECONDS * 2;
 const GESTURE_STEPS = 8;
+/** A touchscreen reports a finger about once a frame. */
+const TOUCH_SAMPLE_MILLISECONDS = 16;
+/**
+ * How long the finger rests before it lifts. Chrome reads a gesture's release velocity off the
+ * event timestamps, and a lift that follows a moving finger starts a fling; a tap that lands while
+ * the fling is still running is spent stopping it and never becomes a click, so the Undo tap would
+ * vanish. The velocity only looks back about 100ms (rests up to 75ms still swallowed the tap on
+ * Linux Chromium), so a longer rest lifts the finger at zero velocity.
+ */
+const SETTLE_MILLISECONDS = 250;
+/** When the lift lands, measured from the first touch of a gesture. */
+const LIFT_MILLISECONDS = GESTURE_STEPS * TOUCH_SAMPLE_MILLISECONDS + SETTLE_MILLISECONDS;
 /** Each pinch step pushes both fingers this much further from the card's center. */
 const PINCH_SPREAD_PIXELS = 20;
 
@@ -84,27 +96,37 @@ async function cardCenter(page: Page): Promise<TouchPoint> {
 	return {x: box.x + box.width / 2, y: box.y + box.height / 2};
 }
 
-async function dispatchTouch(
-	session: CDPSession,
-	type: "touchStart" | "touchMove" | "touchEnd",
-	points: TouchPoint[],
-): Promise<void> {
-	await session.send("Input.dispatchTouchEvent", {
-		type,
-		touchPoints: points.map((point, id) => ({x: point.x, y: point.y, id})),
-	});
+type TouchType = "touchStart" | "touchMove" | "touchEnd";
+type DispatchTouch = (type: TouchType, points: TouchPoint[], atMilliseconds: number) => Promise<void>;
+
+/**
+ * Stamps each touch event at its offset into the gesture rather than at its CDP arrival, which puts
+ * the events microseconds apart, with the lift stamped now.
+ */
+function touchGesture(session: CDPSession): DispatchTouch {
+	const startSeconds = (Date.now() - LIFT_MILLISECONDS) / 1000;
+	return async (type, points, atMilliseconds) => {
+		await session.send("Input.dispatchTouchEvent", {
+			type,
+			touchPoints: points.map((point, id) => ({x: point.x, y: point.y, id})),
+			timestamp: startSeconds + atMilliseconds / 1000,
+		});
+	};
 }
 
-/** One finger down on the card, dragged by (dx, dy) in a few steps, then lifted. */
+/** One finger down on the card, dragged by (dx, dy) in a few steps, then settled and lifted. */
 async function swipe(page: Page, session: CDPSession, dx: number, dy: number): Promise<void> {
 	const start = await cardCenter(page);
-	await dispatchTouch(session, "touchStart", [start]);
+	const dispatchTouch = touchGesture(session);
+	await dispatchTouch("touchStart", [start], 0);
 	for (let step = 1; step <= GESTURE_STEPS; step += 1) {
-		await dispatchTouch(session, "touchMove", [
-			{x: start.x + (dx * step) / GESTURE_STEPS, y: start.y + (dy * step) / GESTURE_STEPS},
-		]);
+		await dispatchTouch(
+			"touchMove",
+			[{x: start.x + (dx * step) / GESTURE_STEPS, y: start.y + (dy * step) / GESTURE_STEPS}],
+			step * TOUCH_SAMPLE_MILLISECONDS,
+		);
 	}
-	await dispatchTouch(session, "touchEnd", []);
+	await dispatchTouch("touchEnd", [], LIFT_MILLISECONDS);
 }
 
 /** Two fingers on the card spreading apart, the way a zoom-in pinch lands. */
@@ -114,11 +136,12 @@ async function pinchOut(page: Page, session: CDPSession): Promise<void> {
 		{x: center.x - spread, y: center.y - spread / 2},
 		{x: center.x + spread, y: center.y + spread / 2},
 	];
-	await dispatchTouch(session, "touchStart", fingers(PINCH_SPREAD_PIXELS));
+	const dispatchTouch = touchGesture(session);
+	await dispatchTouch("touchStart", fingers(PINCH_SPREAD_PIXELS), 0);
 	for (let step = 1; step <= GESTURE_STEPS; step += 1) {
-		await dispatchTouch(session, "touchMove", fingers(PINCH_SPREAD_PIXELS * (step + 1)));
+		await dispatchTouch("touchMove", fingers(PINCH_SPREAD_PIXELS * (step + 1)), step * TOUCH_SAMPLE_MILLISECONDS);
 	}
-	await dispatchTouch(session, "touchEnd", []);
+	await dispatchTouch("touchEnd", [], LIFT_MILLISECONDS);
 }
 
 // ⏱️ What a swipe does once the undo window lapses — that it posts exactly once, and that an undone
