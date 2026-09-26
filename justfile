@@ -46,7 +46,7 @@ typecheck: install
 
 # Build the project
 build: install
-    vp run --cache build
+    VITE_APPLICATION_VERSION="$(git rev-parse HEAD)" vp run --cache build
 
 # Apply safe Fallow fixes locally, then reject remaining dead code
 fallow: install
