@@ -37,7 +37,20 @@ export type StorageAdminEnvironment = z.infer<typeof environmentSchema>;
 
 export interface StorageAdminDependencies {
 	fetch: typeof fetch;
+	/** Pauses between verification polls; tests substitute one that returns at once. */
+	wait?: (milliseconds: number) => Promise<void>;
 	write: (value: unknown) => void;
+}
+
+// ⏱️ Cloudflare's namespace listing went on reporting a deleted object as holding data for about a
+// minute in production. Three minutes of one-second polls outlasts that lag with room to spare.
+const DEALLOCATION_POLL_MILLISECONDS = 1000;
+const DEALLOCATION_POLL_ATTEMPTS = 180;
+
+async function sleep(milliseconds: number): Promise<void> {
+	await new Promise<void>((resolve) => {
+		setTimeout(resolve, milliseconds);
+	});
 }
 
 interface CleanupOptions {
@@ -172,7 +185,8 @@ async function verifyDeallocation(
 	const remaining = new Set(objectIds);
 	const consecutiveEmptyInventories = new Map(objectIds.map((objectId) => [objectId, 0]));
 	let latestInventory = initialInventory;
-	for (let attempt = 0; attempt < 60 && remaining.size > 0; attempt += 1) {
+	const wait = dependencies.wait ?? sleep;
+	for (let attempt = 0; attempt < DEALLOCATION_POLL_ATTEMPTS && remaining.size > 0; attempt += 1) {
 		latestInventory = await listNamespaceObjects(environment, dependencies.fetch);
 		for (const objectId of [...remaining]) {
 			if (latestInventory.find(({id}) => id === objectId)?.hasStoredData === true) {
@@ -187,13 +201,14 @@ async function verifyDeallocation(
 			}
 		}
 		if (remaining.size > 0) {
-			await new Promise<void>((resolve) => {
-				setTimeout(resolve, 250);
-			});
+			await wait(DEALLOCATION_POLL_MILLISECONDS);
 		}
 	}
 	if (remaining.size > 0) {
-		throw new Error(`${remaining.size} known object IDs still have stored data after deletion`);
+		throw new Error(
+			`${remaining.size} known object IDs still have stored data ` +
+				`${String((DEALLOCATION_POLL_ATTEMPTS * DEALLOCATION_POLL_MILLISECONDS) / 1000)} seconds after deletion`,
+		);
 	}
 	return latestInventory;
 }

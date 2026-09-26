@@ -66,6 +66,10 @@ describe("known Durable Object IDs", () => {
 	});
 });
 
+async function instantWait(): Promise<void> {
+	return Promise.resolve();
+}
+
 describe("orphan Durable Object cleanup", () => {
 	it("reports only redacted D1 and per-object counts through Access service-token headers", async () => {
 		const request = vi.fn<typeof fetch>(async (input, init) => {
@@ -191,6 +195,49 @@ describe("orphan Durable Object cleanup", () => {
 		);
 	});
 
+	// ⏱️ Cloudflare's namespace listing reported a deleted object as still holding data for about a
+	// minute in production, so verification has to outlast that lag instead of calling it a failure.
+	it("keeps verifying until the namespace listing catches up with a deletion", async () => {
+		const LAGGING_LISTINGS = 100;
+		let deleted = false;
+		let listingsSinceDeletion = 0;
+		const request = vi.fn<typeof fetch>(async (input, init) => {
+			const url = requestUrl(input);
+			if (url.hostname === "api.cloudflare.com") {
+				if (deleted) {
+					listingsSinceDeletion += 1;
+				}
+				const stillListed = !deleted || listingsSinceDeletion <= LAGGING_LISTINGS;
+				return Promise.resolve(namespacePage([{id: BOB_OBJECT_ID, hasStoredData: stillListed}]));
+			}
+			if (url.pathname === "/v1/inventory-context") {
+				return Promise.resolve(inventoryContext());
+			}
+			const body = JSON.parse(String(init?.body)) as {object_id: string};
+			deleted = true;
+			return Promise.resolve(json({object_id: body.object_id, status: "deleted"}));
+		});
+		const writes: unknown[] = [];
+		const waits: number[] = [];
+
+		await runStorageAdministration(["cleanup", "--confirm", "--expected-count", "1"], TEST_ENVIRONMENT, {
+			fetch: request,
+			wait: async (milliseconds) => {
+				waits.push(milliseconds);
+				return Promise.resolve();
+			},
+			write: (value) => writes.push(value),
+		});
+
+		expect({
+			verified: writes,
+			waitedLongerThanTheLag: waits.reduce((total, milliseconds) => total + milliseconds, 0) > 60_000,
+		}).toStrictEqual({
+			verified: [{object_id: BOB_OBJECT_ID, status: "verified_deallocated"}],
+			waitedLongerThanTheLag: true,
+		});
+	});
+
 	it("records verified progress and makes a partial failure safe to retry", async () => {
 		const storedObjects = new Set([ALICE_OBJECT_ID, BOB_OBJECT_ID]);
 		let failBob = true;
@@ -219,6 +266,7 @@ describe("orphan Durable Object cleanup", () => {
 		await expect(
 			runStorageAdministration(["cleanup", "--confirm", "--expected-count", "2"], TEST_ENVIRONMENT, {
 				fetch: request,
+				wait: instantWait,
 				write: (value) => writes.push(value),
 			}),
 		).rejects.toThrow("request failed with HTTP 503");
@@ -226,6 +274,7 @@ describe("orphan Durable Object cleanup", () => {
 		expect(
 			await runStorageAdministration(["cleanup"], TEST_ENVIRONMENT, {
 				fetch: request,
+				wait: instantWait,
 				write: (value) => writes.push(value),
 			}),
 		).toStrictEqual({
