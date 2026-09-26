@@ -44,6 +44,13 @@ export default defineConfig({
 	},
 	run: {
 		tasks: {
+			// 🏷️ The config reads VITE_APPLICATION_VERSION itself, which Vite cannot report, so it is
+			// listed here: that both fingerprints it and passes it through to the build. Without it a
+			// commit that touches no client source replays the last build and its stale stamp.
+			build: {
+				command: "vp build",
+				env: ["VITE_APPLICATION_VERSION"],
+			},
 			"test:run": {
 				command:
 					"node node_modules/vitest/dist/cli.js run && node node_modules/vitest/dist/cli.js run --config vitest.worker.config.ts && vp run test:browser",
