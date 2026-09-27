@@ -158,6 +158,26 @@ async function waitForQuestionCount(userId: string, count: number): Promise<Curr
 	}
 }
 
+async function waitForAnswerSocketCount(
+	stub: DurableObjectStub<UserDurableObject>,
+	batchId: string,
+	count: number,
+): Promise<void> {
+	const deadline = Date.now() + 2_000;
+	for (;;) {
+		const open = await runInDurableObject(stub, (_instance, state) => state.getWebSockets(batchId).length);
+		if (open === count) {
+			return;
+		}
+		if (Date.now() >= deadline) {
+			throw new Error(`expected ${String(count)} open answer sockets, found ${String(open)}`);
+		}
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, 5);
+		});
+	}
+}
+
 async function closeAnswerSocket(stub: DurableObjectStub<UserDurableObject>, batchId: string): Promise<void> {
 	const deadline = Date.now() + 2_000;
 	for (;;) {
@@ -512,7 +532,9 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		const grant = await issueGrant("mcp-window-alice@example.com");
 		const stub = env.USER_DO.getByName(grant.userId);
 		await stub.setAfk(true, true);
-		const windowTiming = {...TEST_TIMING, callWindowMilliseconds: 40};
+		// A closed window opens no stream at all, so the result has to come from the batch itself rather
+		// than from whatever a stream managed to deliver in time.
+		const windowTiming = {...TEST_TIMING, callWindowMilliseconds: 0};
 
 		const first = await remoteResponse(askRequest(grant.accessToken), windowTiming);
 		expect(await responseMessage(first)).toStrictEqual(pendingResponse(0, 3));
@@ -528,6 +550,25 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			strictTextResponse("Ship it? -> NOPE\nDelete it? -> NOPE\nMigrate it? -> NOPE"),
 		);
 		expect(await questionOutcomes(grant.userId)).toStrictEqual(["nope", "nope", "nope"]);
+	});
+
+	// 💓 An answer stream left open past its window keeps heartbeating, so an agent that never comes
+	// back would hold its cards on the phone until retention instead of the heartbeat grace.
+	it("closes its answer stream when the call window closes", async () => {
+		const grant = await issueGrant("mcp-window-socket-alice@example.com");
+		const stub = env.USER_DO.getByName(grant.userId);
+		await stub.setAfk(true, true);
+
+		// One millisecond closes the window before the stream's upgrade completes, the order a loaded
+		// machine produces, so the stream must notice an abort that happened before it opened.
+		const pending = await remoteResponse(askRequest(grant.accessToken), {
+			...TEST_TIMING,
+			callWindowMilliseconds: 1,
+		});
+		expect(await responseMessage(pending)).toStrictEqual(pendingResponse(0, 3));
+		const batchId = required((await stub.getCurrentQuestions())[0], "first question").batchId;
+
+		await waitForAnswerSocketCount(stub, batchId, 0);
 	});
 
 	it("retracts the cards when the client explicitly cancels the call", async () => {
