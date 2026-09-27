@@ -170,6 +170,12 @@ async function openAnswerStream(
 		const onAbort = (): void => {
 			settle({kind: "closed", receivedState});
 		};
+		// An abort that landed while the upgrade was in flight has already fired, so no listener
+		// would ever hear it and the socket would stay open, heartbeating, for good.
+		if (signal.aborted) {
+			onAbort();
+			return;
+		}
 		signal.addEventListener("abort", onAbort, {once: true});
 		socket.addEventListener("message", (event) => {
 			if (typeof event.data !== "string") {
@@ -215,9 +221,18 @@ async function waitForAnswers(
 		if (Date.now() >= deadline) {
 			return {kind: "window_closed"};
 		}
+		// 💓 Each attempt gets its own abort, so a window that closes first also closes the stream. Left
+		// open, it would keep heartbeating and hold an abandoned batch past the heartbeat grace.
+		const attempt = new AbortController();
 		let timeout: ReturnType<typeof setTimeout> | undefined;
 		const result = await Promise.race([
-			openAnswerStream(stub, batchId, signal, timing.heartbeatMilliseconds, onState),
+			openAnswerStream(
+				stub,
+				batchId,
+				AbortSignal.any([signal, attempt.signal]),
+				timing.heartbeatMilliseconds,
+				onState,
+			),
 			new Promise<StreamResult>((resolve) => {
 				timeout = setTimeout(
 					() => {
@@ -230,6 +245,7 @@ async function waitForAnswers(
 		if (timeout !== undefined) {
 			clearTimeout(timeout);
 		}
+		attempt.abort();
 		if (result.kind !== "closed") {
 			return result;
 		}
@@ -318,7 +334,20 @@ function createRemoteMcpServer(
 					return textResult(formatAskYepNopeResult(batch.questions, dispositions), false);
 				}
 				if (result.kind === "window_closed") {
-					const answered = Object.values(latest).filter((disposition) => disposition !== null).length;
+					// The stream may never have opened, or not delivered its last frame, before the window
+					// closed, so the batch itself says whether the answers are in.
+					const current = await stub.getBatchDispositions(created.batchId);
+					if (current === null) {
+						return textResult(
+							"These questions are no longer on the user's phone. Ask again if the decision is still needed.",
+							true,
+						);
+					}
+					const settled = orderedDispositions(created.questionIds, current);
+					if (settled !== null) {
+						return textResult(formatAskYepNopeResult(batch.questions, settled), false);
+					}
+					const answered = Object.values(current).filter((disposition) => disposition !== null).length;
 					return pendingResult(answered, created.questionIds.length);
 				}
 				if (result.kind === "closed") {

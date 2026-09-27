@@ -271,6 +271,15 @@ export class UserDurableObject extends DurableObject<Env> {
 		return null;
 	}
 
+	/** The batch's answers as they stand, or null once the batch no longer exists. */
+	async getBatchDispositions(batchId: string): Promise<DispositionMap | null> {
+		await this.initialize();
+		if (!(await this.batchExists(batchId))) {
+			return null;
+		}
+		return this.batchDispositions(batchId);
+	}
+
 	async retractBatch(batchId: string): Promise<boolean> {
 		await this.initialize();
 		if (!(await this.batchExists(batchId))) {
