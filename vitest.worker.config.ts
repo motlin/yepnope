@@ -45,6 +45,34 @@ export default defineConfig(async () => {
 			}),
 		],
 		test: {
+			// ⚡ One pre-bundle of the Worker's dependencies, so each test file's runtime loads them as a few
+			// chunks instead of hundreds of modules.
+			deps: {
+				optimizer: {
+					ssr: {
+						enabled: true,
+						include: [
+							"@better-auth/drizzle-adapter",
+							"@better-auth/mcp",
+							"@better-auth/oauth-provider",
+							"@better-auth/passkey",
+							"@modelcontextprotocol/server",
+							"better-auth",
+							"better-auth/api",
+							"better-auth/cookies",
+							"better-auth/plugins",
+							"drizzle-orm",
+							"drizzle-orm/d1",
+							"drizzle-orm/durable-sqlite",
+							"drizzle-orm/durable-sqlite/migrator",
+							"drizzle-orm/sqlite-core",
+							"jose",
+							"zod",
+						],
+						rolldownOptions: {external: [/^node:/u], platform: "node" as const},
+					},
+				},
+			},
 			include: ["worker/tests/**/*.test.ts"],
 			setupFiles: ["./worker/tests/apply-migrations.ts"],
 		},
