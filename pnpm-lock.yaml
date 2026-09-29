@@ -37,8 +37,8 @@ importers:
         specifier: ^14.0.0
         version: 14.0.0
       agentation:
-        specifier: ^3.1.1
-        version: 3.1.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: ^3.1.2
+        version: 3.1.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       better-auth:
         specifier: 1.7.1
         version: 1.7.1(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(kysely@0.29.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@4.1.11)
@@ -3492,8 +3492,8 @@ packages:
     resolution: {integrity: sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==}
     engines: {node: '>= 6.0.0'}
 
-  agentation@3.1.1:
-    resolution: {integrity: sha512-AaP9/72QLrwpJQegyUaWF2PGNXA4HKh/izLqTFjwOJt3lGODsgKTUJW0HO6CwU5cwa31QxX/7tN63LS4FbQVzQ==}
+  agentation@3.1.2:
+    resolution: {integrity: sha512-ZZr6PRgX3ussGbvC9NVh5vFfKKFkQyHL6KuxOfBAAM/mJS3bM2XyhZ7wLPakDwU3pqkzq7u6vEfLikFsCOu5+Q==}
     peerDependencies:
       react: '>=18.0.0'
       react-dom: '>=18.0.0'
@@ -9103,7 +9103,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  agentation@3.1.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  agentation@3.1.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
     optionalDependencies:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
