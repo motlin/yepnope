@@ -60,13 +60,13 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "github-actions@github.com"
 
-      - name: Run vp check --fix
+      - name: Run vp run check --fix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           just install
-          vp check --fix
+          vp run check --fix
 
           if [[ -n $(git status --porcelain) ]]; then
             FIX_BRANCH="fix-${{ github.event.pull_request.number }}-check"
