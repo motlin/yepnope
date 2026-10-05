@@ -44,6 +44,9 @@ export default defineConfig({
 	},
 	run: {
 		tasks: {
+			check: {
+				command: "vp check",
+			},
 			// 🏷️ The config reads VITE_APPLICATION_VERSION itself, which Vite cannot report, so it is
 			// listed here: that both fingerprints it and passes it through to the build. Without it a
 			// commit that touches no client source replays the last build and its stale stamp.
