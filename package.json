@@ -43,7 +43,7 @@
 		"@modelcontextprotocol/server": "2.2.0",
 		"@simplewebauthn/browser": "^14.0.0",
 		"agentation": "^3.1.2",
-		"better-auth": "1.7.1",
+		"better-auth": "1.7.6",
 		"drizzle-orm": "^0.45.3",
 		"jose": "6.2.12",
 		"qrcode.react": "^4.2.0",
