@@ -272,8 +272,8 @@ importers:
         specifier: ^10.6.0
         version: 10.6.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(typescript@7.0.2))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))(supports-color@10.2.2)(typescript@7.0.2)
       '@storybook/test-runner':
-        specifier: ^0.24.5
-        version: 0.24.5(@types/node@26.6.3)(debug@4.4.3(supports-color@10.2.2))(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))(supports-color@10.2.2)
+        specifier: ^0.26.0
+        version: 0.26.0(@types/node@26.6.3)(debug@4.4.3(supports-color@10.2.2))(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))(supports-color@10.2.2)
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2784,12 +2784,12 @@ packages:
       typescript:
         optional: true
 
-  '@storybook/test-runner@0.24.5':
-    resolution: {integrity: sha512-U8ib6parBD+wA4z5ZW/JnsR3KkEXoP+sHP8WJdDZeh0GwfTlcWjhbeR6Ij/gxNFEA1bdpBa/P8qYTOs+LKIN1g==}
+  '@storybook/test-runner@0.26.0':
+    resolution: {integrity: sha512-q/B3Mf5QQuYAQ99AKcxTnNzPBso2OctLy13mEA23kYM8vW+Sz3WysdZIiQvNQ0bQFI9MDRkcLQVGIBcnnkaZXA==}
     engines: {node: '>=20.0.0'}
     hasBin: true
     peerDependencies:
-      storybook: ^0.0.0-0 || ^10.0.0 || ^10.0.0-0 || ^10.1.0-0 || ^10.2.0-0 || ^10.3.0-0 || ^10.4.0-0 || ^10.5.0-0 || ^10.6.0-0 || ^11.0.0-0
+      storybook: ^0.0.0-0 || ^10.0.0 || ^10.0.0-0 || ^10.1.0-0 || ^10.2.0-0 || ^10.3.0-0 || ^10.4.0-0 || ^10.5.0-0 || ^10.6.0-0 || ^11.0.0-0 || >=11
 
   '@swc/core-darwin-arm64@1.15.47':
     resolution: {integrity: sha512-GsoMtan3ojGGMGFbl31mmRu5ctZ56re8grGE8mO/OHJ8O+JRkzod02fe7X6ZQ8JvamA3imkEkx/h3u+vsOgPgA==}
@@ -5757,11 +5757,6 @@ packages:
     resolution: {integrity: sha512-HRDzbaKjC+AOWVXxAU/x54COGeIv9eb+6CkDSQoNTt4XyWoIJvuPsXizxu/Fr23EiekbtZwmh1IcIG/l/a10GQ==}
     engines: {node: '>=8'}
 
-  playwright-core@1.62.1:
-    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   playwright-core@1.63.0:
     resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
     engines: {node: '>=20'}
@@ -8578,7 +8573,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@storybook/test-runner@0.24.5(@types/node@26.6.3)(debug@4.4.3(supports-color@10.2.2))(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))(supports-color@10.2.2)':
+  '@storybook/test-runner@0.26.0(@types/node@26.6.3)(debug@4.4.3(supports-color@10.2.2))(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))(supports-color@10.2.2)':
     dependencies:
       '@babel/core': 7.29.7(supports-color@10.2.2)
       '@babel/generator': 7.29.8
@@ -8598,7 +8593,7 @@ snapshots:
       jest-watch-typeahead: 3.0.1(jest@30.4.2(@types/node@26.6.3)(supports-color@10.2.2))
       nyc: 15.1.0(supports-color@10.2.2)
       playwright: 1.63.0
-      playwright-core: 1.62.1
+      playwright-core: 1.63.0
       rimraf: 3.0.2
       storybook: 10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2))
       uuid: 8.3.2
@@ -11710,8 +11705,6 @@ snapshots:
   pkg-dir@4.2.0:
     dependencies:
       find-up: 4.1.0
-
-  playwright-core@1.62.1: {}
 
   playwright-core@1.63.0: {}
 
