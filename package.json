@@ -52,7 +52,7 @@
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
-		"@better-auth/memory-adapter": "1.7.0",
+		"@better-auth/memory-adapter": "1.7.7",
 		"@chromatic-com/storybook": "^5.4.0",
 		"@cloudflare/vitest-pool-workers": "^0.22.0",
 		"@modelcontextprotocol/sdk": "1.31.0",
