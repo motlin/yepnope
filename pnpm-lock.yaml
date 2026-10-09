@@ -263,8 +263,8 @@ importers:
         specifier: ^10.6.1
         version: 10.6.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))
       '@storybook/addon-onboarding':
-        specifier: ^10.6.0
-        version: 10.6.0(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))
+        specifier: ^10.6.1
+        version: 10.6.1(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))
       '@storybook/addon-vitest':
         specifier: ^10.6.1
         version: 10.6.1(@vitest/browser@4.1.10(@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(typescript@7.0.2))(vitest@4.1.11))(@vitest/runner@4.1.11)(react@19.3.0)(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))(vitest@4.1.11)
@@ -2704,10 +2704,10 @@ packages:
       '@types/react':
         optional: true
 
-  '@storybook/addon-onboarding@10.6.0':
-    resolution: {integrity: sha512-zwe9lgCsq4ko/37CVgM9mZvaVV6WSO0k1IDTURof9B1CgHWzQ2Xn+5CYRVhbHie3mQ9bO1pcLI+ASdpdnOtSiQ==}
+  '@storybook/addon-onboarding@10.6.1':
+    resolution: {integrity: sha512-DLozSQWVELz39FSlBvwM420+UrveK7Q0n2ah1TWgdIUGMVhWt+ZHw2oKcjPO3xSn2N8V08G9F6JnhBrvms2Zvw==}
     peerDependencies:
-      storybook: ^10.6.0
+      storybook: ^10.6.1
 
   '@storybook/addon-vitest@10.6.1':
     resolution: {integrity: sha512-ZGB7kDd9o0UiXIIXLZMKK9ruNyqo2jEBT+2YjlpKGDtJR6iAEhfWyiPY8JkobCV5Fge0oBqyg1x9am4wv/vp5w==}
@@ -8497,7 +8497,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react-dom'
 
-  '@storybook/addon-onboarding@10.6.0(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))':
+  '@storybook/addon-onboarding@10.6.1(storybook@10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2)))':
     dependencies:
       storybook: 10.6.1(@types/react@19.3.0)(react@19.3.0)(vite-plus@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.1(@noble/hashes@2.3.0))(tsx@4.23.15)(typescript@7.0.2))
 
