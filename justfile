@@ -9,10 +9,12 @@ default:
 
 ci := env("CI", "")
 
+export PATH := justfile_directory() / "node_modules/.bin" + ":" + env("PATH")
+
 # Install dependencies
 [group('setup')]
 install:
-    vp install
+    pnpm install
     vp fmt CLAUDE.md
     # 🧬 worker-configuration.d.ts is generated and git-ignored, so a fresh checkout has none. The
     # type-aware lint rules need it: without it every Env type resolves to `error` and `vp check`
