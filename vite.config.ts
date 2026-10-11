@@ -52,7 +52,9 @@ export default defineConfig({
 			// commit that touches no client source replays the last build and its stale stamp.
 			build: {
 				command: "vp build",
-				env: ["VITE_APPLICATION_VERSION"],
+				cache: {
+					env: ["VITE_APPLICATION_VERSION"],
+				},
 			},
 			"test:run": {
 				command:
@@ -61,8 +63,10 @@ export default defineConfig({
 				// every run dirties them and neither vitest task can ever be cached. The browser suite's
 				// state under .llm stays in the inputs on purpose: it is real state the run needs on
 				// disk, so that task must keep re-running rather than replay a hit that restores none.
-				input: [{auto: true}, "!node_modules/.experimental-vitest-cache/**", "!node_modules/.vite/**"],
-				output: [],
+				cache: {
+					input: [{auto: true}, "!node_modules/.experimental-vitest-cache/**", "!node_modules/.vite/**"],
+					output: [],
+				},
 			},
 		},
 	},

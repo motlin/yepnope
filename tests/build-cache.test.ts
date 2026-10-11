@@ -14,7 +14,7 @@ describe("cached client build", () => {
 			task: viteConfig.run?.tasks?.["build"],
 			recipeStampsTheCommit: buildRecipe.includes('VITE_APPLICATION_VERSION="$(git rev-parse HEAD)"'),
 		}).toStrictEqual({
-			task: {command: "vp build", env: ["VITE_APPLICATION_VERSION"]},
+			task: {command: "vp build", cache: {env: ["VITE_APPLICATION_VERSION"]}},
 			recipeStampsTheCommit: true,
 		});
 	});
