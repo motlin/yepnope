@@ -34,7 +34,8 @@
 	],
 	"ignorePatterns": [".storybook/**"],
 	// Referenced only from .storybook/main.ts, the test-storybook script, and
-	// the eslint block in vite.config.ts — places fallow does not scan.
+	// the eslint block in vite.config.ts — places fallow does not scan. eslint
+	// is the peer dependency of eslint-plugin-storybook.
 	"ignoreDependencies": [
 		"@chromatic-com/storybook",
 		"@storybook/addon-a11y",
@@ -43,6 +44,7 @@
 		"@storybook/addon-vitest",
 		"@storybook/react-vite",
 		"@storybook/test-runner",
+		"eslint",
 		"eslint-plugin-storybook",
 		"jiti",
 	],
