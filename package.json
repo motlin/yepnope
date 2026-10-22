@@ -47,8 +47,8 @@
 		"drizzle-orm": "^0.45.4",
 		"jose": "6.2.12",
 		"qrcode.react": "^4.2.0",
-		"react": "^19.3.0",
-		"react-dom": "^19.3.0",
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1",
 		"zod": "^4.6.7"
 	},
 	"devDependencies": {
