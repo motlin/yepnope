@@ -58,7 +58,7 @@
 		"@modelcontextprotocol/sdk": "1.32.1",
 		"@storybook/addon-a11y": "^10.6.3",
 		"@storybook/addon-docs": "^10.6.2",
-		"@storybook/addon-onboarding": "^10.6.2",
+		"@storybook/addon-onboarding": "^10.6.3",
 		"@storybook/addon-vitest": "^10.6.2",
 		"@storybook/react-vite": "^10.6.3",
 		"@storybook/test-runner": "^0.26.0",
