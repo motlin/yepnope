@@ -1,6 +1,7 @@
 import {createMcpHandler, McpServer} from "@modelcontextprotocol/server";
 import {z} from "zod";
-import {
+import
+{
 	ASK_YEP_NOPE_STANDARD_SCHEMA,
 	formatAskYepNopeResult,
 	NATIVE_QUESTION_FALLBACK,
@@ -11,7 +12,8 @@ import {
 } from "./ask-tool";
 import {OAUTH_SCOPES} from "./auth";
 import {recordConnectedMcpClientUse} from "./connected-mcp-clients";
-import {
+import
+{
 	bearerToken,
 	grantSessionId,
 	hasActiveGrant,
@@ -21,7 +23,8 @@ import {
 } from "./oauth-token";
 import {parseFrame, type DispositionMap} from "./protocol";
 import type {UserDurableObject} from "./user-do";
-import {
+import
+{
 	externalContextReferenceRejection,
 	findExternalContextReferenceViolations,
 	findLengthViolations,
@@ -42,15 +45,24 @@ const DEFAULT_MAXIMUM_CONSECUTIVE_FAILURES = 5;
 
 const mcpRequestIdSchema = z.union([z.string(), z.number()]);
 const mcpMessageSchema = z
-	.object({
-		id: mcpRequestIdSchema.optional(),
-		method: z.string(),
-		params: z.unknown().optional(),
-	})
+	.object(
+		{
+			id: mcpRequestIdSchema.optional(),
+			method: z.string(),
+			params: z.unknown().optional(),
+		},
+	)
 	.loose();
-const mcpCancellationParamsSchema = z.object({requestId: mcpRequestIdSchema}).loose();
+const mcpCancellationParamsSchema = z
+	.object(
+		{
+			requestId: mcpRequestIdSchema,
+		},
+	)
+	.loose();
 
-export interface RemoteMcpTiming {
+export interface RemoteMcpTiming
+{
 	callWindowMilliseconds: number;
 	heartbeatMilliseconds: number;
 	maximumConsecutiveFailures: number;
@@ -60,7 +72,8 @@ export interface RemoteMcpTiming {
 	reconnectDelayMilliseconds: number;
 }
 
-const DEFAULT_TIMING: RemoteMcpTiming = {
+const DEFAULT_TIMING: RemoteMcpTiming =
+{
 	callWindowMilliseconds: DEFAULT_CALL_WINDOW_MILLISECONDS,
 	heartbeatMilliseconds: DEFAULT_HEARTBEAT_MILLISECONDS,
 	maximumConsecutiveFailures: DEFAULT_MAXIMUM_CONSECUTIVE_FAILURES,
@@ -71,36 +84,83 @@ const DEFAULT_TIMING: RemoteMcpTiming = {
 };
 
 type StreamResult =
-	| {kind: "resolved"; dispositions: DispositionMap}
-	| {kind: "error"; code: string; message: string}
-	| {kind: "window_closed"}
-	| {kind: "closed"; receivedState: boolean};
+	|
+	  {
+			kind: "resolved";
+			dispositions: DispositionMap;
+	  }
+	|
+	  {
+			kind: "error";
+			code: string;
+			message: string;
+	  }
+	|
+	  {
+			kind: "window_closed";
+	  }
+	|
+	  {
+			kind: "closed";
+			receivedState: boolean;
+	  };
 
-function textResult(text: string, isError: boolean) {
-	return {content: [{type: "text" as const, text}], ...(isError ? {isError: true} : {})};
+function textResult(text: string, isError: boolean)
+{
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text,
+			},
+		],
+		...(isError
+			?
+				{
+					isError: true,
+				}
+			: {}),
+	};
 }
 
-function nativeQuestionFallbackResult() {
+function nativeQuestionFallbackResult()
+{
 	return {
-		content: [{type: "text" as const, text: NATIVE_QUESTION_FALLBACK_TEXT}],
+		content: [
+			{
+				type: "text" as const,
+				text: NATIVE_QUESTION_FALLBACK_TEXT,
+			},
+		],
 		structuredContent: NATIVE_QUESTION_FALLBACK,
 	};
 }
 
-function invalidGrantResponse(resource: string): Response {
+function invalidGrantResponse(resource: string): Response
+{
 	const metadata = new URL("/.well-known/oauth-protected-resource/mcp", resource).toString();
 	return Response.json(
-		{jsonrpc: "2.0", error: {code: -32_000, message: "Invalid or revoked access token"}, id: null},
+		{
+			jsonrpc: "2.0",
+			error:
+			{
+				code: -32_000,
+				message: "Invalid or revoked access token",
+			},
+			id: null,
+		},
 		{
 			status: 401,
-			headers: {
+			headers:
+			{
 				"WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${metadata}"`,
 			},
 		},
 	);
 }
 
-function authorizationChallenge(resource: string, insufficientScope: boolean): Response {
+function authorizationChallenge(resource: string, insufficientScope: boolean): Response
+{
 	const metadata = new URL("/.well-known/oauth-protected-resource/mcp", resource).toString();
 	const challenge = insufficientScope
 		? `Bearer error="insufficient_scope", scope="${QUESTION_SCOPE}", resource_metadata="${metadata}"`
@@ -108,29 +168,46 @@ function authorizationChallenge(resource: string, insufficientScope: boolean): R
 	return Response.json(
 		{
 			jsonrpc: "2.0",
-			error: {
+			error:
+			{
 				code: -32_000,
 				message: insufficientScope ? "Access token has insufficient scope" : "Invalid or missing access token",
 			},
 			id: null,
 		},
-		{status: insufficientScope ? 403 : 401, headers: {"WWW-Authenticate": challenge}},
+		{
+			status: insufficientScope ? 403 : 401,
+			headers:
+			{
+				"WWW-Authenticate": challenge,
+			},
+		},
 	);
 }
 
-function reconnectDelay(failures: number, timing: RemoteMcpTiming): number {
+function reconnectDelay(failures: number, timing: RemoteMcpTiming): number
+{
 	return Math.min(timing.maximumReconnectDelayMilliseconds, timing.reconnectDelayMilliseconds * 2 ** (failures - 1));
 }
 
-async function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
-	await new Promise<void>((resolve) => {
-		const finish = (): void => {
+async function delay(milliseconds: number, signal: AbortSignal): Promise<void>
+{
+	await new Promise<void>((resolve) =>
+	{
+		const finish = (): void =>
+		{
 			clearTimeout(timer);
 			signal.removeEventListener("abort", finish);
 			resolve();
 		};
 		const timer = setTimeout(finish, milliseconds);
-		signal.addEventListener("abort", finish, {once: true});
+		signal.addEventListener(
+			"abort",
+			finish,
+			{
+				once: true,
+			},
+		);
 	});
 }
 
@@ -140,25 +217,46 @@ async function openAnswerStream(
 	signal: AbortSignal,
 	heartbeatMilliseconds: number,
 	onState: (dispositions: DispositionMap) => void,
-): Promise<StreamResult> {
+): Promise<StreamResult>
+{
 	const response = await stub.fetch(
-		new Request(`https://user-durable-object/api/v1/questions/${encodeURIComponent(batchId)}/stream`, {
-			headers: {Upgrade: "websocket"},
-		}),
+		new Request(
+			`https://user-durable-object/api/v1/questions/${encodeURIComponent(batchId)}/stream`,
+			{
+				headers:
+				{
+					Upgrade: "websocket",
+				},
+			},
+		),
 	);
 	const socket = response.webSocket;
-	if (response.status !== 101 || socket === null) {
-		return {kind: "closed", receivedState: false};
+	if (response.status !== 101 || socket === null)
+	{
+		return {
+			kind: "closed",
+			receivedState: false,
+		};
 	}
 	socket.accept();
-	return new Promise((resolve) => {
+	return new Promise((resolve) =>
+	{
 		let receivedState = false;
 		let settled = false;
-		const heartbeat = setInterval(() => {
-			socket.send(JSON.stringify({type: "heartbeat"}));
+		const heartbeat = setInterval(() =>
+		{
+			socket.send(
+				JSON.stringify(
+					{
+						type: "heartbeat",
+					},
+				),
+			);
 		}, heartbeatMilliseconds);
-		const settle = (result: StreamResult): void => {
-			if (settled) {
+		const settle = (result: StreamResult): void =>
+		{
+			if (settled)
+			{
 				return;
 			}
 			settled = true;
@@ -167,40 +265,81 @@ async function openAnswerStream(
 			socket.close(1000, "MCP answer stream ended");
 			resolve(result);
 		};
-		const onAbort = (): void => {
-			settle({kind: "closed", receivedState});
+		const onAbort = (): void =>
+		{
+			settle(
+				{
+					kind: "closed",
+					receivedState,
+				},
+			);
 		};
 		// An abort that landed while the upgrade was in flight has already fired, so no listener
 		// would ever hear it and the socket would stay open, heartbeating, for good.
-		if (signal.aborted) {
+		if (signal.aborted)
+		{
 			onAbort();
 			return;
 		}
-		signal.addEventListener("abort", onAbort, {once: true});
-		socket.addEventListener("message", (event) => {
-			if (typeof event.data !== "string") {
+		signal.addEventListener(
+			"abort",
+			onAbort,
+			{
+				once: true,
+			},
+		);
+		socket.addEventListener("message", (event) =>
+		{
+			if (typeof event.data !== "string")
+			{
 				return;
 			}
 			const frame = parseFrame(event.data);
-			if (frame === null) {
+			if (frame === null)
+			{
 				return;
 			}
-			if (frame.type === "state") {
+			if (frame.type === "state")
+			{
 				receivedState = true;
 				onState(frame.dispositions);
 				return;
 			}
-			if (frame.type === "resolved") {
-				settle({kind: "resolved", dispositions: frame.dispositions});
+			if (frame.type === "resolved")
+			{
+				settle(
+					{
+						kind: "resolved",
+						dispositions: frame.dispositions,
+					},
+				);
 				return;
 			}
-			settle({kind: "error", code: frame.code, message: frame.message});
+			settle(
+				{
+					kind: "error",
+					code: frame.code,
+					message: frame.message,
+				},
+			);
 		});
-		socket.addEventListener("close", () => {
-			settle({kind: "closed", receivedState});
+		socket.addEventListener("close", () =>
+		{
+			settle(
+				{
+					kind: "closed",
+					receivedState,
+				},
+			);
 		});
-		socket.addEventListener("error", () => {
-			settle({kind: "closed", receivedState});
+		socket.addEventListener("error", () =>
+		{
+			settle(
+				{
+					kind: "closed",
+					receivedState,
+				},
+			);
 		});
 	});
 }
@@ -211,15 +350,21 @@ async function waitForAnswers(
 	signal: AbortSignal,
 	timing: RemoteMcpTiming,
 	onState: (dispositions: DispositionMap) => void,
-): Promise<StreamResult> {
+): Promise<StreamResult>
+{
 	const deadline = Date.now() + timing.callWindowMilliseconds;
 	let failures = 0;
-	for (;;) {
-		if (signal.aborted) {
+	for (;;)
+	{
+		if (signal.aborted)
+		{
 			throw new DOMException("MCP request cancelled", "AbortError");
 		}
-		if (Date.now() >= deadline) {
-			return {kind: "window_closed"};
+		if (Date.now() >= deadline)
+		{
+			return {
+				kind: "window_closed",
+			};
 		}
 		// 💓 Each attempt gets its own abort, so a window that closes first also closes the stream. Left
 		// open, it would keep heartbeating and hold an abandoned batch past the heartbeat grace.
@@ -233,24 +378,33 @@ async function waitForAnswers(
 				timing.heartbeatMilliseconds,
 				onState,
 			),
-			new Promise<StreamResult>((resolve) => {
+			new Promise<StreamResult>((resolve) =>
+			{
 				timeout = setTimeout(
-					() => {
-						resolve({kind: "window_closed"});
+					() =>
+					{
+						resolve(
+							{
+								kind: "window_closed",
+							},
+						);
 					},
 					Math.max(0, deadline - Date.now()),
 				);
 			}),
 		]);
-		if (timeout !== undefined) {
+		if (timeout !== undefined)
+		{
 			clearTimeout(timeout);
 		}
 		attempt.abort();
-		if (result.kind !== "closed") {
+		if (result.kind !== "closed")
+		{
 			return result;
 		}
 		failures = result.receivedState ? 1 : failures + 1;
-		if (failures >= timing.maximumConsecutiveFailures) {
+		if (failures >= timing.maximumConsecutiveFailures)
+		{
 			return {
 				kind: "error",
 				code: "answer_stream_failed",
@@ -261,11 +415,14 @@ async function waitForAnswers(
 	}
 }
 
-function orderedDispositions(questionIds: string[], dispositions: DispositionMap): Disposition[] | null {
+function orderedDispositions(questionIds: string[], dispositions: DispositionMap): Disposition[] | null
+{
 	const ordered: Disposition[] = [];
-	for (const questionId of questionIds) {
+	for (const questionId of questionIds)
+	{
 		const disposition = dispositions[questionId];
-		if (disposition === null || disposition === undefined) {
+		if (disposition === null || disposition === undefined)
+		{
 			return null;
 		}
 		ordered.push(disposition);
@@ -278,88 +435,119 @@ function createRemoteMcpServer(
 	executionContext: ExecutionContext,
 	timing: RemoteMcpTiming,
 	requestKey: string | null,
-): McpServer {
-	const server = new McpServer({name: "yepnope", version: "0.1.0"});
+): McpServer
+{
+	const server = new McpServer(
+		{
+			name: "yepnope",
+			version: "0.1.0",
+		},
+	);
 	server.registerTool(
 		TOOL_NAME,
-		{description: TOOL_DESCRIPTION, inputSchema: ASK_YEP_NOPE_STANDARD_SCHEMA},
-		async (batch, context) => {
+		{
+			description: TOOL_DESCRIPTION,
+			inputSchema: ASK_YEP_NOPE_STANDARD_SCHEMA,
+		},
+		async (batch, context) =>
+		{
 			const violations = findLengthViolations(batch.questions);
-			if (violations.length > 0) {
+			if (violations.length > 0)
+			{
 				return textResult(teachingRejection(violations), true);
 			}
 			const externalContextReferences = findExternalContextReferenceViolations(batch.questions);
-			if (externalContextReferences.length > 0) {
+			if (externalContextReferences.length > 0)
+			{
 				return textResult(externalContextReferenceRejection(externalContextReferences), true);
 			}
-			if (!(await stub.getAfk(true))) {
+			if (!(await stub.getAfk(true)))
+			{
 				return nativeQuestionFallbackResult();
 			}
 			const rejoined = await stub.findReattachableBatch(batch, timing.reattachAnsweredWithinMilliseconds);
 			const created = rejoined ?? (await stub.createBatch(batch));
-			if (requestKey !== null) {
+			if (requestKey !== null)
+			{
 				await stub.registerMcpRequest(requestKey, created.batchId);
 			}
-			if (rejoined === null) {
+			if (rejoined === null)
+			{
 				executionContext.waitUntil(stub.sendBatchPush(created.batchId));
 			}
 			let latest: DispositionMap = {};
 			const progressToken = context.mcpReq._meta?.progressToken;
-			const progress = setInterval(() => {
-				if (progressToken === undefined) {
+			const progress = setInterval(() =>
+			{
+				if (progressToken === undefined)
+				{
 					return;
 				}
 				const answered = Object.values(latest).filter((disposition) => disposition !== null).length;
 				void context.mcpReq
-					.notify({
-						method: "notifications/progress",
-						params: {
-							progressToken,
-							progress: answered,
-							total: created.questionIds.length,
-							message: `Waiting on the user's phone: ${String(answered)} of ${String(created.questionIds.length)} answered. Answers may take hours.`,
+					.notify(
+						{
+							method: "notifications/progress",
+							params:
+							{
+								progressToken,
+								progress: answered,
+								total: created.questionIds.length,
+								message: `Waiting on the user's phone: ${String(answered)} of ${String(created.questionIds.length)} answered. Answers may take hours.`,
+							},
 						},
-					})
+					)
 					.catch(() => undefined);
 			}, timing.progressMilliseconds);
-			try {
-				const result = await waitForAnswers(stub, created.batchId, context.mcpReq.signal, timing, (state) => {
+			try
+			{
+				const result = await waitForAnswers(stub, created.batchId, context.mcpReq.signal, timing, (state) =>
+				{
 					latest = state;
 				});
-				if (result.kind === "resolved") {
+				if (result.kind === "resolved")
+				{
 					const dispositions = orderedDispositions(created.questionIds, result.dispositions);
-					if (dispositions === null) {
+					if (dispositions === null)
+					{
 						return textResult("The batch resolved without one disposition per question.", true);
 					}
 					return textResult(formatAskYepNopeResult(batch.questions, dispositions), false);
 				}
-				if (result.kind === "window_closed") {
+				if (result.kind === "window_closed")
+				{
 					// The stream may never have opened, or not delivered its last frame, before the window
 					// closed, so the batch itself says whether the answers are in.
 					const current = await stub.getBatchDispositions(created.batchId);
-					if (current === null) {
+					if (current === null)
+					{
 						return textResult(
 							"These questions are no longer on the user's phone. Ask again if the decision is still needed.",
 							true,
 						);
 					}
 					const settled = orderedDispositions(created.questionIds, current);
-					if (settled !== null) {
+					if (settled !== null)
+					{
 						return textResult(formatAskYepNopeResult(batch.questions, settled), false);
 					}
 					const answered = Object.values(current).filter((disposition) => disposition !== null).length;
 					return pendingResult(answered, created.questionIds.length);
 				}
-				if (result.kind === "closed") {
+				if (result.kind === "closed")
+				{
 					throw new Error("answer stream loop returned an unresolved closed connection");
 				}
 				return textResult(result.message, true);
-			} finally {
+			}
+			finally
+			{
 				// 📶 A call that ends unanswered is not an agent giving up: its connection may simply
 				// have dropped. The questions stay for the next identical call; an explicit
 				// cancellation retracts them, and the heartbeat alarm does if no call comes back.
 				clearInterval(progress);
-				if (requestKey !== null) {
+				if (requestKey !== null)
+				{
 					await stub.unregisterMcpRequest(requestKey, created.batchId);
 				}
 			}
@@ -373,21 +561,26 @@ export async function handleRemoteMcpRequest(
 	environment: Env,
 	executionContext: ExecutionContext,
 	timing: RemoteMcpTiming = DEFAULT_TIMING,
-): Promise<Response> {
+): Promise<Response>
+{
 	const resource = mcpResource(environment);
 	const token = bearerToken(request);
-	if (token === null) {
+	if (token === null)
+	{
 		return authorizationChallenge(resource, false);
 	}
 	const claims = await verifyAccessToken(token, environment, executionContext);
-	if (claims === null) {
+	if (claims === null)
+	{
 		return authorizationChallenge(resource, false);
 	}
 	const grantedScopes = new Set(claims.scope.split(" "));
-	if (!grantedScopes.has(QUESTION_SCOPE)) {
+	if (!grantedScopes.has(QUESTION_SCOPE))
+	{
 		return authorizationChallenge(resource, true);
 	}
-	if (!(await hasActiveGrant(environment.DB, claims, resource))) {
+	if (!(await hasActiveGrant(environment.DB, claims, resource)))
+	{
 		return invalidGrantResponse(resource);
 	}
 	await recordConnectedMcpClientUse(environment.DB, claims.sub, claims.client_id, Date.now());
@@ -407,14 +600,17 @@ export async function handleRemoteMcpRequest(
 		message.success && message.data.method === "notifications/cancelled"
 			? mcpCancellationParamsSchema.safeParse(message.data.params)
 			: null;
-	if (cancellation?.success === true) {
+	if (cancellation?.success === true)
+	{
 		await environment.USER_DO.getByName(claims.sub).cancelMcpRequest(
 			`${grantKey}:${String(cancellation.data.requestId)}`,
 		);
 	}
 	const handler = createMcpHandler(
 		() => createRemoteMcpServer(environment.USER_DO.getByName(claims.sub), executionContext, timing, requestKey),
-		{responseMode: "sse"},
+		{
+			responseMode: "sse",
+		},
 	);
 	return handler.fetch(request);
 }

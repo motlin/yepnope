@@ -1,6 +1,7 @@
 {
 	"extends": "./tsconfig.app.json",
-	"compilerOptions": {
+	"compilerOptions":
+	{
 		"types": ["vitest/globals", "node", "@cloudflare/workers-types"],
 		"allowJs": true
 	},

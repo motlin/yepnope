@@ -26,7 +26,8 @@ const stopContinuation =
 	"after that attempt returns afk_off or fails; keep input that cannot be represented truthfully as yes " +
 	"or no native.";
 
-interface HookResult {
+interface HookResult
+{
 	output: unknown;
 	status: number | null;
 	stderr: string;
@@ -34,16 +35,29 @@ interface HookResult {
 
 let pluginDataRoot: string;
 
-beforeEach(() => {
-	mkdirSync(scratchRoot, {recursive: true});
+beforeEach(() =>
+{
+	mkdirSync(
+		scratchRoot,
+		{
+			recursive: true,
+		},
+	);
 	pluginDataRoot = mkdtempSync(join(scratchRoot, "codex-question-hooks-"));
 });
 
-afterEach(() => {
-	rmSync(pluginDataRoot, {recursive: true});
+afterEach(() =>
+{
+	rmSync(
+		pluginDataRoot,
+		{
+			recursive: true,
+		},
+	);
 });
 
-function hookInput(hookEventName: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+function hookInput(hookEventName: string, extra: Record<string, unknown> = {}): Record<string, unknown>
+{
 	return {
 		session_id: "session-test",
 		transcript_path: "/workspace/example/transcript.jsonl",
@@ -56,13 +70,23 @@ function hookInput(hookEventName: string, extra: Record<string, unknown> = {}): 
 	};
 }
 
-function runHook(input: Record<string, unknown>): HookResult {
-	const result = spawnSync(process.execPath, [hookPath], {
-		encoding: "utf8",
-		input: JSON.stringify(input),
-		env: {...process.env, PLUGIN_DATA: pluginDataRoot},
-	});
-	if (result.error !== undefined) {
+function runHook(input: Record<string, unknown>): HookResult
+{
+	const result = spawnSync(
+		process.execPath,
+		[hookPath],
+		{
+			encoding: "utf8",
+			input: JSON.stringify(input),
+			env:
+			{
+				...process.env,
+				PLUGIN_DATA: pluginDataRoot,
+			},
+		},
+	);
+	if (result.error !== undefined)
+	{
 		throw result.error;
 	}
 	return {
@@ -72,187 +96,434 @@ function runHook(input: Record<string, unknown>): HookResult {
 	};
 }
 
-function startTurn(): HookResult {
-	return runHook(hookInput("UserPromptSubmit", {prompt: "Please continue the example task."}));
+function startTurn(): HookResult
+{
+	return runHook(
+		hookInput(
+			"UserPromptSubmit",
+			{
+				prompt: "Please continue the example task.",
+			},
+		),
+	);
 }
 
-function pluginDataFiles(): string[] {
+function pluginDataFiles(): string[]
+{
 	return readdirSync(pluginDataRoot);
 }
 
-describe("Codex question-routing hooks", () => {
-	it("injects the routing rule and blocks a native question before a YepNope attempt", () => {
-		expect(startTurn()).toStrictEqual({
-			status: 0,
-			stderr: "",
-			output: {
-				hookSpecificOutput: {
-					hookEventName: "UserPromptSubmit",
-					additionalContext: routingInstruction,
+describe("Codex question-routing hooks", () =>
+{
+	it("injects the routing rule and blocks a native question before a YepNope attempt", () =>
+	{
+		expect(startTurn()).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output:
+				{
+					hookSpecificOutput:
+					{
+						hookEventName: "UserPromptSubmit",
+						additionalContext: routingInstruction,
+					},
 				},
 			},
-		});
+		);
 		expect(
-			runHook(hookInput("PreToolUse", {tool_name: "request_user_input", tool_use_id: "tool-100"})),
-		).toStrictEqual({
-			status: 0,
-			stderr: "",
-			output: {
-				hookSpecificOutput: {
-					hookEventName: "PreToolUse",
-					permissionDecision: "deny",
-					permissionDecisionReason: nativeQuestionDenial,
+			runHook(
+				hookInput(
+					"PreToolUse",
+					{
+						tool_name: "request_user_input",
+						tool_use_id: "tool-100",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output:
+				{
+					hookSpecificOutput:
+					{
+						hookEventName: "PreToolUse",
+						permissionDecision: "deny",
+						permissionDecisionReason: nativeQuestionDenial,
+					},
 				},
 			},
-		});
+		);
 	});
 
-	it("allows native fallback after an AFK-off result", () => {
+	it("allows native fallback after an AFK-off result", () =>
+	{
 		startTurn();
 		expect(
 			runHook(
-				hookInput("PreToolUse", {
-					tool_name: "mcp__yepnope__ask_yep_nope",
-					tool_use_id: "tool-100",
-				}),
-			),
-		).toStrictEqual({status: 0, stderr: "", output: null});
-		expect(
-			runHook(
-				hookInput("PostToolUse", {
-					tool_name: "mcp__yepnope__ask_yep_nope",
-					tool_use_id: "tool-100",
-					tool_response: {
-						content: [{type: "text", text: "YepNope phone routing is off."}],
-						structuredContent: {route: "native", reason: "afk_off"},
+				hookInput(
+					"PreToolUse",
+					{
+						tool_name: "mcp__yepnope__ask_yep_nope",
+						tool_use_id: "tool-100",
 					},
-				}),
+				),
 			),
-		).toStrictEqual({status: 0, stderr: "", output: null});
-		expect(runHook(hookInput("PreToolUse", {tool_name: "AskUserQuestion", tool_use_id: "tool-200"}))).toStrictEqual(
-			{status: 0, stderr: "", output: null},
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output: null,
+			},
 		);
 		expect(
-			runHook(hookInput("Stop", {stop_hook_active: false, last_assistant_message: "Should I continue?"})),
-		).toStrictEqual({status: 0, stderr: "", output: {}});
+			runHook(
+				hookInput(
+					"PostToolUse",
+					{
+						tool_name: "mcp__yepnope__ask_yep_nope",
+						tool_use_id: "tool-100",
+						tool_response:
+						{
+							content: [
+								{
+									type: "text",
+									text: "YepNope phone routing is off.",
+								},
+							],
+							structuredContent:
+							{
+								route: "native",
+								reason: "afk_off",
+							},
+						},
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output: null,
+			},
+		);
+		expect(
+			runHook(
+				hookInput(
+					"PreToolUse",
+					{
+						tool_name: "AskUserQuestion",
+						tool_use_id: "tool-200",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output: null,
+			},
+		);
+		expect(
+			runHook(
+				hookInput(
+					"Stop",
+					{
+						stop_hook_active: false,
+						last_assistant_message: "Should I continue?",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output: {},
+			},
+		);
 		expect(pluginDataFiles()).toStrictEqual([]);
 	});
 
-	it("keeps native questions blocked after the user answered on YepNope", () => {
+	it("keeps native questions blocked after the user answered on YepNope", () =>
+	{
 		startTurn();
 		runHook(
-			hookInput("PreToolUse", {
-				tool_name: "mcp__yepnope__ask_yep_nope",
-				tool_use_id: "tool-100",
-			}),
+			hookInput(
+				"PreToolUse",
+				{
+					tool_name: "mcp__yepnope__ask_yep_nope",
+					tool_use_id: "tool-100",
+				},
+			),
 		);
 		runHook(
-			hookInput("PostToolUse", {
-				tool_name: "mcp__yepnope__ask_yep_nope",
-				tool_use_id: "tool-100",
-				tool_response: {content: [{type: "text", text: "Proceed with the example? -> YEP"}]},
-			}),
+			hookInput(
+				"PostToolUse",
+				{
+					tool_name: "mcp__yepnope__ask_yep_nope",
+					tool_use_id: "tool-100",
+					tool_response:
+					{
+						content: [
+							{
+								type: "text",
+								text: "Proceed with the example? -> YEP",
+							},
+						],
+					},
+				},
+			),
 		);
 		expect(
-			runHook(hookInput("PreToolUse", {tool_name: "request_user_input", tool_use_id: "tool-200"})),
-		).toStrictEqual({
-			status: 0,
-			stderr: "",
-			output: {
-				hookSpecificOutput: {
-					hookEventName: "PreToolUse",
-					permissionDecision: "deny",
-					permissionDecisionReason: nativeQuestionDenial,
+			runHook(
+				hookInput(
+					"PreToolUse",
+					{
+						tool_name: "request_user_input",
+						tool_use_id: "tool-200",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output:
+				{
+					hookSpecificOutput:
+					{
+						hookEventName: "PreToolUse",
+						permissionDecision: "deny",
+						permissionDecisionReason: nativeQuestionDenial,
+					},
 				},
 			},
-		});
+		);
 		expect(
-			runHook(hookInput("Stop", {stop_hook_active: false, last_assistant_message: "Should I continue?"})),
-		).toStrictEqual({status: 0, stderr: "", output: {decision: "block", reason: stopContinuation}});
+			runHook(
+				hookInput(
+					"Stop",
+					{
+						stop_hook_active: false,
+						last_assistant_message: "Should I continue?",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output:
+				{
+					decision: "block",
+					reason: stopContinuation,
+				},
+			},
+		);
 	});
 
-	it("keeps the agent waiting while its questions are still on the phone", () => {
+	it("keeps the agent waiting while its questions are still on the phone", () =>
+	{
 		const waitingContinuation =
 			"The questions are still waiting on the user's phone. Call ask_yep_nope again with exactly the " +
 			"same arguments and keep waiting until they are answered; do not ask them natively.";
 		startTurn();
 		runHook(
-			hookInput("PreToolUse", {
-				tool_name: "mcp__yepnope__ask_yep_nope",
-				tool_use_id: "tool-100",
-			}),
+			hookInput(
+				"PreToolUse",
+				{
+					tool_name: "mcp__yepnope__ask_yep_nope",
+					tool_use_id: "tool-100",
+				},
+			),
 		);
 		runHook(
-			hookInput("PostToolUse", {
-				tool_name: "mcp__yepnope__ask_yep_nope",
-				tool_use_id: "tool-100",
-				tool_response: {
-					content: [{type: "text", text: "Still waiting on the user's phone: 0 of 1 answered."}],
-					structuredContent: {answered: 0, status: "pending", total: 1},
+			hookInput(
+				"PostToolUse",
+				{
+					tool_name: "mcp__yepnope__ask_yep_nope",
+					tool_use_id: "tool-100",
+					tool_response:
+					{
+						content: [
+							{
+								type: "text",
+								text: "Still waiting on the user's phone: 0 of 1 answered.",
+							},
+						],
+						structuredContent:
+						{
+							answered: 0,
+							status: "pending",
+							total: 1,
+						},
+					},
 				},
-			}),
+			),
 		);
 
-		expect({
-			nativeQuestion: runHook(
-				hookInput("PreToolUse", {tool_name: "request_user_input", tool_use_id: "tool-200"}),
-			),
-			stopWithoutAsking: runHook(
-				hookInput("Stop", {stop_hook_active: false, last_assistant_message: "Waiting for the answer."}),
-			),
-		}).toStrictEqual({
-			nativeQuestion: {
-				status: 0,
-				stderr: "",
-				output: {
-					hookSpecificOutput: {
-						hookEventName: "PreToolUse",
-						permissionDecision: "deny",
-						permissionDecisionReason: waitingContinuation,
+		expect(
+			{
+				nativeQuestion: runHook(
+					hookInput(
+						"PreToolUse",
+						{
+							tool_name: "request_user_input",
+							tool_use_id: "tool-200",
+						},
+					),
+				),
+				stopWithoutAsking: runHook(
+					hookInput(
+						"Stop",
+						{
+							stop_hook_active: false,
+							last_assistant_message: "Waiting for the answer.",
+						},
+					),
+				),
+			},
+		).toStrictEqual(
+			{
+				nativeQuestion:
+				{
+					status: 0,
+					stderr: "",
+					output:
+					{
+						hookSpecificOutput:
+						{
+							hookEventName: "PreToolUse",
+							permissionDecision: "deny",
+							permissionDecisionReason: waitingContinuation,
+						},
+					},
+				},
+				stopWithoutAsking:
+				{
+					status: 0,
+					stderr: "",
+					output:
+					{
+						decision: "block",
+						reason: waitingContinuation,
 					},
 				},
 			},
-			stopWithoutAsking: {status: 0, stderr: "", output: {decision: "block", reason: waitingContinuation}},
-		});
+		);
 	});
 
-	it("permits native fallback after an MCP error", () => {
+	it("permits native fallback after an MCP error", () =>
+	{
 		startTurn();
 		runHook(
-			hookInput("PreToolUse", {
-				tool_name: "mcp__yepnope__ask_yep_nope",
-				tool_use_id: "tool-100",
-			}),
+			hookInput(
+				"PreToolUse",
+				{
+					tool_name: "mcp__yepnope__ask_yep_nope",
+					tool_use_id: "tool-100",
+				},
+			),
 		);
 		runHook(
-			hookInput("PostToolUse", {
-				tool_name: "mcp__yepnope__ask_yep_nope",
-				tool_use_id: "tool-100",
-				tool_response: {isError: true, content: [{type: "text", text: "Connection unavailable."}]},
-			}),
+			hookInput(
+				"PostToolUse",
+				{
+					tool_name: "mcp__yepnope__ask_yep_nope",
+					tool_use_id: "tool-100",
+					tool_response:
+					{
+						isError: true,
+						content: [
+							{
+								type: "text",
+								text: "Connection unavailable.",
+							},
+						],
+					},
+				},
+			),
 		);
-		expect(
-			runHook(hookInput("PreToolUse", {tool_name: "request_user_input", tool_use_id: "tool-200"})),
-		).toStrictEqual({status: 0, stderr: "", output: null});
-	});
-
-	it("intercepts a plain-text question once without looping", () => {
-		startTurn();
-		expect(
-			runHook(hookInput("Stop", {stop_hook_active: false, last_assistant_message: "Should I continue?"})),
-		).toStrictEqual({status: 0, stderr: "", output: {decision: "block", reason: stopContinuation}});
-		expect(
-			runHook(hookInput("Stop", {stop_hook_active: true, last_assistant_message: "Should I continue?"})),
-		).toStrictEqual({status: 0, stderr: "", output: {}});
 		expect(
 			runHook(
-				hookInput("Stop", {
-					stop_hook_active: false,
-					last_assistant_message:
-						"The example completed without another decision.\n\n📌 You asked: Should the example continue?",
-				}),
+				hookInput(
+					"PreToolUse",
+					{
+						tool_name: "request_user_input",
+						tool_use_id: "tool-200",
+					},
+				),
 			),
-		).toStrictEqual({status: 0, stderr: "", output: {}});
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output: null,
+			},
+		);
+	});
+
+	it("intercepts a plain-text question once without looping", () =>
+	{
+		startTurn();
+		expect(
+			runHook(
+				hookInput(
+					"Stop",
+					{
+						stop_hook_active: false,
+						last_assistant_message: "Should I continue?",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output:
+				{
+					decision: "block",
+					reason: stopContinuation,
+				},
+			},
+		);
+		expect(
+			runHook(
+				hookInput(
+					"Stop",
+					{
+						stop_hook_active: true,
+						last_assistant_message: "Should I continue?",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output: {},
+			},
+		);
+		expect(
+			runHook(
+				hookInput(
+					"Stop",
+					{
+						stop_hook_active: false,
+						last_assistant_message:
+							"The example completed without another decision.\n\n📌 You asked: Should the example continue?",
+					},
+				),
+			),
+		).toStrictEqual(
+			{
+				status: 0,
+				stderr: "",
+				output: {},
+			},
+		);
 		expect(pluginDataFiles()).toStrictEqual([]);
 	});
 });

@@ -5,7 +5,8 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {MCP_RESOURCE_PATH, OAUTH_SCOPES, workerAuthentication} from "../auth";
 import {handleRemoteMcpRequest, type RemoteMcpTiming} from "../mcp";
 import type {CurrentQuestion, UserDurableObject} from "../user-do";
-import {
+import
+{
 	NATIVE_QUESTION_FALLBACK,
 	NATIVE_QUESTION_FALLBACK_TEXT,
 	TOOL_DESCRIPTION,
@@ -16,7 +17,8 @@ import {authorizeMcpHostClient} from "./oauth-client-helpers";
 
 const ISSUER = `${API_ORIGIN}/api/auth`;
 const RESOURCE = `${API_ORIGIN}${MCP_RESOURCE_PATH}`;
-const TEST_TIMING: RemoteMcpTiming = {
+const TEST_TIMING: RemoteMcpTiming =
+{
 	callWindowMilliseconds: 500,
 	heartbeatMilliseconds: 20,
 	maximumConsecutiveFailures: 3,
@@ -26,11 +28,13 @@ const TEST_TIMING: RemoteMcpTiming = {
 	reconnectDelayMilliseconds: 5,
 };
 
-function pendingResponse(answered: number, total: number): unknown {
+function pendingResponse(answered: number, total: number): unknown
+{
 	return {
 		id: 1,
 		jsonrpc: "2.0",
-		result: {
+		result:
+		{
 			content: [
 				{
 					text:
@@ -40,33 +44,55 @@ function pendingResponse(answered: number, total: number): unknown {
 					type: "text",
 				},
 			],
-			structuredContent: {answered, status: "pending", total},
+			structuredContent:
+			{
+				answered,
+				status: "pending",
+				total,
+			},
 		},
 	};
 }
 
-interface IssuedGrant {
+interface IssuedGrant
+{
 	accessToken: string;
 	clientId: string;
 	refreshToken: string;
 	userId: string;
 }
 
-interface McpResponse {
+interface McpResponse
+{
 	id: number;
 	jsonrpc: "2.0";
-	result: {content: Array<{text: string; type: "text"}>; isError?: true};
+	result:
+	{
+		content: Array<
+		{
+			text: string;
+			type: "text";
+		}>;
+		isError?: true;
+	};
 }
 
-afterEach(() => {
+afterEach(() =>
+{
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
 
-async function issueGrant(email: string): Promise<IssuedGrant> {
+async function issueGrant(email: string): Promise<IssuedGrant>
+{
 	const {cookie, userId} = await createVerifiedBrowserSession(email);
 	const {accessToken, clientId, refreshToken} = await authorizeMcpHostClient(cookie, "MCP endpoint test client");
-	return {accessToken, clientId, refreshToken, userId};
+	return {
+		accessToken,
+		clientId,
+		refreshToken,
+		userId,
+	};
 }
 
 function mcpRequest(
@@ -74,35 +100,68 @@ function mcpRequest(
 	method: string,
 	params?: Record<string, unknown>,
 	signal?: AbortSignal,
-): Request {
-	return new Request(`${API_ORIGIN}/mcp`, {
-		method: "POST",
-		headers: {
-			Accept: "application/json, text/event-stream",
-			Authorization: `Bearer ${accessToken}`,
-			"Content-Type": "application/json",
-			"MCP-Protocol-Version": "2025-11-25",
+): Request
+{
+	return new Request(
+		`${API_ORIGIN}/mcp`,
+		{
+			method: "POST",
+			headers:
+			{
+				Accept: "application/json, text/event-stream",
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json",
+				"MCP-Protocol-Version": "2025-11-25",
+			},
+			body: JSON.stringify(
+				{
+					id: 1,
+					jsonrpc: "2.0",
+					method,
+					...(params === undefined
+						? {}
+						:
+							{
+								params,
+							}),
+				},
+			),
+			...(signal === undefined
+				? {}
+				:
+					{
+						signal,
+					}),
 		},
-		body: JSON.stringify({id: 1, jsonrpc: "2.0", method, ...(params === undefined ? {} : {params})}),
-		...(signal === undefined ? {} : {signal}),
-	});
+	);
 }
 
-function askRequest(accessToken: string, signal?: AbortSignal): Request {
+function askRequest(accessToken: string, signal?: AbortSignal): Request
+{
 	return mcpRequest(
 		accessToken,
 		"tools/call",
 		{
-			arguments: {
+			arguments:
+			{
 				project: "Example project",
 				repo: "github.com/acme/rocket",
 				branch: "migrate-build",
 				worktree: "/w/rocket-migrate-build",
 				directory: "/w/rocket-migrate-build/core",
 				questions: [
-					{body: "The release candidate passed validation.", title: "Ship it?"},
-					{body: "The legacy path is still in use.", title: "Delete it?"},
-					{body: "The optional migration can wait.", title: "Migrate it?"},
+					{
+						body: "The release candidate passed validation.",
+						title: "Ship it?",
+					},
+					{
+						body: "The legacy path is still in use.",
+						title: "Delete it?",
+					},
+					{
+						body: "The optional migration can wait.",
+						title: "Migrate it?",
+					},
 				],
 			},
 			name: "ask_yep_nope",
@@ -111,48 +170,71 @@ function askRequest(accessToken: string, signal?: AbortSignal): Request {
 	);
 }
 
-function cancellationRequest(accessToken: string, requestId: number): Request {
-	return new Request(`${API_ORIGIN}/mcp`, {
-		method: "POST",
-		headers: {
-			Accept: "application/json, text/event-stream",
-			Authorization: `Bearer ${accessToken}`,
-			"Content-Type": "application/json",
-			"MCP-Protocol-Version": "2025-11-25",
+function cancellationRequest(accessToken: string, requestId: number): Request
+{
+	return new Request(
+		`${API_ORIGIN}/mcp`,
+		{
+			method: "POST",
+			headers:
+			{
+				Accept: "application/json, text/event-stream",
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json",
+				"MCP-Protocol-Version": "2025-11-25",
+			},
+			body: JSON.stringify(
+				{
+					jsonrpc: "2.0",
+					method: "notifications/cancelled",
+					params:
+					{
+						requestId,
+					},
+				},
+			),
 		},
-		body: JSON.stringify({jsonrpc: "2.0", method: "notifications/cancelled", params: {requestId}}),
-	});
+	);
 }
 
-async function responseMessage(response: Response): Promise<unknown> {
+async function responseMessage(response: Response): Promise<unknown>
+{
 	const contentType = response.headers.get("content-type") ?? "";
-	if (contentType.includes("application/json")) {
+	if (contentType.includes("application/json"))
+	{
 		return response.json();
 	}
 	const text = await response.text();
 	const data = /^data: (.+)$/m.exec(text)?.[1];
-	if (data === undefined) {
+	if (data === undefined)
+	{
 		throw new Error("MCP SSE response contained no data event");
 	}
 	return JSON.parse(data) as unknown;
 }
 
-async function remoteResponse(request: Request, timing: RemoteMcpTiming = TEST_TIMING): Promise<Response> {
+async function remoteResponse(request: Request, timing: RemoteMcpTiming = TEST_TIMING): Promise<Response>
+{
 	return handleRemoteMcpRequest(request, env, createExecutionContext(), timing);
 }
 
-async function waitForQuestionCount(userId: string, count: number): Promise<CurrentQuestion[]> {
+async function waitForQuestionCount(userId: string, count: number): Promise<CurrentQuestion[]>
+{
 	const stub = env.USER_DO.getByName(userId);
 	const deadline = Date.now() + 2_000;
-	for (;;) {
+	for (;;)
+	{
 		const questions = await stub.getCurrentQuestions();
-		if (questions.length === count) {
+		if (questions.length === count)
+		{
 			return questions;
 		}
-		if (Date.now() >= deadline) {
+		if (Date.now() >= deadline)
+		{
 			throw new Error(`expected ${String(count)} outstanding questions, found ${String(questions.length)}`);
 		}
-		await new Promise<void>((resolve) => {
+		await new Promise<void>((resolve) =>
+		{
 			setTimeout(resolve, 5);
 		});
 	}
@@ -162,94 +244,168 @@ async function waitForAnswerSocketCount(
 	stub: DurableObjectStub<UserDurableObject>,
 	batchId: string,
 	count: number,
-): Promise<void> {
+): Promise<void>
+{
 	const deadline = Date.now() + 2_000;
-	for (;;) {
+	for (;;)
+	{
 		const open = await runInDurableObject(stub, (_instance, state) => state.getWebSockets(batchId).length);
-		if (open === count) {
+		if (open === count)
+		{
 			return;
 		}
-		if (Date.now() >= deadline) {
+		if (Date.now() >= deadline)
+		{
 			throw new Error(`expected ${String(count)} open answer sockets, found ${String(open)}`);
 		}
-		await new Promise<void>((resolve) => {
+		await new Promise<void>((resolve) =>
+		{
 			setTimeout(resolve, 5);
 		});
 	}
 }
 
-async function closeAnswerSocket(stub: DurableObjectStub<UserDurableObject>, batchId: string): Promise<void> {
+async function closeAnswerSocket(stub: DurableObjectStub<UserDurableObject>, batchId: string): Promise<void>
+{
 	const deadline = Date.now() + 2_000;
-	for (;;) {
-		const closed = await runInDurableObject(stub, (_instance, state) => {
+	for (;;)
+	{
+		const closed = await runInDurableObject(stub, (_instance, state) =>
+		{
 			const socket = state.getWebSockets(batchId)[0];
-			if (socket === undefined) {
+			if (socket === undefined)
+			{
 				return false;
 			}
 			socket.close(1012, "test reconnect");
 			return true;
 		});
-		if (closed) {
+		if (closed)
+		{
 			return;
 		}
-		if (Date.now() >= deadline) {
+		if (Date.now() >= deadline)
+		{
 			throw new Error("missing initial MCP answer socket");
 		}
-		await new Promise<void>((resolve) => {
+		await new Promise<void>((resolve) =>
+		{
 			setTimeout(resolve, 5);
 		});
 	}
 }
 
-function strictTextResponse(text: string, isError = false): McpResponse {
+function strictTextResponse(text: string, isError = false): McpResponse
+{
 	return {
 		id: 1,
 		jsonrpc: "2.0",
-		result: {content: [{text, type: "text"}], ...(isError ? {isError: true as const} : {})},
+		result:
+		{
+			content: [
+				{
+					text,
+					type: "text",
+				},
+			],
+			...(isError
+				?
+					{
+						isError: true as const,
+					}
+				: {}),
+		},
 	};
 }
 
-async function signClaims(claims: Record<string, unknown>): Promise<string> {
+async function signClaims(claims: Record<string, unknown>): Promise<string>
+{
 	const authentication = workerAuthentication(env);
 	// oxlint-disable typescript/no-unsafe-call -- Better Auth 1.7 loses jwt API inference with its MCP plugin types.
 	// @ts-expect-error Better Auth 1.7 loses jwt API inference when combined with its MCP plugin types.
-	const signed: unknown = await authentication.api.signJWT({body: {payload: claims}});
+	const signed: unknown = await authentication.api.signJWT(
+		{
+			body:
+			{
+				payload: claims,
+			},
+		},
+	);
 	// oxlint-enable typescript/no-unsafe-call
-	if (typeof signed !== "object" || signed === null || !("token" in signed) || typeof signed.token !== "string") {
+	if (typeof signed !== "object" || signed === null || !("token" in signed) || typeof signed.token !== "string")
+	{
 		throw new Error("Better Auth JWT signing returned no token");
 	}
 	return signed.token;
 }
 
-describe("OAuth-authenticated remote MCP endpoint", () => {
-	it("publishes one question tool and returns a typed native fallback while AFK is off", async () => {
+describe("OAuth-authenticated remote MCP endpoint", () =>
+{
+	it("publishes one question tool and returns a typed native fallback while AFK is off", async () =>
+	{
 		const grant = await issueGrant("mcp-contract-alice@example.com");
 		const listed = await responseMessage(await worker.fetch(mcpRequest(grant.accessToken, "tools/list")));
-		expect(listed).toStrictEqual({
-			id: 1,
-			jsonrpc: "2.0",
-			result: {
-				tools: [{name: "ask_yep_nope", description: TOOL_DESCRIPTION, inputSchema: TOOL_INPUT_SCHEMA}],
-			},
-		});
-
-		const response = await worker.fetch(askRequest(grant.accessToken));
-		expect({message: await responseMessage(response), status: response.status}).toStrictEqual({
-			message: {
+		expect(listed).toStrictEqual(
+			{
 				id: 1,
 				jsonrpc: "2.0",
-				result: {
-					content: [{text: NATIVE_QUESTION_FALLBACK_TEXT, type: "text"}],
-					structuredContent: NATIVE_QUESTION_FALLBACK,
+				result:
+				{
+					tools: [
+						{
+							name: "ask_yep_nope",
+							description: TOOL_DESCRIPTION,
+							inputSchema: TOOL_INPUT_SCHEMA,
+						},
+					],
 				},
 			},
-			status: 200,
-		});
+		);
+
+		const response = await worker.fetch(askRequest(grant.accessToken));
+		expect(
+			{
+				message: await responseMessage(response),
+				status: response.status,
+			},
+		).toStrictEqual(
+			{
+				message:
+				{
+					id: 1,
+					jsonrpc: "2.0",
+					result:
+					{
+						content: [
+							{
+								text: NATIVE_QUESTION_FALLBACK_TEXT,
+								type: "text",
+							},
+						],
+						structuredContent: NATIVE_QUESTION_FALLBACK,
+					},
+				},
+				status: 200,
+			},
+		);
 		const tooLong = await worker.fetch(
-			mcpRequest(grant.accessToken, "tools/call", {
-				arguments: {project: "Example project", questions: [{body: "", title: "x".repeat(101)}]},
-				name: "ask_yep_nope",
-			}),
+			mcpRequest(
+				grant.accessToken,
+				"tools/call",
+				{
+					arguments:
+					{
+						project: "Example project",
+						questions: [
+							{
+								body: "",
+								title: "x".repeat(101),
+							},
+						],
+					},
+					name: "ask_yep_nope",
+				},
+			),
 		);
 		expect(await responseMessage(tooLong)).toStrictEqual(
 			strictTextResponse(
@@ -260,13 +416,23 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			),
 		);
 		const externalContext = await worker.fetch(
-			mcpRequest(grant.accessToken, "tools/call", {
-				arguments: {
-					project: "Example project",
-					questions: [{body: "", title: "Approve the six commits listed above?"}],
+			mcpRequest(
+				grant.accessToken,
+				"tools/call",
+				{
+					arguments:
+					{
+						project: "Example project",
+						questions: [
+							{
+								body: "",
+								title: "Approve the six commits listed above?",
+							},
+						],
+					},
+					name: "ask_yep_nope",
 				},
-				name: "ask_yep_nope",
-			}),
+			),
 		);
 		expect(await responseMessage(externalContext)).toStrictEqual(
 			strictTextResponse(
@@ -279,7 +445,8 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		expect(await env.USER_DO.getByName(grant.userId).getAfk(true)).toBe(false);
 	});
 
-	it("routes only to the token subject and returns one exact Yep, Nope, or Skip result per question", async () => {
+	it("routes only to the token subject and returns one exact Yep, Nope, or Skip result per question", async () =>
+	{
 		const alice = await issueGrant("mcp-isolation-alice@example.com");
 		const bob = await issueGrant("mcp-isolation-bob@example.com");
 		const bobStub = env.USER_DO.getByName(bob.userId);
@@ -291,7 +458,8 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		// 🧭 The chips the phone renders come from tool arguments, so the only proof they are
 		// reachable is a real ask_yep_nope call carrying them all the way to a stored question.
 		expect(
-			questions.map(({body, branch, directory, position, project, repo, title, worktree}) => ({
+			questions.map(({body, branch, directory, position, project, repo, title, worktree}) => (
+			{
 				body,
 				branch,
 				directory,
@@ -334,9 +502,18 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			},
 		]);
 		await bobStub.submitAnswers([
-			{question_id: required(questions[0], "first question").questionId, disposition: "yep"},
-			{question_id: required(questions[1], "second question").questionId, disposition: "nope"},
-			{question_id: required(questions[2], "third question").questionId, disposition: "skip"},
+			{
+				question_id: required(questions[0], "first question").questionId,
+				disposition: "yep",
+			},
+			{
+				question_id: required(questions[1], "second question").questionId,
+				disposition: "nope",
+			},
+			{
+				question_id: required(questions[2], "third question").questionId,
+				disposition: "skip",
+			},
 		]);
 		expect(await responseMessage(await responsePromise)).toStrictEqual(
 			strictTextResponse(
@@ -349,13 +526,25 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		expect(await questionOutcomes(bob.userId)).toStrictEqual(["nope", "skip", "yep"]);
 	});
 
-	it("records why a token was refused without varying the refusal it puts on the wire", async () => {
+	it("records why a token was refused without varying the refusal it puts on the wire", async () =>
+	{
 		const grant = await issueGrant("mcp-refusal-reason-alice@example.com");
 		const claims = decodeJwt(grant.accessToken);
 		const nowSeconds = Math.floor(Date.now() / 1_000);
 		const [expired, wrongAudience] = await Promise.all([
-			signClaims({...claims, exp: nowSeconds - 1}),
-			signClaims({...claims, aud: `${API_ORIGIN}/another-resource`, exp: nowSeconds + 600}),
+			signClaims(
+				{
+					...claims,
+					exp: nowSeconds - 1,
+				},
+			),
+			signClaims(
+				{
+					...claims,
+					aud: `${API_ORIGIN}/another-resource`,
+					exp: nowSeconds + 600,
+				},
+			),
 		]);
 		const signatureStart = grant.accessToken.lastIndexOf(".") + 1;
 		const signature = grant.accessToken.slice(signatureStart);
@@ -364,11 +553,13 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		}${signature.slice(1)}`;
 
 		const observations: string[] = [];
-		vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
+		vi.spyOn(console, "warn").mockImplementation((line: unknown) =>
+		{
 			observations.push(String(line));
 		});
 		let read = 0;
-		async function refuse(token: string): Promise<Record<string, unknown>> {
+		async function refuse(token: string): Promise<Record<string, unknown>>
+		{
 			const response = await worker.fetch(mcpRequest(token, "tools/list"));
 			const recorded = observations
 				.slice(read)
@@ -390,95 +581,241 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		const challenge =
 			`Bearer resource_metadata="${API_ORIGIN}/.well-known/oauth-protected-resource/mcp", ` +
 			`scope="${OAUTH_SCOPES.join(" ")}"`;
-		const wireRefusal = {
-			body: {error: {code: -32_000, message: "Invalid or missing access token"}, id: null, jsonrpc: "2.0"},
+		const wireRefusal =
+		{
+			body:
+			{
+				error:
+				{
+					code: -32_000,
+					message: "Invalid or missing access token",
+				},
+				id: null,
+				jsonrpc: "2.0",
+			},
 			challenge,
 			status: 401,
 		};
-		function observation(reason: string): Record<string, unknown> {
-			return {event: "access_token_rejected", failure: null, level: "warn", reason, status: null};
+		function observation(reason: string): Record<string, unknown>
+		{
+			return {
+				event: "access_token_rejected",
+				failure: null,
+				level: "warn",
+				reason,
+				status: null,
+			};
 		}
 		expect([expiredRefusal, audienceRefusal, forgedRefusal, unparsableRefusal]).toStrictEqual([
-			{...wireRefusal, recorded: [observation("expired")]},
-			{...wireRefusal, recorded: [observation("audience_mismatch")]},
-			{...wireRefusal, recorded: [observation("signature_invalid")]},
-			{...wireRefusal, recorded: [observation("malformed")]},
+			{
+				...wireRefusal,
+				recorded: [observation("expired")],
+			},
+			{
+				...wireRefusal,
+				recorded: [observation("audience_mismatch")],
+			},
+			{
+				...wireRefusal,
+				recorded: [observation("signature_invalid")],
+			},
+			{
+				...wireRefusal,
+				recorded: [observation("malformed")],
+			},
 		]);
 		expect(observations.join("").includes(grant.accessToken)).toBe(false);
 	});
 
-	it("rejects revoked, expired, wrong-audience, wrong-resource, and insufficient-scope credentials", async () => {
+	it("rejects revoked, expired, wrong-audience, wrong-resource, and insufficient-scope credentials", async () =>
+	{
 		const grant = await issueGrant("mcp-invalid-grant-alice@example.com");
 		const claims = decodeJwt(grant.accessToken);
 		const nowSeconds = Math.floor(Date.now() / 1_000);
 		const [expired, wrongAudience, insufficientScope] = await Promise.all([
-			signClaims({...claims, exp: nowSeconds - 1}),
-			signClaims({...claims, aud: `${API_ORIGIN}/another-resource`, exp: nowSeconds + 600}),
-			signClaims({...claims, scope: "openid offline_access", exp: nowSeconds + 600}),
+			signClaims(
+				{
+					...claims,
+					exp: nowSeconds - 1,
+				},
+			),
+			signClaims(
+				{
+					...claims,
+					aud: `${API_ORIGIN}/another-resource`,
+					exp: nowSeconds + 600,
+				},
+			),
+			signClaims(
+				{
+					...claims,
+					scope: "openid offline_access",
+					exp: nowSeconds + 600,
+				},
+			),
 		]);
 		const rejected = await Promise.all(
-			[expired, wrongAudience, insufficientScope].map(async (token) => {
+			[expired, wrongAudience, insufficientScope].map(async (token) =>
+			{
 				const response = await worker.fetch(mcpRequest(token, "tools/list"));
-				return {body: await response.json(), status: response.status};
+				return {
+					body: await response.json(),
+					status: response.status,
+				};
 			}),
 		);
 		expect(rejected).toStrictEqual([
 			{
-				body: {error: {code: -32_000, message: "Invalid or missing access token"}, id: null, jsonrpc: "2.0"},
+				body:
+				{
+					error:
+					{
+						code: -32_000,
+						message: "Invalid or missing access token",
+					},
+					id: null,
+					jsonrpc: "2.0",
+				},
 				status: 401,
 			},
 			{
-				body: {error: {code: -32_000, message: "Invalid or missing access token"}, id: null, jsonrpc: "2.0"},
+				body:
+				{
+					error:
+					{
+						code: -32_000,
+						message: "Invalid or missing access token",
+					},
+					id: null,
+					jsonrpc: "2.0",
+				},
 				status: 401,
 			},
 			{
-				body: {
-					error: {code: -32_000, message: "Access token has insufficient scope"},
+				body:
+				{
+					error:
+					{
+						code: -32_000,
+						message: "Access token has insufficient scope",
+					},
 					id: null,
 					jsonrpc: "2.0",
 				},
 				status: 403,
 			},
 		]);
-		const wrongSubject = await signClaims({...claims, sub: "mcp-cross-account-target"});
+		const wrongSubject = await signClaims(
+			{
+				...claims,
+				sub: "mcp-cross-account-target",
+			},
+		);
 		const crossAccount = await worker.fetch(mcpRequest(wrongSubject, "tools/list"));
-		expect({body: await crossAccount.json(), status: crossAccount.status}).toStrictEqual({
-			body: {error: {code: -32_000, message: "Invalid or revoked access token"}, id: null, jsonrpc: "2.0"},
-			status: 401,
-		});
+		expect(
+			{
+				body: await crossAccount.json(),
+				status: crossAccount.status,
+			},
+		).toStrictEqual(
+			{
+				body:
+				{
+					error:
+					{
+						code: -32_000,
+						message: "Invalid or revoked access token",
+					},
+					id: null,
+					jsonrpc: "2.0",
+				},
+				status: 401,
+			},
+		);
 		expect(await env.USER_DO.getByName("mcp-cross-account-target").getCurrentQuestions()).toStrictEqual([]);
 
 		await env.DB.prepare("UPDATE oauth_refresh_token SET resources = ? WHERE user_id = ?")
 			.bind(JSON.stringify([`${API_ORIGIN}/wrong-resource`]), grant.userId)
 			.run();
 		const wrongResource = await worker.fetch(mcpRequest(grant.accessToken, "tools/list"));
-		expect({body: await wrongResource.json(), status: wrongResource.status}).toStrictEqual({
-			body: {error: {code: -32_000, message: "Invalid or revoked access token"}, id: null, jsonrpc: "2.0"},
-			status: 401,
-		});
+		expect(
+			{
+				body: await wrongResource.json(),
+				status: wrongResource.status,
+			},
+		).toStrictEqual(
+			{
+				body:
+				{
+					error:
+					{
+						code: -32_000,
+						message: "Invalid or revoked access token",
+					},
+					id: null,
+					jsonrpc: "2.0",
+				},
+				status: 401,
+			},
+		);
 
 		await env.DB.prepare("UPDATE oauth_refresh_token SET resources = ? WHERE user_id = ?")
 			.bind(JSON.stringify([RESOURCE]), grant.userId)
 			.run();
-		const revocation = await worker.fetch(`${ISSUER}/oauth2/revoke`, {
-			method: "POST",
-			headers: {"Content-Type": "application/x-www-form-urlencoded"},
-			body: new URLSearchParams({
-				client_id: grant.clientId,
-				token: grant.refreshToken,
-				token_type_hint: "refresh_token",
-			}),
-		});
-		expect({body: await revocation.text(), status: revocation.status}).toStrictEqual({body: "", status: 200});
+		const revocation = await worker.fetch(
+			`${ISSUER}/oauth2/revoke`,
+			{
+				method: "POST",
+				headers:
+				{
+					"Content-Type": "application/x-www-form-urlencoded",
+				},
+				body: new URLSearchParams(
+					{
+						client_id: grant.clientId,
+						token: grant.refreshToken,
+						token_type_hint: "refresh_token",
+					},
+				),
+			},
+		);
+		expect(
+			{
+				body: await revocation.text(),
+				status: revocation.status,
+			},
+		).toStrictEqual(
+			{
+				body: "",
+				status: 200,
+			},
+		);
 		const revoked = await worker.fetch(mcpRequest(grant.accessToken, "tools/list"));
-		expect({body: await revoked.json(), status: revoked.status}).toStrictEqual({
-			body: {error: {code: -32_000, message: "Invalid or revoked access token"}, id: null, jsonrpc: "2.0"},
-			status: 401,
-		});
+		expect(
+			{
+				body: await revoked.json(),
+				status: revoked.status,
+			},
+		).toStrictEqual(
+			{
+				body:
+				{
+					error:
+					{
+						code: -32_000,
+						message: "Invalid or revoked access token",
+					},
+					id: null,
+					jsonrpc: "2.0",
+				},
+				status: 401,
+			},
+		);
 		expect(await env.USER_DO.getByName(grant.userId).getCurrentQuestions()).toStrictEqual([]);
 	});
 
-	it("reconnects the answer stream and still returns the browser answer", async () => {
+	it("reconnects the answer stream and still returns the browser answer", async () =>
+	{
 		const grant = await issueGrant("mcp-reconnect-alice@example.com");
 		const stub = env.USER_DO.getByName(grant.userId);
 		await stub.setAfk(true, true);
@@ -486,11 +823,16 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		const questions = await waitForQuestionCount(grant.userId, 3);
 		const batchId = required(questions[0], "first question").batchId;
 		await closeAnswerSocket(stub, batchId);
-		await new Promise<void>((resolve) => {
+		await new Promise<void>((resolve) =>
+		{
 			setTimeout(resolve, 30);
 		});
 		await stub.submitAnswers(
-			questions.map((question) => ({question_id: question.questionId, disposition: "yep" as const})),
+			questions.map((question) => (
+			{
+				question_id: question.questionId,
+				disposition: "yep" as const,
+			})),
 		);
 		expect(await responseMessage(await responsePromise)).toStrictEqual(
 			strictTextResponse("Ship it? -> YEP\nDelete it? -> YEP\nMigrate it? -> YEP"),
@@ -499,7 +841,8 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 
 	// 📶 A dropped connection is not the agent giving up. The cards stay, the heartbeat alarm retracts
 	// them only if no call comes back within its grace, and an identical call rejoins the same batch.
-	it("keeps the cards when the connection drops and reattaches the same batch on an identical call", async () => {
+	it("keeps the cards when the connection drops and reattaches the same batch on an identical call", async () =>
+	{
 		const grant = await issueGrant("mcp-dropped-alice@example.com");
 		const stub = env.USER_DO.getByName(grant.userId);
 		await stub.setAfk(true, true);
@@ -508,7 +851,8 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		const asked = await waitForQuestionCount(grant.userId, 3);
 		controller.abort();
 		await dropped.text().catch(() => "dropped");
-		await new Promise<void>((resolve) => {
+		await new Promise<void>((resolve) =>
+		{
 			setTimeout(resolve, 50);
 		});
 		expect((await stub.getCurrentQuestions()).map(({questionId}) => questionId)).toStrictEqual(
@@ -517,7 +861,11 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 
 		const retried = remoteResponse(askRequest(grant.accessToken));
 		await stub.submitAnswers(
-			asked.map((question) => ({question_id: question.questionId, disposition: "yep" as const})),
+			asked.map((question) => (
+			{
+				question_id: question.questionId,
+				disposition: "yep" as const,
+			})),
 		);
 
 		expect(await responseMessage(await retried)).toStrictEqual(
@@ -528,13 +876,18 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 
 	// ⏳ No call outlives a window a client will tolerate. The cards outlive the call, and an answer
 	// given between calls is handed to the next identical one rather than asked again.
-	it("returns a pending result when the call window closes and hands over answers given meanwhile", async () => {
+	it("returns a pending result when the call window closes and hands over answers given meanwhile", async () =>
+	{
 		const grant = await issueGrant("mcp-window-alice@example.com");
 		const stub = env.USER_DO.getByName(grant.userId);
 		await stub.setAfk(true, true);
 		// A closed window opens no stream at all, so the result has to come from the batch itself rather
 		// than from whatever a stream managed to deliver in time.
-		const windowTiming = {...TEST_TIMING, callWindowMilliseconds: 0};
+		const windowTiming =
+		{
+			...TEST_TIMING,
+			callWindowMilliseconds: 0,
+		};
 
 		const first = await remoteResponse(askRequest(grant.accessToken), windowTiming);
 		expect(await responseMessage(first)).toStrictEqual(pendingResponse(0, 3));
@@ -542,7 +895,11 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		expect(kept.length).toBe(3);
 
 		await stub.submitAnswers(
-			kept.map((question) => ({question_id: question.questionId, disposition: "nope" as const})),
+			kept.map((question) => (
+			{
+				question_id: question.questionId,
+				disposition: "nope" as const,
+			})),
 		);
 		const second = await remoteResponse(askRequest(grant.accessToken), windowTiming);
 
@@ -554,24 +911,29 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 
 	// 💓 An answer stream left open past its window keeps heartbeating, so an agent that never comes
 	// back would hold its cards on the phone until retention instead of the heartbeat grace.
-	it("closes its answer stream when the call window closes", async () => {
+	it("closes its answer stream when the call window closes", async () =>
+	{
 		const grant = await issueGrant("mcp-window-socket-alice@example.com");
 		const stub = env.USER_DO.getByName(grant.userId);
 		await stub.setAfk(true, true);
 
 		// One millisecond closes the window before the stream's upgrade completes, the order a loaded
 		// machine produces, so the stream must notice an abort that happened before it opened.
-		const pending = await remoteResponse(askRequest(grant.accessToken), {
-			...TEST_TIMING,
-			callWindowMilliseconds: 1,
-		});
+		const pending = await remoteResponse(
+			askRequest(grant.accessToken),
+			{
+				...TEST_TIMING,
+				callWindowMilliseconds: 1,
+			},
+		);
 		expect(await responseMessage(pending)).toStrictEqual(pendingResponse(0, 3));
 		const batchId = required((await stub.getCurrentQuestions())[0], "first question").batchId;
 
 		await waitForAnswerSocketCount(stub, batchId, 0);
 	});
 
-	it("retracts the cards when the client explicitly cancels the call", async () => {
+	it("retracts the cards when the client explicitly cancels the call", async () =>
+	{
 		const grant = await issueGrant("mcp-cancelled-alice@example.com");
 		const stub = env.USER_DO.getByName(grant.userId);
 		await stub.setAfk(true, true);
@@ -586,16 +948,25 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 		expect(await stub.getCurrentQuestions()).toStrictEqual([]);
 	});
 
-	it("asks afresh when the identical batch was answered longer ago than the reattach window", async () => {
+	it("asks afresh when the identical batch was answered longer ago than the reattach window", async () =>
+	{
 		const grant = await issueGrant("mcp-fresh-alice@example.com");
 		const stub = env.USER_DO.getByName(grant.userId);
 		await stub.setAfk(true, true);
-		const noReuse = {...TEST_TIMING, reattachAnsweredWithinMilliseconds: 0};
+		const noReuse =
+		{
+			...TEST_TIMING,
+			reattachAnsweredWithinMilliseconds: 0,
+		};
 
 		const first = remoteResponse(askRequest(grant.accessToken), noReuse);
 		const answered = await waitForQuestionCount(grant.userId, 3);
 		await stub.submitAnswers(
-			answered.map((question) => ({question_id: question.questionId, disposition: "yep" as const})),
+			answered.map((question) => (
+			{
+				question_id: question.questionId,
+				disposition: "yep" as const,
+			})),
 		);
 		await (await first).text();
 
@@ -606,7 +977,11 @@ describe("OAuth-authenticated remote MCP endpoint", () => {
 			false,
 		);
 		await stub.submitAnswers(
-			askedAgain.map((question) => ({question_id: question.questionId, disposition: "skip" as const})),
+			askedAgain.map((question) => (
+			{
+				question_id: question.questionId,
+				disposition: "skip" as const,
+			})),
 		);
 		await (await second).text();
 	});

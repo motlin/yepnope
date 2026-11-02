@@ -9,40 +9,57 @@ import {accessToken, type CredentialStore} from "./credentials";
 // offline, which is a worse failure than not routing the question at all.
 const ABSTAIN = "{}";
 
-export interface HookDependencies {
+export interface HookDependencies
+{
 	baseUrl: string;
 	store: CredentialStore;
 	writeError: (text: string) => void;
 }
 
-export async function runHookCommand(payload: string, dependencies: HookDependencies): Promise<string> {
+export async function runHookCommand(payload: string, dependencies: HookDependencies): Promise<string>
+{
 	let token: string;
-	try {
+	try
+	{
 		token = await accessToken(dependencies.baseUrl, dependencies.store);
-	} catch (error) {
+	}
+	catch (error)
+	{
 		dependencies.writeError(`yepnope: ${error instanceof Error ? error.message : String(error)}\n`);
 		return ABSTAIN;
 	}
 	let response: Response;
-	try {
+	try
+	{
 		// No timeout by design. A permission card can sit on a phone for hours, and the request is
 		// held open for exactly as long as the person takes to swipe it.
-		response = await fetch(new URL("/api/v1/hook", dependencies.baseUrl), {
-			method: "POST",
-			headers: {Authorization: `Bearer ${token}`, "Content-Type": "application/json"},
-			body: payload,
-		});
-	} catch (error) {
+		response = await fetch(
+			new URL("/api/v1/hook", dependencies.baseUrl),
+			{
+				method: "POST",
+				headers:
+				{
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+				},
+				body: payload,
+			},
+		);
+	}
+	catch (error)
+	{
 		dependencies.writeError(`yepnope: could not reach ${dependencies.baseUrl}: ${String(error)}\n`);
 		return ABSTAIN;
 	}
-	if (response.status === 401) {
+	if (response.status === 401)
+	{
 		dependencies.writeError(
 			"yepnope: this machine's authorization was revoked or expired. Run `yepnope login` to authorize it again.\n",
 		);
 		return ABSTAIN;
 	}
-	if (!response.ok) {
+	if (!response.ok)
+	{
 		dependencies.writeError(`yepnope: the hook request failed with HTTP ${String(response.status)}.\n`);
 		return ABSTAIN;
 	}

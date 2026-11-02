@@ -14,12 +14,14 @@ export const MAX_HOOK_REQUEST_BYTES = 1024 * 1024;
 // 💓 Keeps the batch alive under heartbeat-and-delete (option C in .llm/decisions.md).
 const HEARTBEAT_INTERVAL_MILLISECONDS = 30_000;
 
-const hookEventSchema = z.looseObject({
-	hook_event_name: z.string(),
-	tool_name: z.string().optional(),
-	tool_input: z.unknown().optional(),
-	cwd: z.string().optional(),
-});
+const hookEventSchema = z.looseObject(
+	{
+		hook_event_name: z.string(),
+		tool_name: z.string().optional(),
+		tool_input: z.unknown().optional(),
+		cwd: z.string().optional(),
+	},
+);
 
 type HookEvent = z.infer<typeof hookEventSchema>;
 
@@ -38,29 +40,47 @@ const PERMISSION_DENY_MESSAGE =
 
 // ✅ A bare allow carries no updatedInput: echoing the input back would re-run rule evaluation
 // for no benefit, and the allow path has a history of regressions (spec §10.2).
-type PermissionDecision = {behavior: "allow"} | {behavior: "deny"; message: string};
+type PermissionDecision =
+	|
+	  {
+			behavior: "allow";
+	  }
+	|
+	  {
+			behavior: "deny";
+			message: string;
+	  };
 
-function noDecision(): Response {
+function noDecision(): Response
+{
 	return Response.json({});
 }
 
-function preToolUseDeny(reason: string): Response {
-	return Response.json({
-		hookSpecificOutput: {
-			hookEventName: "PreToolUse",
-			permissionDecision: "deny",
-			permissionDecisionReason: reason,
+function preToolUseDeny(reason: string): Response
+{
+	return Response.json(
+		{
+			hookSpecificOutput:
+			{
+				hookEventName: "PreToolUse",
+				permissionDecision: "deny",
+				permissionDecisionReason: reason,
+			},
 		},
-	});
+	);
 }
 
-function permissionDecision(decision: PermissionDecision): Response {
-	return Response.json({
-		hookSpecificOutput: {
-			hookEventName: "PermissionRequest",
-			decision,
+function permissionDecision(decision: PermissionDecision): Response
+{
+	return Response.json(
+		{
+			hookSpecificOutput:
+			{
+				hookEventName: "PermissionRequest",
+				decision,
+			},
 		},
-	});
+	);
 }
 
 // ⏳ The Worker, not the DO, owns the wait: a held-open request into the DO would block its
@@ -69,52 +89,75 @@ async function waitForDisposition(
 	stub: DurableObjectStub<UserDurableObject>,
 	batchId: string,
 	questionId: string,
-): Promise<Disposition | null> {
-	const upgrade = await stub.fetch(`https://do/api/v1/questions/${batchId}/stream`, {
-		headers: {Upgrade: "websocket"},
-	});
+): Promise<Disposition | null>
+{
+	const upgrade = await stub.fetch(
+		`https://do/api/v1/questions/${batchId}/stream`,
+		{
+			headers:
+			{
+				Upgrade: "websocket",
+			},
+		},
+	);
 	const socket = upgrade.webSocket;
-	if (socket === null) {
+	if (socket === null)
+	{
 		return null;
 	}
 	socket.accept();
 	return awaitResolution(socket, questionId);
 }
 
-async function awaitResolution(socket: WebSocket, questionId: string): Promise<Disposition | null> {
-	return new Promise((resolve) => {
+async function awaitResolution(socket: WebSocket, questionId: string): Promise<Disposition | null>
+{
+	return new Promise((resolve) =>
+	{
 		let settled = false;
-		const heartbeat = setInterval(() => {
+		const heartbeat = setInterval(() =>
+		{
 			socket.send("beat");
 		}, HEARTBEAT_INTERVAL_MILLISECONDS);
-		function finish(disposition: Disposition | null): void {
-			if (settled) {
+		function finish(disposition: Disposition | null): void
+		{
+			if (settled)
+			{
 				return;
 			}
 			settled = true;
 			clearInterval(heartbeat);
-			try {
+			try
+			{
 				socket.close(1000, "hook resolved");
-			} catch {
+			}
+			catch
+			{
 				// Already closed by the DO.
 			}
 			resolve(disposition);
 		}
-		socket.addEventListener("message", (event) => {
+		socket.addEventListener("message", (event) =>
+		{
 			const frame = typeof event.data === "string" ? parseFrame(event.data) : null;
-			if (frame === null) {
+			if (frame === null)
+			{
 				return;
 			}
-			if (frame.type === "resolved") {
+			if (frame.type === "resolved")
+			{
 				finish(frame.dispositions[questionId] ?? null);
-			} else if (frame.type === "error") {
+			}
+			else if (frame.type === "error")
+			{
 				finish(null);
 			}
 		});
-		socket.addEventListener("close", () => {
+		socket.addEventListener("close", () =>
+		{
 			finish(null);
 		});
-		socket.addEventListener("error", () => {
+		socket.addEventListener("error", () =>
+		{
 			finish(null);
 		});
 	});
@@ -125,8 +168,10 @@ async function handlePreToolUse(
 	event: HookEvent,
 	stub: DurableObjectStub<UserDurableObject>,
 	hasActiveConnectedMcpClient: boolean,
-): Promise<Response> {
-	if (event.tool_name !== "AskUserQuestion" || !(await stub.getAfk(hasActiveConnectedMcpClient))) {
+): Promise<Response>
+{
+	if (event.tool_name !== "AskUserQuestion" || !(await stub.getAfk(hasActiveConnectedMcpClient)))
+	{
 		return noDecision();
 	}
 	return preToolUseDeny(ASK_USER_QUESTION_REDIRECT);
@@ -139,26 +184,47 @@ async function handlePermissionRequest(
 	stub: DurableObjectStub<UserDurableObject>,
 	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
-): Promise<Response> {
-	if (!(await stub.getAfk(hasActiveConnectedMcpClient))) {
+): Promise<Response>
+{
+	if (!(await stub.getAfk(hasActiveConnectedMcpClient)))
+	{
 		return noDecision();
 	}
 	const card = buildPermissionCard(event.tool_name ?? "unknown tool", event.tool_input, event.cwd);
-	const created = await stub.createBatch({
-		project: card.project,
-		questions: [{title: card.title, body: card.body}],
-	});
+	const created = await stub.createBatch(
+		{
+			project: card.project,
+			questions: [
+				{
+					title: card.title,
+					body: card.body,
+				},
+			],
+		},
+	);
 	executionContext.waitUntil(stub.sendBatchPush(created.batchId));
 	const questionId = created.questionIds[0];
-	if (questionId === undefined) {
+	if (questionId === undefined)
+	{
 		return noDecision();
 	}
 	const disposition = await waitForDisposition(stub, created.batchId, questionId);
-	if (disposition === "yep") {
-		return permissionDecision({behavior: "allow"});
+	if (disposition === "yep")
+	{
+		return permissionDecision(
+			{
+				behavior: "allow",
+			},
+		);
 	}
-	if (disposition === "nope") {
-		return permissionDecision({behavior: "deny", message: PERMISSION_DENY_MESSAGE});
+	if (disposition === "nope")
+	{
+		return permissionDecision(
+			{
+				behavior: "deny",
+				message: PERMISSION_DENY_MESSAGE,
+			},
+		);
 	}
 	// 🫥 Skip is terminal but not a decision, and a dropped socket is no answer at all:
 	// both fall through to the native prompt.
@@ -170,12 +236,20 @@ export async function handleHookEvent(
 	stub: DurableObjectStub<UserDurableObject>,
 	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
-): Promise<Response> {
+): Promise<Response>
+{
 	const parsed = hookEventSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
-	switch (parsed.data.hook_event_name) {
+	switch (parsed.data.hook_event_name)
+	{
 		case "PreToolUse":
 			return handlePreToolUse(parsed.data, stub, hasActiveConnectedMcpClient);
 		case "PermissionRequest":

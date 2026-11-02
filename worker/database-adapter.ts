@@ -9,28 +9,45 @@ type AdapterFactory = ReturnType<typeof drizzleAdapter>;
  * both `init` and the first request on a cold isolate, and without the driver's words it mistakes
  * the expected collision for a failure and answers that request with a 500.
  */
-function withDriverMessage(caught: unknown): unknown {
-	if (!(caught instanceof Error) || !(caught.cause instanceof Error)) {
+function withDriverMessage(caught: unknown): unknown
+{
+	if (!(caught instanceof Error) || !(caught.cause instanceof Error))
+	{
 		return caught;
 	}
-	return new Error(`${caught.message}: ${caught.cause.message}`, {cause: caught});
+	return new Error(
+		`${caught.message}: ${caught.cause.message}`,
+		{
+			cause: caught,
+		},
+	);
 }
 
-export function surfacingDriverMessages(factory: AdapterFactory): AdapterFactory {
+export function surfacingDriverMessages(factory: AdapterFactory): AdapterFactory
+{
 	return (options) =>
-		new Proxy(factory(options), {
-			get(target, property, receiver): unknown {
-				const value: unknown = Reflect.get(target, property, receiver);
-				if (property !== "create" || typeof value !== "function") {
-					return value;
-				}
-				return async (...parameters: unknown[]): Promise<unknown> => {
-					try {
-						return (await Reflect.apply(value, target, parameters)) as unknown;
-					} catch (caught) {
-						throw withDriverMessage(caught);
+		new Proxy(
+			factory(options),
+			{
+				get(target, property, receiver): unknown
+				{
+					const value: unknown = Reflect.get(target, property, receiver);
+					if (property !== "create" || typeof value !== "function")
+					{
+						return value;
 					}
-				};
+					return async (...parameters: unknown[]): Promise<unknown> =>
+					{
+						try
+						{
+							return (await Reflect.apply(value, target, parameters)) as unknown;
+						}
+						catch (caught)
+						{
+							throw withDriverMessage(caught);
+						}
+					};
+				},
 			},
-		});
+		);
 }

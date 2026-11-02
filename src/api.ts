@@ -1,4 +1,5 @@
-import {
+import
+{
 	startAuthentication,
 	startRegistration,
 	WebAuthnAbortService,
@@ -11,12 +12,14 @@ import {APPLICATION_UPDATE_EVENT} from "./application-updates";
 
 // 🌐 Thin client for the Worker API. Same-origin in production; the dev server proxies /api.
 
-export class ApiResponseError extends Error {
+export class ApiResponseError extends Error
+{
 	constructor(
 		message: string,
 		readonly status: number,
 		readonly code: string | null = null,
-	) {
+	)
+	{
 		super(message);
 		this.name = "ApiResponseError";
 	}
@@ -30,7 +33,8 @@ const HUMAN_VERIFICATION_HEADER = "CF-Turnstile-Response";
 
 // The route and the status are what an operator needs and what a reader must never be handed, so a
 // transport failure states them here and nowhere else.
-function reportTransportFailure(method: string, path: string, status: number): void {
+function reportTransportFailure(method: string, path: string, status: number): void
+{
 	console.warn(`${method} ${path} failed with ${status}`);
 }
 
@@ -44,16 +48,32 @@ async function requestJson<Schema extends z.ZodType>(
 	init: RequestInit,
 	schema: Schema,
 	fallbackMessage: string,
-): Promise<z.infer<Schema>> {
-	const response = await fetch(path, {credentials: "same-origin", ...init});
-	if (!response.ok) {
-		const error = z.object({code: z.string().optional(), message: z.string()}).safeParse(
-			await response
-				.clone()
-				.json()
-				.catch(() => null),
-		);
-		if (!error.success) {
+): Promise<z.infer<Schema>>
+{
+	const response = await fetch(
+		path,
+		{
+			credentials: "same-origin",
+			...init,
+		},
+	);
+	if (!response.ok)
+	{
+		const error = z
+			.object(
+				{
+					code: z.string().optional(),
+					message: z.string(),
+				},
+			)
+			.safeParse(
+				await response
+					.clone()
+					.json()
+					.catch(() => null),
+			);
+		if (!error.success)
+		{
 			reportTransportFailure(init.method ?? "GET", path, response.status);
 		}
 		throw new ApiResponseError(
@@ -66,10 +86,14 @@ async function requestJson<Schema extends z.ZodType>(
 	return schema.parse(body);
 }
 
-function jsonRequest(body: Record<string, unknown>): RequestInit {
+function jsonRequest(body: Record<string, unknown>): RequestInit
+{
 	return {
 		method: "POST",
-		headers: {"Content-Type": "application/json"},
+		headers:
+		{
+			"Content-Type": "application/json",
+		},
 		body: JSON.stringify(body),
 	};
 }
@@ -78,59 +102,88 @@ function jsonRequest(body: Record<string, unknown>): RequestInit {
  * The same JSON POST, carrying the token the page's Turnstile widget minted. A null token means the
  * deployment configured no widget, and the header is simply absent.
  */
-function verifiedJsonRequest(body: Record<string, unknown>, humanVerificationToken: string | null): RequestInit {
+function verifiedJsonRequest(body: Record<string, unknown>, humanVerificationToken: string | null): RequestInit
+{
 	return {
 		method: "POST",
 		headers:
 			humanVerificationToken === null
-				? {"Content-Type": "application/json"}
-				: {"Content-Type": "application/json", [HUMAN_VERIFICATION_HEADER]: humanVerificationToken},
+				?
+					{
+						"Content-Type": "application/json",
+					}
+				:
+					{
+						"Content-Type": "application/json",
+						[HUMAN_VERIFICATION_HEADER]: humanVerificationToken,
+					},
 		body: JSON.stringify(body),
 	};
 }
 
-const authenticationUserSchema = z.object({
-	id: z.string(),
-	email: z.email(),
-	emailVerified: z.boolean(),
-});
+const authenticationUserSchema = z.object(
+	{
+		id: z.string(),
+		email: z.email(),
+		emailVerified: z.boolean(),
+	},
+);
 
 export type AuthenticationUser = z.infer<typeof authenticationUserSchema>;
 
-const sessionResponseSchema = z.object({user: authenticationUserSchema}).nullable();
+const sessionResponseSchema = z
+	.object(
+		{
+			user: authenticationUserSchema,
+		},
+	)
+	.nullable();
 
-export async function fetchSession(): Promise<AuthenticationUser | null> {
+export async function fetchSession(): Promise<AuthenticationUser | null>
+{
 	const session = await requestJson(
 		"/api/auth/get-session",
-		{cache: "no-store"},
+		{
+			cache: "no-store",
+		},
 		sessionResponseSchema,
 		"Your sign-in status could not be confirmed. Try again in a moment.",
 	);
 	return session?.user ?? null;
 }
 
-const authenticatedResponseSchema = z.object({user: authenticationUserSchema});
+const authenticatedResponseSchema = z.object(
+	{
+		user: authenticationUserSchema,
+	},
+);
 const PUBLIC_SIGN_IN_FAILURE_MESSAGE = "Sign-in failed. Check your email and password, or recover your account.";
 
 async function requestSignIn<Schema extends z.ZodType>(
 	body: Record<string, unknown>,
 	humanVerificationToken: string | null,
 	schema: Schema,
-): Promise<z.infer<Schema>> {
-	try {
+): Promise<z.infer<Schema>>
+{
+	try
+	{
 		return await requestJson(
 			"/api/auth/sign-in/email",
 			verifiedJsonRequest(body, humanVerificationToken),
 			schema,
 			PUBLIC_SIGN_IN_FAILURE_MESSAGE,
 		);
-	} catch (caught) {
-		if (caught instanceof ApiResponseError && caught.code === HUMAN_VERIFICATION_REQUIRED_CODE) {
+	}
+	catch (caught)
+	{
+		if (caught instanceof ApiResponseError && caught.code === HUMAN_VERIFICATION_REQUIRED_CODE)
+		{
 			// An unredeemable token says nothing about the credentials, so it must not be
 			// flattened into the deliberately uninformative credential failure below.
 			throw caught;
 		}
-		if (caught instanceof ApiResponseError && [400, 401, 403].includes(caught.status)) {
+		if (caught instanceof ApiResponseError && [400, 401, 403].includes(caught.status))
+		{
 			throw new ApiResponseError(PUBLIC_SIGN_IN_FAILURE_MESSAGE, 401);
 		}
 		throw caught;
@@ -141,16 +194,31 @@ export async function signIn(
 	email: string,
 	password: string,
 	humanVerificationToken: string | null,
-): Promise<AuthenticationUser> {
-	const result = await requestSignIn({email, password}, humanVerificationToken, authenticatedResponseSchema);
+): Promise<AuthenticationUser>
+{
+	const result = await requestSignIn(
+		{
+			email,
+			password,
+		},
+		humanVerificationToken,
+		authenticatedResponseSchema,
+	);
 	return result.user;
 }
 
-const oauthRedirectResponseSchema = z.object({redirect: z.boolean(), url: z.string().min(1)});
+const oauthRedirectResponseSchema = z.object(
+	{
+		redirect: z.boolean(),
+		url: z.string().min(1),
+	},
+);
 
-function normalizedOAuthRedirectUrl(value: string): string {
+function normalizedOAuthRedirectUrl(value: string): string
+{
 	const target = new URL(value, window.location.origin);
-	if (target.protocol !== "http:" && target.protocol !== "https:") {
+	if (target.protocol !== "http:" && target.protocol !== "https:")
+	{
 		throw new TypeError("OAuth redirect must use HTTP or HTTPS");
 	}
 	return target.href;
@@ -161,7 +229,8 @@ export async function signInForOAuth(
 	password: string,
 	oauthQuery: string,
 	humanVerificationToken: string | null,
-): Promise<string> {
+): Promise<string>
+{
 	const result = await requestSignIn(
 		{
 			callbackURL: `/sign-in?${oauthQuery}`,
@@ -175,42 +244,62 @@ export async function signInForOAuth(
 	return normalizedOAuthRedirectUrl(result.url);
 }
 
-export async function resumeOAuthAuthorization(oauthQuery: string): Promise<string> {
+export async function resumeOAuthAuthorization(oauthQuery: string): Promise<string>
+{
 	const result = await requestJson(
 		`/api/auth/oauth2/authorize?${oauthQuery}`,
-		{headers: {Accept: "application/json"}},
+		{
+			headers:
+			{
+				Accept: "application/json",
+			},
+		},
 		oauthRedirectResponseSchema,
 		"The authorization request could not be resumed. Start the connection again from your client.",
 	);
 	return normalizedOAuthRedirectUrl(result.url);
 }
 
-const oauthClientResponseSchema = z.object({
-	client_id: z.string(),
-	client_name: z.string().optional(),
-	client_uri: z.url().optional(),
-});
+const oauthClientResponseSchema = z.object(
+	{
+		client_id: z.string(),
+		client_name: z.string().optional(),
+		client_uri: z.url().optional(),
+	},
+);
 
-export interface OAuthClientSummary {
+export interface OAuthClientSummary
+{
 	id: string;
 	name: string;
 	uri: string | null;
 }
 
-export async function fetchOAuthClient(clientId: string): Promise<OAuthClientSummary> {
+export async function fetchOAuthClient(clientId: string): Promise<OAuthClientSummary>
+{
 	const result = await requestJson(
 		`/api/auth/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`,
 		{},
 		oauthClientResponseSchema,
 		"This MCP client could not be verified. Start the connection again from the client.",
 	);
-	return {id: result.client_id, name: result.client_name ?? "MCP client", uri: result.client_uri ?? null};
+	return {
+		id: result.client_id,
+		name: result.client_name ?? "MCP client",
+		uri: result.client_uri ?? null,
+	};
 }
 
-export async function submitOAuthConsent(oauthQuery: string, accept: boolean): Promise<string> {
+export async function submitOAuthConsent(oauthQuery: string, accept: boolean): Promise<string>
+{
 	const result = await requestJson(
 		"/api/auth/oauth2/consent",
-		jsonRequest({accept, oauth_query: oauthQuery}),
+		jsonRequest(
+			{
+				accept,
+				oauth_query: oauthQuery,
+			},
+		),
 		oauthRedirectResponseSchema,
 		"Your answer could not be recorded. Start the connection again from your client.",
 	);
@@ -222,49 +311,85 @@ export async function registerAccount(
 	password: string,
 	humanVerificationToken: string | null,
 	callbackURL = "/verify-email",
-): Promise<void> {
+): Promise<void>
+{
 	await requestJson(
 		"/api/auth/sign-up/email",
-		verifiedJsonRequest({email, password, callbackURL}, humanVerificationToken),
+		verifiedJsonRequest(
+			{
+				email,
+				password,
+				callbackURL,
+			},
+			humanVerificationToken,
+		),
 		publicAuthenticationAcceptedResponseSchema,
 		"Account creation could not be completed. Try again in a moment.",
 	);
 }
 
 const publicAuthenticationAcceptedResponseSchema = z
-	.object({
-		message: z.literal("If the request can be completed, check your inbox for next steps."),
-		status: z.literal(true),
-	})
+	.object(
+		{
+			message: z.literal("If the request can be completed, check your inbox for next steps."),
+			status: z.literal(true),
+		},
+	)
 	.strict();
-const successResponseSchema = z.object({status: z.literal(true)}).strict();
+const successResponseSchema = z
+	.object(
+		{
+			status: z.literal(true),
+		},
+	)
+	.strict();
 
 export async function sendVerificationEmail(
 	email: string,
 	humanVerificationToken: string | null,
 	callbackURL = "/verify-email",
-): Promise<void> {
+): Promise<void>
+{
 	await requestJson(
 		"/api/auth/send-verification-email",
-		verifiedJsonRequest({email, callbackURL}, humanVerificationToken),
+		verifiedJsonRequest(
+			{
+				email,
+				callbackURL,
+			},
+			humanVerificationToken,
+		),
 		publicAuthenticationAcceptedResponseSchema,
 		"Verification could not be requested. Try again in a moment.",
 	);
 }
 
-export async function requestPasswordReset(email: string, humanVerificationToken: string | null): Promise<void> {
+export async function requestPasswordReset(email: string, humanVerificationToken: string | null): Promise<void>
+{
 	await requestJson(
 		"/api/auth/request-password-reset",
-		verifiedJsonRequest({email, redirectTo: "/reset-password"}, humanVerificationToken),
+		verifiedJsonRequest(
+			{
+				email,
+				redirectTo: "/reset-password",
+			},
+			humanVerificationToken,
+		),
 		publicAuthenticationAcceptedResponseSchema,
 		"Recovery could not be requested. Try again in a moment.",
 	);
 }
 
-export async function consumePasswordResetToken(token: string, newPassword: string): Promise<void> {
+export async function consumePasswordResetToken(token: string, newPassword: string): Promise<void>
+{
 	await requestJson(
 		"/api/auth/reset-password",
-		jsonRequest({token, newPassword}),
+		jsonRequest(
+			{
+				token,
+				newPassword,
+			},
+		),
 		successResponseSchema,
 		"Your password could not be reset. Request a new recovery email.",
 	);
@@ -274,13 +399,15 @@ export async function consumePasswordResetToken(token: string, newPassword: stri
 // configured secrets, so the browser asks the Worker instead of assuming.
 
 // The label table doubles as the list of providers this build knows how to render.
-export const SOCIAL_PROVIDER_LABELS = {
+export const SOCIAL_PROVIDER_LABELS =
+{
 	github: "GitHub",
 	google: "Google",
 } as const;
 export type SocialProvider = keyof typeof SOCIAL_PROVIDER_LABELS;
 
-export interface AuthenticationMethods {
+export interface AuthenticationMethods
+{
 	emailPassword: boolean;
 	magicLink: boolean;
 	passkey: boolean;
@@ -289,19 +416,23 @@ export interface AuthenticationMethods {
 	turnstileSiteKey: string | null;
 }
 
-const authenticationMethodsResponseSchema = z.object({
-	email_password: z.boolean(),
-	magic_link: z.boolean(),
-	passkey: z.boolean(),
-	social: z.array(z.string()),
-	turnstile_site_key: z.string().nullable(),
-});
+const authenticationMethodsResponseSchema = z.object(
+	{
+		email_password: z.boolean(),
+		magic_link: z.boolean(),
+		passkey: z.boolean(),
+		social: z.array(z.string()),
+		turnstile_site_key: z.string().nullable(),
+	},
+);
 
-function knownSocialProvider(value: string): value is SocialProvider {
+function knownSocialProvider(value: string): value is SocialProvider
+{
 	return Object.hasOwn(SOCIAL_PROVIDER_LABELS, value);
 }
 
-export async function fetchAuthenticationMethods(): Promise<AuthenticationMethods> {
+export async function fetchAuthenticationMethods(): Promise<AuthenticationMethods>
+{
 	// Deployment configuration, identical for every visitor, so the browser cache may reuse it.
 	const methods = await requestJson(
 		"/api/v1/auth-methods",
@@ -325,7 +456,8 @@ export async function fetchAuthenticationMethods(): Promise<AuthenticationMethod
  * is dense with percent-encoded colons and slashes; one decode too many turns it into a URL the
  * Worker refuses to redirect to, which strands the MCP client that sent the visitor to sign in.
  */
-function magicLinkCallbackURL(callbackURL: string): string {
+function magicLinkCallbackURL(callbackURL: string): string
+{
 	const query = callbackURL.indexOf("?");
 	return query === -1
 		? callbackURL
@@ -336,62 +468,104 @@ export async function sendMagicLink(
 	email: string,
 	humanVerificationToken: string | null,
 	callbackURL = "/",
-): Promise<void> {
+): Promise<void>
+{
 	await requestJson(
 		"/api/auth/sign-in/magic-link",
-		verifiedJsonRequest({email, callbackURL: magicLinkCallbackURL(callbackURL)}, humanVerificationToken),
+		verifiedJsonRequest(
+			{
+				email,
+				callbackURL: magicLinkCallbackURL(callbackURL),
+			},
+			humanVerificationToken,
+		),
 		publicAuthenticationAcceptedResponseSchema,
 		"The sign-in link could not be requested. Try again in a moment.",
 	);
 }
 
-export async function startSocialSignIn(provider: SocialProvider, callbackURL = "/"): Promise<string> {
+export async function startSocialSignIn(provider: SocialProvider, callbackURL = "/"): Promise<string>
+{
 	const result = await requestJson(
 		"/api/auth/sign-in/social",
-		jsonRequest({provider, callbackURL, errorCallbackURL: "/sign-in"}),
+		jsonRequest(
+			{
+				provider,
+				callbackURL,
+				errorCallbackURL: "/sign-in",
+			},
+		),
 		oauthRedirectResponseSchema,
 		"That sign-in provider is unavailable right now. Try again in a moment.",
 	);
 	return normalizedOAuthRedirectUrl(result.url);
 }
 
-export async function linkSocialAccount(provider: SocialProvider, callbackURL = "/settings/account"): Promise<string> {
+export async function linkSocialAccount(provider: SocialProvider, callbackURL = "/settings/account"): Promise<string>
+{
 	const result = await requestJson(
 		"/api/auth/link-social",
-		jsonRequest({provider, callbackURL, errorCallbackURL: callbackURL}),
+		jsonRequest(
+			{
+				provider,
+				callbackURL,
+				errorCallbackURL: callbackURL,
+			},
+		),
 		oauthRedirectResponseSchema,
 		"That account could not be linked. Try again in a moment.",
 	);
 	return normalizedOAuthRedirectUrl(result.url);
 }
 
-export interface LinkedAccount {
+export interface LinkedAccount
+{
 	id: string;
 	provider: string;
 }
 
-const linkedAccountsResponseSchema = z.array(z.object({id: z.string(), providerId: z.string()}));
+const linkedAccountsResponseSchema = z.array(
+	z.object(
+		{
+			id: z.string(),
+			providerId: z.string(),
+		},
+	),
+);
 
-export async function fetchLinkedAccounts(): Promise<LinkedAccount[]> {
+export async function fetchLinkedAccounts(): Promise<LinkedAccount[]>
+{
 	const accounts = await requestJson(
 		"/api/auth/list-accounts",
-		{cache: "no-store"},
+		{
+			cache: "no-store",
+		},
 		linkedAccountsResponseSchema,
 		"Your linked accounts could not be loaded. Try again in a moment.",
 	);
-	return accounts.map((account) => ({id: account.id, provider: account.providerId}));
+	return accounts.map((account) => (
+	{
+		id: account.id,
+		provider: account.providerId,
+	}));
 }
 
-export async function unlinkAccount(accountId: string): Promise<void> {
+export async function unlinkAccount(accountId: string): Promise<void>
+{
 	await requestJson(
 		"/api/auth/unlink-account",
-		jsonRequest({accountId}),
+		jsonRequest(
+			{
+				accountId,
+			},
+		),
 		successResponseSchema,
 		"That account could not be unlinked. Try again in a moment.",
 	);
 }
 
-export interface RegisteredPasskey {
+export interface RegisteredPasskey
+{
 	id: string;
 	name: string;
 	createdAt: number;
@@ -399,9 +573,13 @@ export interface RegisteredPasskey {
 
 // The WebAuthn options blob is the authenticator's contract, not ours: check that a challenge is
 // present, pass the rest through intact, and let the browser reject anything malformed mid-ceremony.
-const PASSKEY_OPTIONS_ISSUE = {message: "Passkey options are missing a challenge"} as const;
+const PASSKEY_OPTIONS_ISSUE =
+{
+	message: "Passkey options are missing a challenge",
+} as const;
 
-function hasChallenge(value: unknown): boolean {
+function hasChallenge(value: unknown): boolean
+{
 	return typeof value === "object" && value !== null && "challenge" in value;
 }
 
@@ -414,7 +592,13 @@ const passkeyAuthenticationOptionsSchema = z.custom<PublicKeyCredentialRequestOp
 	PASSKEY_OPTIONS_ISSUE,
 );
 const passkeyListResponseSchema = z.array(
-	z.object({id: z.string(), name: z.string().nullish(), createdAt: z.string()}),
+	z.object(
+		{
+			id: z.string(),
+			name: z.string().nullish(),
+			createdAt: z.string(),
+		},
+	),
 );
 
 const PASSKEY_CANCELLED_MESSAGE = "Passkey sign-in was cancelled.";
@@ -423,126 +607,199 @@ const PASSKEY_REGISTRATION_CANCELLED_MESSAGE = "Passkey setup was cancelled.";
 
 // A ceremony the browser or the person declined is a normal outcome, not a fault to surface raw:
 // WebAuthn errors carry device details that are noise at best and fingerprinting at worst.
-function passkeyCeremonyError(caught: unknown, message: string): Error {
+function passkeyCeremonyError(caught: unknown, message: string): Error
+{
 	return caught instanceof ApiResponseError ? caught : new Error(message);
 }
 
-export async function registerPasskey(name: string): Promise<void> {
+export async function registerPasskey(name: string): Promise<void>
+{
 	const options = await requestJson(
 		"/api/auth/passkey/generate-register-options",
-		{cache: "no-store"},
+		{
+			cache: "no-store",
+		},
 		passkeyRegistrationOptionsSchema,
 		"Passkey setup could not be started. Try again in a moment.",
 	);
 	let attestation: unknown;
-	try {
-		attestation = await startRegistration({optionsJSON: options});
-	} catch (caught) {
+	try
+	{
+		attestation = await startRegistration(
+			{
+				optionsJSON: options,
+			},
+		);
+	}
+	catch (caught)
+	{
 		throw passkeyCeremonyError(caught, PASSKEY_REGISTRATION_CANCELLED_MESSAGE);
 	}
 	await requestJson(
 		"/api/auth/passkey/verify-registration",
-		jsonRequest({response: attestation, name}),
-		z.object({id: z.string()}).loose(),
+		jsonRequest(
+			{
+				response: attestation,
+				name,
+			},
+		),
+		z
+			.object(
+				{
+					id: z.string(),
+				},
+			)
+			.loose(),
 		"That passkey could not be saved. Try again in a moment.",
 	);
 }
 
-export async function signInWithPasskey(useBrowserAutofill = false, signal?: AbortSignal): Promise<AuthenticationUser> {
+export async function signInWithPasskey(useBrowserAutofill = false, signal?: AbortSignal): Promise<AuthenticationUser>
+{
 	signal?.throwIfAborted();
 	const options = await requestJson(
 		"/api/auth/passkey/generate-authenticate-options",
-		{cache: "no-store", signal: signal ?? null},
+		{
+			cache: "no-store",
+			signal: signal ?? null,
+		},
 		passkeyAuthenticationOptionsSchema,
 		PASSKEY_SIGN_IN_FAILURE_MESSAGE,
 	);
 	signal?.throwIfAborted();
-	const cancel = (): void => {
+	const cancel = (): void =>
+	{
 		WebAuthnAbortService.cancelCeremony();
 	};
-	signal?.addEventListener("abort", cancel, {once: true});
+	signal?.addEventListener(
+		"abort",
+		cancel,
+		{
+			once: true,
+		},
+	);
 	let assertion: unknown;
-	try {
-		assertion = await startAuthentication({optionsJSON: options, useBrowserAutofill});
-	} catch (caught) {
+	try
+	{
+		assertion = await startAuthentication(
+			{
+				optionsJSON: options,
+				useBrowserAutofill,
+			},
+		);
+	}
+	catch (caught)
+	{
 		throw passkeyCeremonyError(caught, PASSKEY_CANCELLED_MESSAGE);
-	} finally {
+	}
+	finally
+	{
 		signal?.removeEventListener("abort", cancel);
 	}
 	signal?.throwIfAborted();
 	const result = await requestJson(
 		"/api/auth/passkey/verify-authentication",
-		{...jsonRequest({response: assertion}), signal: signal ?? null},
+		{
+			...jsonRequest(
+				{
+					response: assertion,
+				},
+			),
+			signal: signal ?? null,
+		},
 		authenticatedResponseSchema,
 		PASSKEY_SIGN_IN_FAILURE_MESSAGE,
 	);
 	return result.user;
 }
 
-export async function fetchPasskeys(): Promise<RegisteredPasskey[]> {
+export async function fetchPasskeys(): Promise<RegisteredPasskey[]>
+{
 	const passkeys = await requestJson(
 		"/api/auth/passkey/list-user-passkeys",
-		{cache: "no-store"},
+		{
+			cache: "no-store",
+		},
 		passkeyListResponseSchema,
 		"Your passkeys could not be loaded. Try again in a moment.",
 	);
-	return passkeys.map((passkey) => ({
+	return passkeys.map((passkey) => (
+	{
 		id: passkey.id,
 		name: passkey.name ?? "Passkey",
 		createdAt: Date.parse(passkey.createdAt),
 	}));
 }
 
-export async function deletePasskey(id: string): Promise<void> {
+export async function deletePasskey(id: string): Promise<void>
+{
 	await requestJson(
 		"/api/auth/passkey/delete-passkey",
-		jsonRequest({id}),
+		jsonRequest(
+			{
+				id,
+			},
+		),
 		successResponseSchema,
 		"That passkey could not be removed. Try again in a moment.",
 	);
 }
 
-export async function signOut(): Promise<void> {
+export async function signOut(): Promise<void>
+{
 	await requestJson(
 		"/api/auth/sign-out",
 		jsonRequest({}),
-		z.object({success: z.literal(true)}),
+		z.object(
+			{
+				success: z.literal(true),
+			},
+		),
 		"Sign-out could not be completed. Try again in a moment.",
 	);
 }
 
-const managedConnectedMcpClientSchema = z.object({
-	id: z.string(),
-	display_name: z.string(),
-	authorized_at: z.number(),
-	last_used_at: z.number().nullable(),
-	granted_scopes: z.array(z.string()),
-	status: z.enum(["active", "expired", "revoked"]),
-	revoked_at: z.number().nullable(),
-});
+const managedConnectedMcpClientSchema = z.object(
+	{
+		id: z.string(),
+		display_name: z.string(),
+		authorized_at: z.number(),
+		last_used_at: z.number().nullable(),
+		granted_scopes: z.array(z.string()),
+		status: z.enum(["active", "expired", "revoked"]),
+		revoked_at: z.number().nullable(),
+	},
+);
 
-const managedPushDeviceSchema = z.object({
-	id: z.string(),
-	label: z.string(),
-	created_at: z.number(),
-});
+const managedPushDeviceSchema = z.object(
+	{
+		id: z.string(),
+		label: z.string(),
+		created_at: z.number(),
+	},
+);
 
-const managedBrowserSessionSchema = z.object({
-	id: z.string(),
-	display_name: z.string(),
-	created_at: z.number(),
-	last_active_at: z.number(),
-	expires_at: z.number(),
-	current: z.boolean(),
-});
+const managedBrowserSessionSchema = z.object(
+	{
+		id: z.string(),
+		display_name: z.string(),
+		created_at: z.number(),
+		last_active_at: z.number(),
+		expires_at: z.number(),
+		current: z.boolean(),
+	},
+);
 
-const accountDevicesResponseSchema = z.object({
-	browser_sessions: z.array(managedBrowserSessionSchema),
-	connected_mcp_clients: z.array(managedConnectedMcpClientSchema),
-	push_devices: z.array(managedPushDeviceSchema),
-});
+const accountDevicesResponseSchema = z.object(
+	{
+		browser_sessions: z.array(managedBrowserSessionSchema),
+		connected_mcp_clients: z.array(managedConnectedMcpClientSchema),
+		push_devices: z.array(managedPushDeviceSchema),
+	},
+);
 
-export interface ManagedConnectedMcpClient {
+export interface ManagedConnectedMcpClient
+{
 	id: string;
 	displayName: string;
 	authorizedAt: number;
@@ -552,13 +809,15 @@ export interface ManagedConnectedMcpClient {
 	revokedAt: number | null;
 }
 
-export interface ManagedPushDevice {
+export interface ManagedPushDevice
+{
 	id: string;
 	label: string;
 	createdAt: number;
 }
 
-export interface ManagedBrowserSession {
+export interface ManagedBrowserSession
+{
 	id: string;
 	displayName: string;
 	createdAt: number;
@@ -567,13 +826,15 @@ export interface ManagedBrowserSession {
 	current: boolean;
 }
 
-export interface AccountDevices {
+export interface AccountDevices
+{
 	browserSessions: ManagedBrowserSession[];
 	connectedMcpClients: ManagedConnectedMcpClient[];
 	pushDevices: ManagedPushDevice[];
 }
 
-export async function fetchAccountDevices(): Promise<AccountDevices> {
+export async function fetchAccountDevices(): Promise<AccountDevices>
+{
 	const body = await requestJson(
 		"/api/v1/account/devices",
 		{},
@@ -581,7 +842,8 @@ export async function fetchAccountDevices(): Promise<AccountDevices> {
 		"Your devices could not be loaded. Try again in a moment.",
 	);
 	return {
-		browserSessions: body.browser_sessions.map((browserSession) => ({
+		browserSessions: body.browser_sessions.map((browserSession) => (
+		{
 			id: browserSession.id,
 			displayName: browserSession.display_name,
 			createdAt: browserSession.created_at,
@@ -589,7 +851,8 @@ export async function fetchAccountDevices(): Promise<AccountDevices> {
 			expiresAt: browserSession.expires_at,
 			current: browserSession.current,
 		})),
-		connectedMcpClients: body.connected_mcp_clients.map((client) => ({
+		connectedMcpClients: body.connected_mcp_clients.map((client) => (
+		{
 			id: client.id,
 			displayName: client.display_name,
 			authorizedAt: client.authorized_at,
@@ -598,7 +861,8 @@ export async function fetchAccountDevices(): Promise<AccountDevices> {
 			status: client.status,
 			revokedAt: client.revoked_at,
 		})),
-		pushDevices: body.push_devices.map((device) => ({
+		pushDevices: body.push_devices.map((device) => (
+		{
 			id: device.id,
 			label: device.label,
 			createdAt: device.created_at,
@@ -606,34 +870,54 @@ export async function fetchAccountDevices(): Promise<AccountDevices> {
 	};
 }
 
-const revokeConnectedMcpClientResponseSchema = z.object({
-	status: z.literal("ok"),
-	connected_mcp_client_count: z.number().int().nonnegative(),
-});
+const revokeConnectedMcpClientResponseSchema = z.object(
+	{
+		status: z.literal("ok"),
+		connected_mcp_client_count: z.number().int().nonnegative(),
+	},
+);
 
-export async function revokeConnectedMcpClient(connectedMcpClientId: string): Promise<number> {
+export async function revokeConnectedMcpClient(connectedMcpClientId: string): Promise<number>
+{
 	const body = await requestJson(
 		`/api/v1/account/connected-mcp-clients/${connectedMcpClientId}`,
-		{method: "DELETE"},
+		{
+			method: "DELETE",
+		},
 		revokeConnectedMcpClientResponseSchema,
 		"That client could not be disconnected. Try again in a moment.",
 	);
 	return body.connected_mcp_client_count;
 }
 
-export async function renamePushDevice(deviceId: string, label: string): Promise<void> {
+export async function renamePushDevice(deviceId: string, label: string): Promise<void>
+{
 	await requestJson(
 		`/api/v1/account/push-devices/${deviceId}`,
-		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({label})},
+		{
+			method: "PUT",
+			headers:
+			{
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(
+				{
+					label,
+				},
+			),
+		},
 		okResponseSchema,
 		"That device could not be renamed. Try again in a moment.",
 	);
 }
 
-export async function revokePushDevice(deviceId: string): Promise<void> {
+export async function revokePushDevice(deviceId: string): Promise<void>
+{
 	await requestJson(
 		`/api/v1/account/push-devices/${deviceId}`,
-		{method: "DELETE"},
+		{
+			method: "DELETE",
+		},
 		okResponseSchema,
 		"That device could not be removed. Try again in a moment.",
 	);
@@ -641,25 +925,36 @@ export async function revokePushDevice(deviceId: string): Promise<void> {
 
 const DEVICE_AUTHORIZATION_PATH = "/api/v1/device-authorization";
 
-const pendingDeviceAuthorizationSchema = z.object({
-	client_name: z.string(),
-	scopes: z.array(z.string()),
-	status: z.literal("pending"),
-	user_code: z.string(),
-});
+const pendingDeviceAuthorizationSchema = z.object(
+	{
+		client_name: z.string(),
+		scopes: z.array(z.string()),
+		status: z.literal("pending"),
+		user_code: z.string(),
+	},
+);
 
-const deviceAuthorizationLookupFailureSchema = z.object({status: z.enum(["decided", "expired", "not_found"])});
+const deviceAuthorizationLookupFailureSchema = z.object(
+	{
+		status: z.enum(["decided", "expired", "not_found"]),
+	},
+);
 
-const deviceAuthorizationDecisionFailureSchema = z.object({
-	status: z.enum(["decided", "expired", "not_found", "taken"]),
-});
+const deviceAuthorizationDecisionFailureSchema = z.object(
+	{
+		status: z.enum(["decided", "expired", "not_found", "taken"]),
+	},
+);
 
-const deviceAuthorizationDecisionSchema = z.object({
-	status: z.literal("decided"),
-	decision: z.enum(["approved", "denied"]),
-});
+const deviceAuthorizationDecisionSchema = z.object(
+	{
+		status: z.literal("decided"),
+		decision: z.enum(["approved", "denied"]),
+	},
+);
 
-export interface PendingDeviceAuthorization {
+export interface PendingDeviceAuthorization
+{
 	clientName: string;
 	scopes: string[];
 	userCode: string;
@@ -668,17 +963,46 @@ export interface PendingDeviceAuthorization {
 export type DeviceAuthorizationDecision = "approved" | "denied";
 
 export type DeviceAuthorizationLookup =
-	| {status: "pending"; authorization: PendingDeviceAuthorization}
-	| {status: "decided"}
-	| {status: "expired"}
-	| {status: "not_found"};
+	|
+	  {
+			status: "pending";
+			authorization: PendingDeviceAuthorization;
+	  }
+	|
+	  {
+			status: "decided";
+	  }
+	|
+	  {
+			status: "expired";
+	  }
+	|
+	  {
+			status: "not_found";
+	  };
 
 export type DeviceAuthorizationResult =
-	| {status: "decided"; decision: DeviceAuthorizationDecision}
-	| {status: "already_decided"}
-	| {status: "expired"}
-	| {status: "not_found"}
-	| {status: "taken"};
+	|
+	  {
+			status: "decided";
+			decision: DeviceAuthorizationDecision;
+	  }
+	|
+	  {
+			status: "already_decided";
+	  }
+	|
+	  {
+			status: "expired";
+	  }
+	|
+	  {
+			status: "not_found";
+	  }
+	|
+	  {
+			status: "taken";
+	  };
 
 /**
  * A dead code is the ordinary outcome of the device grant, not a fault: the terminal may have given
@@ -691,25 +1015,32 @@ async function deviceAuthorizationFailure<Schema extends z.ZodType>(
 	response: Response,
 	schema: Schema,
 	fallbackMessage: string,
-): Promise<z.infer<Schema>> {
+): Promise<z.infer<Schema>>
+{
 	const failure = schema.safeParse(
 		await response
 			.clone()
 			.json()
 			.catch(() => null),
 	);
-	if (!failure.success) {
+	if (!failure.success)
+	{
 		reportTransportFailure(method, DEVICE_AUTHORIZATION_PATH, response.status);
 		throw new ApiResponseError(fallbackMessage, response.status);
 	}
 	return failure.data;
 }
 
-export async function fetchDeviceAuthorization(userCode: string): Promise<DeviceAuthorizationLookup> {
-	const response = await fetch(`${DEVICE_AUTHORIZATION_PATH}?user_code=${encodeURIComponent(userCode)}`, {
-		credentials: "same-origin",
-	});
-	if (!response.ok) {
+export async function fetchDeviceAuthorization(userCode: string): Promise<DeviceAuthorizationLookup>
+{
+	const response = await fetch(
+		`${DEVICE_AUTHORIZATION_PATH}?user_code=${encodeURIComponent(userCode)}`,
+		{
+			credentials: "same-origin",
+		},
+	);
+	if (!response.ok)
+	{
 		return deviceAuthorizationFailure(
 			"GET",
 			response,
@@ -720,7 +1051,8 @@ export async function fetchDeviceAuthorization(userCode: string): Promise<Device
 	const pending = pendingDeviceAuthorizationSchema.parse(await response.json());
 	return {
 		status: "pending",
-		authorization: {
+		authorization:
+		{
 			clientName: pending.client_name,
 			scopes: pending.scopes,
 			userCode: pending.user_code,
@@ -731,12 +1063,21 @@ export async function fetchDeviceAuthorization(userCode: string): Promise<Device
 export async function decideDeviceAuthorization(
 	userCode: string,
 	decision: DeviceAuthorizationDecision,
-): Promise<DeviceAuthorizationResult> {
-	const response = await fetch(`${DEVICE_AUTHORIZATION_PATH}?decision=${decision}`, {
-		credentials: "same-origin",
-		...jsonRequest({user_code: userCode}),
-	});
-	if (!response.ok) {
+): Promise<DeviceAuthorizationResult>
+{
+	const response = await fetch(
+		`${DEVICE_AUTHORIZATION_PATH}?decision=${decision}`,
+		{
+			credentials: "same-origin",
+			...jsonRequest(
+				{
+					user_code: userCode,
+				},
+			),
+		},
+	);
+	if (!response.ok)
+	{
 		const failure = await deviceAuthorizationFailure(
 			"POST",
 			response,
@@ -745,35 +1086,52 @@ export async function decideDeviceAuthorization(
 		);
 		// A refused decision reports the same "decided" the accepted one does, so it is renamed here
 		// to keep the recorded answer distinguishable from someone else's.
-		return failure.status === "decided" ? {status: "already_decided"} : {status: failure.status};
+		return failure.status === "decided"
+			?
+				{
+					status: "already_decided",
+				}
+			:
+				{
+					status: failure.status,
+				};
 	}
 	const decided = deviceAuthorizationDecisionSchema.parse(await response.json());
-	return {status: "decided", decision: decided.decision};
+	return {
+		status: "decided",
+		decision: decided.decision,
+	};
 }
 
-const questionSchema = z.object({
-	batch_id: z.string(),
-	project: z.string(),
-	repo: z.string().nullable(),
-	branch: z.string().nullable(),
-	worktree: z.string().nullable(),
-	directory: z.string().nullable(),
-	question_id: z.string(),
-	position: z.number(),
-	title: z.string(),
-	body: z.string(),
-	created_at: z.number(),
-});
+const questionSchema = z.object(
+	{
+		batch_id: z.string(),
+		project: z.string(),
+		repo: z.string().nullable(),
+		branch: z.string().nullable(),
+		worktree: z.string().nullable(),
+		directory: z.string().nullable(),
+		question_id: z.string(),
+		position: z.number(),
+		title: z.string(),
+		body: z.string(),
+		created_at: z.number(),
+	},
+);
 
-const currentDeckStateSchema = z.object({
-	type: z.literal("current_deck"),
-	afk: z.boolean(),
-	connected_mcp_client_count: z.number().int().nonnegative(),
-	current_deck: z.array(questionSchema),
-});
+const currentDeckStateSchema = z.object(
+	{
+		type: z.literal("current_deck"),
+		afk: z.boolean(),
+		connected_mcp_client_count: z.number().int().nonnegative(),
+		current_deck: z.array(questionSchema),
+	},
+);
 
-function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuestion[] {
-	return questions.map((question) => ({
+function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuestion[]
+{
+	return questions.map((question) => (
+	{
 		questionId: question.question_id,
 		batchId: question.batch_id,
 		project: question.project,
@@ -786,13 +1144,15 @@ function toDeckQuestions(questions: z.infer<typeof questionSchema>[]): DeckQuest
 	}));
 }
 
-export interface CurrentDeckStream {
+export interface CurrentDeckStream
+{
 	close: () => void;
 	refresh: () => void;
 	state: () => CurrentDeckConnectionState;
 }
 
-export enum CurrentDeckConnectionState {
+export enum CurrentDeckConnectionState
+{
 	CircuitOpen = "circuit-open",
 	Connecting = "connecting",
 	Open = "open",
@@ -801,7 +1161,8 @@ export enum CurrentDeckConnectionState {
 	Waiting = "waiting",
 }
 
-export interface CurrentDeckStreamOptions {
+export interface CurrentDeckStreamOptions
+{
 	initialReconnectDelayMilliseconds?: number;
 	maximumConsecutiveFailures?: number;
 	maximumReconnectDelayMilliseconds?: number;
@@ -810,7 +1171,8 @@ export interface CurrentDeckStreamOptions {
 	sessionRevalidationFailureCount?: number;
 }
 
-export interface LiveApplicationState {
+export interface LiveApplicationState
+{
 	afk: boolean;
 	connectedMcpClientCount: number;
 	currentDeck: DeckQuestion[];
@@ -821,23 +1183,33 @@ const MAXIMUM_RECONNECT_DELAY_MILLISECONDS = 2_000;
 const MAXIMUM_CONSECUTIVE_FAILURES = 5;
 const SESSION_REVALIDATION_FAILURE_COUNT = 3;
 
-enum StreamAccess {
+enum StreamAccess
+{
 	Available,
 	SignedOut,
 	Unknown,
 	Unsupported,
 }
 
-async function revalidateCurrentDeckStreamAccess(): Promise<StreamAccess> {
+async function revalidateCurrentDeckStreamAccess(): Promise<StreamAccess>
+{
 	const user = await fetchSession();
-	if (user === null) {
+	if (user === null)
+	{
 		return StreamAccess.SignedOut;
 	}
-	const response = await fetch("/api/v1/current-deck/stream", {credentials: "same-origin"});
-	if (response.status === 401 || response.status === 403) {
+	const response = await fetch(
+		"/api/v1/current-deck/stream",
+		{
+			credentials: "same-origin",
+		},
+	);
+	if (response.status === 401 || response.status === 403)
+	{
 		return StreamAccess.SignedOut;
 	}
-	if ([404, 405, 410, 501].includes(response.status)) {
+	if ([404, 405, 410, 501].includes(response.status))
+	{
 		return StreamAccess.Unsupported;
 	}
 	return response.ok || response.status === 426 ? StreamAccess.Available : StreamAccess.Unknown;
@@ -848,7 +1220,8 @@ function reconnectDelay(
 	initialDelayMilliseconds: number,
 	maximumDelayMilliseconds: number,
 	random: () => number,
-): number {
+): number
+{
 	const exponentialDelay = Math.min(
 		maximumDelayMilliseconds,
 		initialDelayMilliseconds * 2 ** (consecutiveFailures - 1),
@@ -860,7 +1233,8 @@ function reconnectDelay(
 export function openCurrentDeckStream(
 	onState: (state: LiveApplicationState) => void,
 	options: CurrentDeckStreamOptions = {},
-): CurrentDeckStream {
+): CurrentDeckStream
+{
 	let socket: WebSocket | null = null;
 	let reconnectTimer: number | undefined;
 	let stopped = false;
@@ -876,18 +1250,22 @@ export function openCurrentDeckStream(
 		options.sessionRevalidationFailureCount ?? SESSION_REVALIDATION_FAILURE_COUNT;
 	const random = options.random ?? Math.random;
 
-	function shouldPause(): boolean {
+	function shouldPause(): boolean
+	{
 		return !navigator.onLine || document.visibilityState !== "visible";
 	}
 
-	function clearReconnectTimer(): void {
-		if (reconnectTimer !== undefined) {
+	function clearReconnectTimer(): void
+	{
+		if (reconnectTimer !== undefined)
+		{
 			window.clearTimeout(reconnectTimer);
 			reconnectTimer = undefined;
 		}
 	}
 
-	function stop(nextState: CurrentDeckConnectionState): void {
+	function stop(nextState: CurrentDeckConnectionState): void
+	{
 		stopped = true;
 		connectionState = nextState;
 		failureSequence += 1;
@@ -902,23 +1280,28 @@ export function openCurrentDeckStream(
 		document.removeEventListener("visibilitychange", onVisibilityChange);
 	}
 
-	function openCircuit(): void {
+	function openCircuit(): void
+	{
 		circuitOpen = true;
 		connectionState = CurrentDeckConnectionState.CircuitOpen;
 		clearReconnectTimer();
 	}
 
-	function scheduleReconnect(): void {
-		if (stopped || circuitOpen || socket !== null || reconnectTimer !== undefined) {
+	function scheduleReconnect(): void
+	{
+		if (stopped || circuitOpen || socket !== null || reconnectTimer !== undefined)
+		{
 			return;
 		}
-		if (shouldPause()) {
+		if (shouldPause())
+		{
 			connectionState = CurrentDeckConnectionState.Paused;
 			return;
 		}
 		connectionState = CurrentDeckConnectionState.Waiting;
 		reconnectTimer = window.setTimeout(
-			() => {
+			() =>
+			{
 				reconnectTimer = undefined;
 				connect();
 			},
@@ -926,42 +1309,54 @@ export function openCurrentDeckStream(
 		);
 	}
 
-	async function handleConnectionFailure(): Promise<void> {
+	async function handleConnectionFailure(): Promise<void>
+	{
 		consecutiveFailures += 1;
 		const sequence = ++failureSequence;
-		if (consecutiveFailures >= sessionRevalidationFailureCount && !accessRevalidated) {
+		if (consecutiveFailures >= sessionRevalidationFailureCount && !accessRevalidated)
+		{
 			let access = StreamAccess.Unknown;
-			try {
+			try
+			{
 				access = await revalidateCurrentDeckStreamAccess();
-			} catch {
+			}
+			catch
+			{
 				access = StreamAccess.Unknown;
 			}
-			if (stopped || sequence !== failureSequence) {
+			if (stopped || sequence !== failureSequence)
+			{
 				return;
 			}
-			if (access === StreamAccess.SignedOut) {
+			if (access === StreamAccess.SignedOut)
+			{
 				stop(CurrentDeckConnectionState.Stopped);
 				options.onSignedOut?.();
 				return;
 			}
-			if (access === StreamAccess.Unsupported) {
+			if (access === StreamAccess.Unsupported)
+			{
 				openCircuit();
 				return;
 			}
 			accessRevalidated = access === StreamAccess.Available;
 		}
-		if (consecutiveFailures >= maximumConsecutiveFailures) {
+		if (consecutiveFailures >= maximumConsecutiveFailures)
+		{
 			openCircuit();
 			return;
 		}
 		scheduleReconnect();
 	}
 
-	function connect(): void {
-		if (stopped || circuitOpen || socket !== null) {
+	function connect(): void
+	{
+		if (stopped || circuitOpen || socket !== null)
+		{
 			return;
 		}
-		if (shouldPause()) {
+		if (shouldPause())
+		{
 			connectionState = CurrentDeckConnectionState.Paused;
 			return;
 		}
@@ -971,11 +1366,14 @@ export function openCurrentDeckStream(
 		const connection = new WebSocket(url);
 		socket = connection;
 		let settled = false;
-		connection.addEventListener("open", () => {
+		connection.addEventListener("open", () =>
+		{
 			connectionState = CurrentDeckConnectionState.Open;
 		});
-		connection.addEventListener("message", (event) => {
-			if (typeof event.data !== "string") {
+		connection.addEventListener("message", (event) =>
+		{
+			if (typeof event.data !== "string")
+			{
 				throw new Error("question stream sent a non-text frame");
 			}
 			const state = currentDeckStateSchema.parse(JSON.parse(event.data) as unknown);
@@ -983,62 +1381,79 @@ export function openCurrentDeckStream(
 			accessRevalidated = false;
 			failureSequence += 1;
 			connectionState = CurrentDeckConnectionState.Open;
-			onState({
-				afk: state.afk,
-				connectedMcpClientCount: state.connected_mcp_client_count,
-				currentDeck: toDeckQuestions(state.current_deck),
-			});
+			onState(
+				{
+					afk: state.afk,
+					connectedMcpClientCount: state.connected_mcp_client_count,
+					currentDeck: toDeckQuestions(state.current_deck),
+				},
+			);
 		});
-		connection.addEventListener("close", () => {
-			if (settled) {
+		connection.addEventListener("close", () =>
+		{
+			if (settled)
+			{
 				return;
 			}
 			settled = true;
-			if (socket === connection) {
+			if (socket === connection)
+			{
 				socket = null;
 			}
-			if (!stopped) {
+			if (!stopped)
+			{
 				void handleConnectionFailure();
 			}
 		});
 	}
 
-	function resume(): void {
-		if (stopped || circuitOpen || shouldPause()) {
+	function resume(): void
+	{
+		if (stopped || circuitOpen || shouldPause())
+		{
 			return;
 		}
-		if (socket === null && reconnectTimer === undefined) {
+		if (socket === null && reconnectTimer === undefined)
+		{
 			connect();
 		}
 	}
 
-	function onOnline(): void {
+	function onOnline(): void
+	{
 		resume();
 	}
 
-	function onOffline(): void {
+	function onOffline(): void
+	{
 		clearReconnectTimer();
-		if (socket === null) {
+		if (socket === null)
+		{
 			connectionState = CurrentDeckConnectionState.Paused;
 		}
 	}
 
-	function onVisibilityChange(): void {
-		if (document.visibilityState === "visible") {
+	function onVisibilityChange(): void
+	{
+		if (document.visibilityState === "visible")
+		{
 			resume();
 			return;
 		}
 		clearReconnectTimer();
-		if (socket === null) {
+		if (socket === null)
+		{
 			connectionState = CurrentDeckConnectionState.Paused;
 		}
 	}
 
-	function onPageHide(): void {
+	function onPageHide(): void
+	{
 		stop(CurrentDeckConnectionState.Stopped);
 	}
 
-	function onApplicationUpdate(): void {
+	function onApplicationUpdate(): void
+	{
 		stop(CurrentDeckConnectionState.Stopped);
 	}
 
@@ -1049,15 +1464,19 @@ export function openCurrentDeckStream(
 	document.addEventListener("visibilitychange", onVisibilityChange);
 	connect();
 	return {
-		close: () => {
+		close: () =>
+		{
 			stop(CurrentDeckConnectionState.Stopped);
 		},
-		refresh: () => {
-			if (socket?.readyState === WebSocket.OPEN) {
+		refresh: () =>
+		{
+			if (socket?.readyState === WebSocket.OPEN)
+			{
 				socket.send("state");
 				return;
 			}
-			if (stopped) {
+			if (stopped)
+			{
 				return;
 			}
 			circuitOpen = false;
@@ -1071,24 +1490,46 @@ export function openCurrentDeckStream(
 	};
 }
 
-const okResponseSchema = z.object({status: z.string()});
+const okResponseSchema = z.object(
+	{
+		status: z.string(),
+	},
+);
 
-export async function submitAnswer(questionId: string, disposition: Disposition): Promise<void> {
+export async function submitAnswer(questionId: string, disposition: Disposition): Promise<void>
+{
 	await requestJson(
 		"/api/v1/answers",
 		{
 			method: "POST",
-			headers: {"Content-Type": "application/json"},
-			body: JSON.stringify({answers: [{question_id: questionId, disposition}]}),
+			headers:
+			{
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(
+				{
+					answers: [
+						{
+							question_id: questionId,
+							disposition,
+						},
+					],
+				},
+			),
 		},
 		okResponseSchema,
 		"Your answer could not be sent. Try again in a moment.",
 	);
 }
 
-const afkResponseSchema = z.object({afk: z.boolean()});
+const afkResponseSchema = z.object(
+	{
+		afk: z.boolean(),
+	},
+);
 
-export async function fetchAfk(): Promise<boolean> {
+export async function fetchAfk(): Promise<boolean>
+{
 	const body = await requestJson(
 		"/api/v1/afk",
 		{},
@@ -1098,19 +1539,36 @@ export async function fetchAfk(): Promise<boolean> {
 	return body.afk;
 }
 
-export async function updateAfk(afk: boolean): Promise<boolean> {
+export async function updateAfk(afk: boolean): Promise<boolean>
+{
 	const body = await requestJson(
 		"/api/v1/afk",
-		{method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({afk})},
+		{
+			method: "PUT",
+			headers:
+			{
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(
+				{
+					afk,
+				},
+			),
+		},
 		afkResponseSchema,
 		"Your away status could not be changed. Try again in a moment.",
 	);
 	return body.afk;
 }
 
-const publicKeyResponseSchema = z.object({public_key: z.string()});
+const publicKeyResponseSchema = z.object(
+	{
+		public_key: z.string(),
+	},
+);
 
-export async function fetchVapidPublicKey(): Promise<string> {
+export async function fetchVapidPublicKey(): Promise<string>
+{
 	const body = await requestJson(
 		"/api/v1/push/public-key",
 		{},
@@ -1120,23 +1578,39 @@ export async function fetchVapidPublicKey(): Promise<string> {
 	return body.public_key;
 }
 
-export interface PushSubscribeBody extends PushSubscriptionJSON {
+export interface PushSubscribeBody extends PushSubscriptionJSON
+{
 	replaces?: string;
 }
 
-export async function registerPushSubscription(subscription: PushSubscribeBody): Promise<void> {
+export async function registerPushSubscription(subscription: PushSubscribeBody): Promise<void>
+{
 	await requestJson(
 		"/api/v1/push/subscribe",
-		{method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(subscription)},
+		{
+			method: "POST",
+			headers:
+			{
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(subscription),
+		},
 		okResponseSchema,
 		"Push notifications could not be enabled. Try again in a moment.",
 	);
 }
 
-const phonePairingSchema = z.object({id: z.uuid(), code: z.string(), expiresAt: z.number()});
+const phonePairingSchema = z.object(
+	{
+		id: z.uuid(),
+		code: z.string(),
+		expiresAt: z.number(),
+	},
+);
 export type PhonePairing = z.infer<typeof phonePairingSchema>;
 
-export async function createPhonePairing(): Promise<PhonePairing> {
+export async function createPhonePairing(): Promise<PhonePairing>
+{
 	return requestJson(
 		"/api/auth/phone-pairing/create",
 		jsonRequest({}),
@@ -1145,11 +1619,21 @@ export async function createPhonePairing(): Promise<PhonePairing> {
 	);
 }
 
-export async function claimPhonePairing(id: string, code: string): Promise<void> {
+export async function claimPhonePairing(id: string, code: string): Promise<void>
+{
 	await requestJson(
 		"/api/auth/phone-pairing/claim",
-		jsonRequest({id, code}),
-		z.object({status: z.literal("ok")}),
+		jsonRequest(
+			{
+				id,
+				code,
+			},
+		),
+		z.object(
+			{
+				status: z.literal("ok"),
+			},
+		),
 		"Could not pair this phone. Create a new QR code on your desktop.",
 	);
 }

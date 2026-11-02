@@ -1,6 +1,7 @@
 {
 	"extends": "./tsconfig.app.json",
-	"compilerOptions": {
+	"compilerOptions":
+	{
 		"target": "esnext",
 		"module": "esnext",
 		"lib": ["esnext", "webworker", "dom"],

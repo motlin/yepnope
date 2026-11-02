@@ -1,5 +1,6 @@
 import {PairPhone, PhonePairingPanel} from "./phone-pairing";
-import {
+import
+{
 	useCallback,
 	useEffect,
 	useEffectEvent,
@@ -10,7 +11,8 @@ import {
 	type SyntheticEvent,
 } from "react";
 import {browserSupportsWebAuthnAutofill} from "@simplewebauthn/browser";
-import {
+import
+{
 	consumePasswordResetToken,
 	decideDeviceAuthorization,
 	deletePasskey,
@@ -63,12 +65,15 @@ import {currentPushState, enablePush, isIos, isStandalone, updateBadge, type Pus
 import {THEME_CHOICES, useTheme, type ResolvedTheme, type Theme} from "./theme";
 import {humanVerificationBlocksSubmit, useHumanVerification, type HumanVerification} from "./turnstile";
 
-interface IosInstallHintProps {
+interface IosInstallHintProps
+{
 	required: boolean;
 }
 
-function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
-	if (!required) {
+function IosInstallHint({required}: IosInstallHintProps): ReactElement | null
+{
+	if (!required)
+	{
 		return null;
 	}
 	// 📲 iOS only delivers web push to an installed PWA (spec §6.3).
@@ -84,22 +89,26 @@ function IosInstallHint({required}: IosInstallHintProps): ReactElement | null {
 }
 
 // 🧍 AFK is available only while an OAuth-authorized MCP host or CLI installation is active.
-interface AfkToggleProps {
+interface AfkToggleProps
+{
 	afk: boolean | null;
 	connectedMcpClientCount: number | null;
 	onConnectClient: () => void;
 	onToggle: () => void;
 }
 
-function AfkToggle({afk, connectedMcpClientCount, onConnectClient, onToggle}: AfkToggleProps): ReactElement {
-	if (connectedMcpClientCount === null) {
+function AfkToggle({afk, connectedMcpClientCount, onConnectClient, onToggle}: AfkToggleProps): ReactElement
+{
+	if (connectedMcpClientCount === null)
+	{
 		return (
 			<button type="button" className="account-status" disabled>
 				Checking account…
 			</button>
 		);
 	}
-	if (connectedMcpClientCount === 0) {
+	if (connectedMcpClientCount === 0)
+	{
 		return (
 			<button type="button" className="account-status" onClick={onConnectClient}>
 				Connect an agent
@@ -123,25 +132,49 @@ function AfkToggle({afk, connectedMcpClientCount, onConnectClient, onToggle}: Af
 	);
 }
 
-const SETTINGS_PAGES = {
-	"settings/account": {
+const SETTINGS_PAGES =
+{
+	"settings/account":
+	{
 		title: "Account and sign-in",
 		description: "Email, passkeys, linked accounts, and signing out.",
 	},
-	"settings/devices": {title: "Phones and browsers", description: "Pair a phone and see your signed-in browsers."},
-	"settings/appearance": {title: "Appearance", description: "Choose a light, dark, or system theme."},
-	"settings/clients": {title: "MCP clients", description: "Connect agents and manage their access."},
-	"settings/notifications": {title: "Notifications", description: "Enable notifications and manage push devices."},
-	"settings/privacy": {title: "Privacy", description: "How question content and history are retained."},
+	"settings/devices":
+	{
+		title: "Phones and browsers",
+		description: "Pair a phone and see your signed-in browsers.",
+	},
+	"settings/appearance":
+	{
+		title: "Appearance",
+		description: "Choose a light, dark, or system theme.",
+	},
+	"settings/clients":
+	{
+		title: "MCP clients",
+		description: "Connect agents and manage their access.",
+	},
+	"settings/notifications":
+	{
+		title: "Notifications",
+		description: "Enable notifications and manage push devices.",
+	},
+	"settings/privacy":
+	{
+		title: "Privacy",
+		description: "How question content and history are retained.",
+	},
 } as const;
 
 type SettingsView = "settings" | keyof typeof SETTINGS_PAGES;
 
-function isSettingsView(view: AppView): view is SettingsView {
+function isSettingsView(view: AppView): view is SettingsView
+{
 	return view === "settings" || view in SETTINGS_PAGES;
 }
 
-interface SettingsProps {
+interface SettingsProps
+{
 	view: SettingsView;
 	onNavigate: (view: AppView) => void;
 	session: AuthenticationUser | null;
@@ -153,7 +186,8 @@ interface SettingsProps {
 	onSignedOut: () => void;
 }
 
-interface ConnectClientsProps {
+interface ConnectClientsProps
+{
 	session: AuthenticationUser | null;
 	/** Set when the reader arrived here to connect a client, so the instructions are what they land on. */
 	focusHeading: boolean;
@@ -174,8 +208,10 @@ type AppView =
 	| "device"
 	| "pair-phone";
 
-function viewFromPath(pathname: string): AppView {
-	switch (pathname) {
+function viewFromPath(pathname: string): AppView
+{
+	switch (pathname)
+	{
 		case "/settings/account":
 			return "settings/account";
 		case "/settings/devices":
@@ -214,8 +250,10 @@ function viewFromPath(pathname: string): AppView {
 	}
 }
 
-function pathForView(view: AppView): string {
-	switch (view) {
+function pathForView(view: AppView): string
+{
+	switch (view)
+	{
 		case "settings/account":
 		case "settings/devices":
 		case "settings/appearance":
@@ -249,19 +287,23 @@ function pathForView(view: AppView): string {
 	return unreachableView(view);
 }
 
-function unreachableView(view: never): never {
+function unreachableView(view: never): never
+{
 	throw new Error(`Unknown application route: ${String(view)}`);
 }
 
-function oauthQueryFromLocation(): string | null {
+function oauthQueryFromLocation(): string | null
+{
 	const parameters = new URLSearchParams(window.location.search);
-	if (window.location.pathname === "/reset-password" && (parameters.has("token") || parameters.has("error"))) {
+	if (window.location.pathname === "/reset-password" && (parameters.has("token") || parameters.has("error")))
+	{
 		return null;
 	}
 	return parameters.has("client_id") && parameters.has("sig") ? parameters.toString() : null;
 }
 
-function deviceUserCodeFromLocation(): string {
+function deviceUserCodeFromLocation(): string
+{
 	return new URLSearchParams(window.location.search).get("user_code") ?? "";
 }
 
@@ -269,7 +311,8 @@ function deviceUserCodeFromLocation(): string {
 // sign-in detour has to carry it along and land back on /device rather than the deck.
 const DEVICE_HANDOFF_VIEWS: readonly AppView[] = ["device", "forgot-password", "register", "sign-in", "verify-email"];
 
-function deviceHandoffQuery(nextView: AppView): string {
+function deviceHandoffQuery(nextView: AppView): string
+{
 	const userCode = deviceUserCodeFromLocation();
 	return userCode === "" || !DEVICE_HANDOFF_VIEWS.includes(nextView)
 		? ""
@@ -278,21 +321,26 @@ function deviceHandoffQuery(nextView: AppView): string {
 
 const PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY = "yepnope.password-reset-oauth-query";
 
-function rememberPasswordResetOAuthQuery(oauthQuery: string | null): void {
-	if (oauthQuery === null) {
+function rememberPasswordResetOAuthQuery(oauthQuery: string | null): void
+{
+	if (oauthQuery === null)
+	{
 		window.sessionStorage.removeItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY);
 		return;
 	}
 	window.sessionStorage.setItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY, oauthQuery);
 }
 
-function passwordResetOAuthQuery(): string | null {
+function passwordResetOAuthQuery(): string | null
+{
 	const oauthQuery = window.sessionStorage.getItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY);
-	if (oauthQuery === null) {
+	if (oauthQuery === null)
+	{
 		return null;
 	}
 	const parameters = new URLSearchParams(oauthQuery);
-	if (!parameters.has("client_id") || !parameters.has("sig") || parameters.has("token") || parameters.has("error")) {
+	if (!parameters.has("client_id") || !parameters.has("sig") || parameters.has("token") || parameters.has("error"))
+	{
 		window.sessionStorage.removeItem(PASSWORD_RESET_OAUTH_QUERY_STORAGE_KEY);
 		return null;
 	}
@@ -304,14 +352,17 @@ function passwordResetOAuthQuery(): string | null {
  * message — sends the visitor back to. An authorization waiting on them outranks `fallback`, which
  * is where the same step lands when nobody is waiting.
  */
-function authenticationCallbackPath(oauthQuery: string | null, fallback: string): string {
+function authenticationCallbackPath(oauthQuery: string | null, fallback: string): string
+{
 	return oauthQuery === null ? fallback : `/sign-in?${oauthQuery}`;
 }
 
 /** Returns true when the browser leaves YepNope for the requesting client. */
-function followOAuthRedirect(url: string): boolean {
+function followOAuthRedirect(url: string): boolean
+{
 	const target = new URL(url, window.location.origin);
-	if (target.origin === window.location.origin && viewFromPath(target.pathname) === "oauth-consent") {
+	if (target.origin === window.location.origin && viewFromPath(target.pathname) === "oauth-consent")
+	{
 		window.history.replaceState({}, "", `${target.pathname}${target.search}`);
 		window.dispatchEvent(new PopStateEvent("popstate"));
 		return false;
@@ -320,18 +371,21 @@ function followOAuthRedirect(url: string): boolean {
 	return true;
 }
 
-interface SetupStep {
+interface SetupStep
+{
 	readonly label: string;
 	readonly command: string;
 }
 
 /** A second route to the same connection, for a reader the recommended one does not suit. */
-interface McpClientAlternative {
+interface McpClientAlternative
+{
 	readonly introduction: string;
 	readonly steps: readonly SetupStep[];
 }
 
-interface McpClientSetup {
+interface McpClientSetup
+{
 	readonly name: string;
 	/** The recommended route: the plugin where YepNope ships one, the registration itself otherwise. */
 	readonly steps: readonly SetupStep[];
@@ -348,21 +402,31 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 	{
 		name: "Claude Code",
 		steps: [
-			{label: "1. Add the YepNope marketplace", command: "claude plugin marketplace add motlin/yepnope"},
-			{label: "2. Install the plugin", command: "claude plugin install yepnope@yepnope"},
+			{
+				label: "1. Add the YepNope marketplace",
+				command: "claude plugin marketplace add motlin/yepnope",
+			},
+			{
+				label: "2. Install the plugin",
+				command: "claude plugin install yepnope@yepnope",
+			},
 		],
 		authorization:
 			"Start a new Claude Code session. It opens YepNope in your browser for account sign-in and consent. " +
 			"If authorization does not open automatically, run /mcp, select yepnope, and authorize there. No token " +
 			"or browser cookie belongs in Claude Code configuration.",
-		alternative: {
+		alternative:
+		{
 			introduction: "Alternative: use the manual commands only if you did not install the plugin.",
 			steps: [
 				{
 					label: "Without the plugin: register the server",
 					command: "claude mcp add --scope local --transport http yepnope https://yepnope.app/mcp",
 				},
-				{label: "Without the plugin: authorize it", command: "/mcp"},
+				{
+					label: "Without the plugin: authorize it",
+					command: "/mcp",
+				},
 			],
 		},
 		docsLabel: "Open the official Claude Code MCP instructions",
@@ -371,14 +435,21 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 	{
 		name: "Codex",
 		steps: [
-			{label: "1. Add the YepNope marketplace", command: "codex plugin marketplace add motlin/yepnope"},
-			{label: "2. Install the plugin", command: "codex plugin add yepnope@yepnope"},
+			{
+				label: "1. Add the YepNope marketplace",
+				command: "codex plugin marketplace add motlin/yepnope",
+			},
+			{
+				label: "2. Install the plugin",
+				command: "codex plugin add yepnope@yepnope",
+			},
 		],
 		authorization:
 			"Start a new Codex session. It opens YepNope in your browser for account sign-in and consent. If " +
 			"authorization does not open automatically, run the login command. No token or browser cookie belongs " +
 			"in Codex configuration.",
-		alternative: {
+		alternative:
+		{
 			introduction:
 				"Alternative: use the manual commands only if you did not install the plugin. Combining both paths creates a redundant top-level MCP registration.",
 			steps: [
@@ -386,7 +457,10 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 					label: "Without the plugin: register the server",
 					command: "codex mcp add yepnope --url https://yepnope.app/mcp",
 				},
-				{label: "Without the plugin: authorize it", command: "codex mcp login yepnope"},
+				{
+					label: "Without the plugin: authorize it",
+					command: "codex mcp login yepnope",
+				},
 			],
 		},
 		docsLabel: "Open the official Codex MCP instructions",
@@ -427,13 +501,19 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 	},
 	{
 		name: "Goose",
-		steps: [{label: "Add the remote extension", command: "goose configure"}],
+		steps: [
+			{
+				label: "Add the remote extension",
+				command: "goose configure",
+			},
+		],
 		authorization:
 			"Choose Add Extension, then Remote Extension (Streamable HTTP), name it yepnope, and give the URI " +
 			"https://yepnope.app/mcp. Goose registers itself with YepNope and opens your browser while the " +
 			"extension starts, so no client ID or secret is needed. Written by hand in " +
 			"~/.config/goose/config.yaml the field is uri, not url.",
-		alternative: {
+		alternative:
+		{
 			introduction: "Alternative: connect for a single session without saving anything.",
 			steps: [
 				{
@@ -457,7 +537,8 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 		authorization:
 			"VS Code asks you to trust the server, then opens your browser the first time agent mode connects to " +
 			"it. The grant is listed afterwards under Accounts, Manage Trusted MCP Servers.",
-		alternative: {
+		alternative:
+		{
 			introduction:
 				"Alternative: write it into .vscode/mcp.json by hand. VS Code's key is servers, not mcpServers, and type is required.",
 			steps: [
@@ -505,21 +586,25 @@ const MCP_CLIENT_SETUPS: readonly McpClientSetup[] = [
 	},
 ];
 
-interface AccountRouteProps {
+interface AccountRouteProps
+{
 	onNavigate: (view: AppView) => void;
 }
 
 /** A signed-out page carrying a form, which needs the current palette for its Turnstile widget. */
-interface AccountFormRouteProps extends AccountRouteProps {
+interface AccountFormRouteProps extends AccountRouteProps
+{
 	theme: ResolvedTheme;
 }
 
-interface AccountPanelProps {
+interface AccountPanelProps
+{
 	children: ReactNode;
 	title: string;
 }
 
-function AccountPanel({children, title}: AccountPanelProps): ReactElement {
+function AccountPanel({children, title}: AccountPanelProps): ReactElement
+{
 	return (
 		<main className="account-route">
 			<section className="account-panel">
@@ -538,7 +623,8 @@ function AccountPanel({children, title}: AccountPanelProps): ReactElement {
  * something repeats it. The closing sentence is Cloudflare's Turnstile disclosure, said here before
  * the widget appears rather than only beside it on the form.
  */
-function SignedOutPrivacy(): ReactElement {
+function SignedOutPrivacy(): ReactElement
+{
 	return (
 		<p className="signed-out-privacy">
 			YepNope can read question bodies and answers. End-to-end encryption is not part of this MVP. Question bodies
@@ -548,7 +634,8 @@ function SignedOutPrivacy(): ReactElement {
 	);
 }
 
-function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement {
+function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement
+{
 	return (
 		<AccountPanel title="YepNope">
 			<p>Sign in to answer questions from your coding agents, or create an account to get started.</p>
@@ -556,7 +643,8 @@ function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement {
 			<div className="signed-out-actions">
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("sign-in");
 					}}
 				>
@@ -565,7 +653,8 @@ function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement {
 				<button
 					type="button"
 					className="secondary"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("register");
 					}}
 				>
@@ -576,18 +665,21 @@ function SignedOutLanding({onNavigate}: AccountRouteProps): ReactElement {
 	);
 }
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown): string
+{
 	return error instanceof Error ? error.message : "Something went wrong. Try again.";
 }
 
-interface AuthenticationCompletionProps {
+interface AuthenticationCompletionProps
+{
 	onAuthenticated: (user: AuthenticationUser) => void;
 	onOAuthAuthenticated: (user: AuthenticationUser, redirectUrl: string) => void;
 }
 
 // 🔑 Alternative sign-in methods. Discovery is an enhancement, never a gate: if the Worker cannot be
 // reached the page still renders the email and password form it has always rendered.
-const NO_ALTERNATIVE_METHODS: AuthenticationMethods = {
+const NO_ALTERNATIVE_METHODS: AuthenticationMethods =
+{
 	emailPassword: true,
 	magicLink: false,
 	passkey: false,
@@ -607,7 +699,8 @@ const MAGIC_LINK_MISSING_EMAIL_MESSAGE = "Enter your email address first.";
 const PROVIDER_SIGN_IN_FAILED_MESSAGE =
 	"Sign-in through that provider did not complete. Sign in another way, then connect it from Settings.";
 
-function signInRedirectError(): string | null {
+function signInRedirectError(): string | null
+{
 	return new URLSearchParams(window.location.search).has("error") ? PROVIDER_SIGN_IN_FAILED_MESSAGE : null;
 }
 
@@ -620,25 +713,58 @@ const OAUTH_RESUME_FAILED_MESSAGE =
 // Discovery now carries one answer the page cannot guess at: whether this deployment demands a
 // human-verification check. So the three outcomes stay distinct instead of collapsing into one
 // object, and a page that has not heard back yet knows it has not heard back yet.
-type MethodDiscovery = {status: "pending"} | {status: "ready"; methods: AuthenticationMethods} | {status: "failed"};
+type MethodDiscovery =
+	|
+	  {
+			status: "pending";
+	  }
+	|
+	  {
+			status: "ready";
+			methods: AuthenticationMethods;
+	  }
+	|
+	  {
+			status: "failed";
+	  };
 
-function useAuthenticationMethods(): MethodDiscovery {
-	const [discovery, setDiscovery] = useState<MethodDiscovery>({status: "pending"});
-	useEffect(() => {
+function useAuthenticationMethods(): MethodDiscovery
+{
+	const [discovery, setDiscovery] = useState<MethodDiscovery>(
+		{
+			status: "pending",
+		},
+	);
+	useEffect(() =>
+	{
 		let abandoned = false;
 		void fetchAuthenticationMethods().then(
-			(methods) => {
-				if (!abandoned) {
-					setDiscovery({methods, status: "ready"});
+			(methods) =>
+			{
+				if (!abandoned)
+				{
+					setDiscovery(
+						{
+							methods,
+							status: "ready",
+						},
+					);
 				}
 			},
-			() => {
-				if (!abandoned) {
-					setDiscovery({status: "failed"});
+			() =>
+			{
+				if (!abandoned)
+				{
+					setDiscovery(
+						{
+							status: "failed",
+						},
+					);
 				}
 			},
 		);
-		return () => {
+		return () =>
+		{
 			abandoned = true;
 		};
 	}, []);
@@ -646,11 +772,13 @@ function useAuthenticationMethods(): MethodDiscovery {
 }
 
 /** Alternative sign-in methods stay an enhancement: not knowing them still renders the page. */
-function alternativeMethods(discovery: MethodDiscovery): AuthenticationMethods {
+function alternativeMethods(discovery: MethodDiscovery): AuthenticationMethods
+{
 	return discovery.status === "ready" ? discovery.methods : NO_ALTERNATIVE_METHODS;
 }
 
-interface AccountForm {
+interface AccountForm
+{
 	/** True while a submission could only be refused, so the control that would send it stays inert. */
 	blocked: boolean;
 	discoveryError: string | null;
@@ -665,7 +793,8 @@ interface AccountForm {
  * Human verification is the opposite of an enhancement. Until the deployment has said whether a
  * check is required, a submission could only be a refusal, so the form holds it back and says why.
  */
-function useAccountForm(action: string, theme: ResolvedTheme): AccountForm {
+function useAccountForm(action: string, theme: ResolvedTheme): AccountForm
+{
 	const discovery = useAuthenticationMethods();
 	// Before discovery answers, the placeholder methods carry a null site key — the same value a
 	// deployment that wants no widget sends. `blocked` is what keeps those two apart, holding the
@@ -680,20 +809,25 @@ function useAccountForm(action: string, theme: ResolvedTheme): AccountForm {
 	};
 }
 
-function passkeysUsable(methods: AuthenticationMethods): boolean {
+function passkeysUsable(methods: AuthenticationMethods): boolean
+{
 	return methods.passkey && "PublicKeyCredential" in window;
 }
 
-function usePasskeyAutofill(enabled: boolean, onAuthenticated: (user: AuthenticationUser) => void): () => void {
+function usePasskeyAutofill(enabled: boolean, onAuthenticated: (user: AuthenticationUser) => void): () => void
+{
 	const pending = useRef<AbortController | null>(null);
 	const complete = useEffectEvent(onAuthenticated);
 	const cancel = useCallback(() => pending.current?.abort(), []);
 
-	useEffect(() => {
+	useEffect(() =>
+	{
 		const controller = new AbortController();
 		pending.current = controller;
-		async function offerPasskey(): Promise<void> {
-			if (!(await browserSupportsWebAuthnAutofill())) {
+		async function offerPasskey(): Promise<void>
+		{
+			if (!(await browserSupportsWebAuthnAutofill()))
+			{
 				return;
 			}
 			controller.signal.throwIfAborted();
@@ -702,17 +836,20 @@ function usePasskeyAutofill(enabled: boolean, onAuthenticated: (user: Authentica
 			complete(user);
 		}
 		// Autofill is optional: cancellation or unavailable credentials must leave the form usable.
-		if (enabled) {
+		if (enabled)
+		{
 			void offerPasskey().catch(() => {});
 		}
-		return () => {
+		return () =>
+		{
 			controller.abort();
 		};
 	}, [enabled]);
 	return cancel;
 }
 
-interface EmailedSignInLinkProps {
+interface EmailedSignInLinkProps
+{
 	/**
 	 * Where the emailed link lands once it has signed the visitor in: the deck, or the signed
 	 * authorization request that sent them here in the first place.
@@ -740,12 +877,15 @@ function EmailedSignInLink({
 	email,
 	onError,
 	verificationToken,
-}: EmailedSignInLinkProps): ReactElement {
+}: EmailedSignInLinkProps): ReactElement
+{
 	const [status, setStatus] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
-	async function send(): Promise<void> {
-		if (email.trim() === "") {
+	async function send(): Promise<void>
+	{
+		if (email.trim() === "")
+		{
 			setStatus(null);
 			onError(MAGIC_LINK_MISSING_EMAIL_MESSAGE);
 			return;
@@ -753,12 +893,17 @@ function EmailedSignInLink({
 		setBusy(true);
 		setStatus(null);
 		onError(null);
-		try {
+		try
+		{
 			await sendMagicLink(email, await verificationToken(), callbackURL);
 			setStatus(MAGIC_LINK_SENT_MESSAGE);
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			onError(errorMessage(caught));
-		} finally {
+		}
+		finally
+		{
 			setBusy(false);
 		}
 	}
@@ -777,7 +922,8 @@ function EmailedSignInLink({
 	);
 }
 
-interface AlternativeSignInProps {
+interface AlternativeSignInProps
+{
 	onStart: () => void;
 	callbackURL: string;
 	email: string;
@@ -799,24 +945,32 @@ function AlternativeSignIn({
 	onError,
 	verificationBlocked,
 	verificationToken,
-}: AlternativeSignInProps): ReactElement | null {
+}: AlternativeSignInProps): ReactElement | null
+{
 	const [busy, setBusy] = useState(false);
 	const passkeyAvailable = passkeysUsable(methods);
 
-	async function run(action: () => Promise<void>): Promise<void> {
+	async function run(action: () => Promise<void>): Promise<void>
+	{
 		onStart();
 		setBusy(true);
 		onError(null);
-		try {
+		try
+		{
 			await action();
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			onError(errorMessage(caught));
-		} finally {
+		}
+		finally
+		{
 			setBusy(false);
 		}
 	}
 
-	if (methods.social.length === 0 && !methods.magicLink && !passkeyAvailable) {
+	if (methods.social.length === 0 && !methods.magicLink && !passkeyAvailable)
+	{
 		return null;
 	}
 	return (
@@ -829,7 +983,8 @@ function AlternativeSignIn({
 					className="secondary"
 					disabled={busy}
 					onClick={() =>
-						void run(async () => {
+						void run(async () =>
+						{
 							followOAuthRedirect(await startSocialSignIn(provider, callbackURL));
 						})
 					}
@@ -843,7 +998,8 @@ function AlternativeSignIn({
 					className="secondary"
 					disabled={busy}
 					onClick={() =>
-						void run(async () => {
+						void run(async () =>
+						{
 							onAuthenticated(await signInWithPasskey());
 						})
 					}
@@ -857,7 +1013,8 @@ function AlternativeSignIn({
 					disabled={busy || verificationBlocked}
 					email={email}
 					onError={onError}
-					verificationToken={async () => {
+					verificationToken={async () =>
+					{
 						onStart();
 						return verificationToken();
 					}}
@@ -867,9 +1024,12 @@ function AlternativeSignIn({
 	);
 }
 
-interface SignInProps extends AccountFormRouteProps, AuthenticationCompletionProps {}
+interface SignInProps extends AccountFormRouteProps, AuthenticationCompletionProps
+{
+}
 
-function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: SignInProps): ReactElement {
+function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: SignInProps): ReactElement
+{
 	const oauthQuery = oauthQueryFromLocation();
 	const {blocked, discoveryError, methods, verification} = useAccountForm("sign_in", theme);
 	const [email, setEmail] = useState("");
@@ -879,28 +1039,38 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 	const displayedError = error ?? discoveryError;
 	const cancelPasskeyAutofill = usePasskeyAutofill(passkeysUsable(methods), onAuthenticated);
 
-	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void>
+	{
 		event.preventDefault();
 		cancelPasskeyAutofill();
 		setSubmitting(true);
 		setError(null);
-		try {
+		try
+		{
 			const humanVerificationToken = await verification.consume();
-			if (oauthQuery === null) {
+			if (oauthQuery === null)
+			{
 				onAuthenticated(await signIn(email, password, humanVerificationToken));
-			} else {
+			}
+			else
+			{
 				// The authorization query rides through verification untouched, so a refused check
 				// costs the visitor a retry rather than the MCP client's whole authorization.
 				const redirectUrl = await signInForOAuth(email, password, oauthQuery, humanVerificationToken);
 				const user = await fetchSession();
-				if (user === null || !user.emailVerified) {
+				if (user === null || !user.emailVerified)
+				{
 					throw new Error("Verify your YepNope email before authorizing this MCP client.");
 				}
 				onOAuthAuthenticated(user, redirectUrl);
 			}
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
-		} finally {
+		}
+		finally
+		{
 			setSubmitting(false);
 		}
 	}
@@ -922,7 +1092,8 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 						autoComplete="username webauthn"
 						required
 						value={email}
-						onChange={(event) => {
+						onChange={(event) =>
+						{
 							setEmail(event.currentTarget.value);
 						}}
 					/>
@@ -935,7 +1106,8 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 						autoComplete="current-password"
 						required
 						value={password}
-						onChange={(event) => {
+						onChange={(event) =>
+						{
 							setPassword(event.currentTarget.value);
 						}}
 					/>
@@ -963,7 +1135,8 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 			<div className="account-links">
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("forgot-password");
 					}}
 				>
@@ -971,7 +1144,8 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 				</button>
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("register");
 					}}
 				>
@@ -979,7 +1153,8 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 				</button>
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("deck");
 					}}
 				>
@@ -990,13 +1165,15 @@ function SignIn({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: Sign
 	);
 }
 
-interface RegisterProps extends AccountFormRouteProps {
+interface RegisterProps extends AccountFormRouteProps
+{
 	onRegistered: (email: string, delivery: VerificationDelivery) => void;
 }
 
 type VerificationDelivery = "accepted" | "failed" | "idle";
 
-function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElement {
+function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElement
+{
 	const oauthQuery = oauthQueryFromLocation();
 	const {blocked, discoveryError, verification} = useAccountForm("register", theme);
 	const [email, setEmail] = useState("");
@@ -1005,24 +1182,33 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 	const [submitting, setSubmitting] = useState(false);
 	const displayedError = error ?? discoveryError;
 
-	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void>
+	{
 		event.preventDefault();
 		setSubmitting(true);
 		setError(null);
-		try {
+		try
+		{
 			const callbackURL = authenticationCallbackPath(oauthQuery, "/verify-email");
 			await registerAccount(email, password, await verification.consume(), callbackURL);
-			try {
+			try
+			{
 				// 🎟️ Creating the account spent the first token, so the message that follows it
 				// waits for the widget to earn a second one rather than replaying the first.
 				await sendVerificationEmail(email, await verification.consume(), callbackURL);
 				onRegistered(email, "accepted");
-			} catch {
+			}
+			catch
+			{
 				onRegistered(email, "failed");
 			}
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
-		} finally {
+		}
+		finally
+		{
 			setSubmitting(false);
 		}
 	}
@@ -1040,7 +1226,8 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 						autoComplete="email"
 						required
 						value={email}
-						onChange={(event) => {
+						onChange={(event) =>
+						{
 							setEmail(event.currentTarget.value);
 						}}
 					/>
@@ -1054,7 +1241,8 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 						minLength={8}
 						required
 						value={password}
-						onChange={(event) => {
+						onChange={(event) =>
+						{
 							setPassword(event.currentTarget.value);
 						}}
 					/>
@@ -1072,7 +1260,8 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 			<div className="account-links">
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("sign-in");
 					}}
 				>
@@ -1080,7 +1269,8 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 				</button>
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("deck");
 					}}
 				>
@@ -1091,12 +1281,14 @@ function Register({onNavigate, onRegistered, theme}: RegisterProps): ReactElemen
 	);
 }
 
-interface VerifyEmailProps extends AccountFormRouteProps {
+interface VerifyEmailProps extends AccountFormRouteProps
+{
 	initialDelivery: VerificationDelivery;
 	initialEmail: string;
 }
 
-function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyEmailProps): ReactElement {
+function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyEmailProps): ReactElement
+{
 	const parameters = new URLSearchParams(window.location.search);
 	const oauthQuery = oauthQueryFromLocation();
 	const verificationError = parameters.get("error");
@@ -1107,18 +1299,24 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 	const [resendCompleted, setResendCompleted] = useState(false);
 	const hasRegistrationEmail = initialEmail !== "";
 
-	async function resend(): Promise<void> {
+	async function resend(): Promise<void>
+	{
 		setSubmitting(true);
 		setDelivery("idle");
 		setResendCompleted(false);
-		try {
+		try
+		{
 			const callbackURL = authenticationCallbackPath(oauthQuery, "/verify-email");
 			await sendVerificationEmail(email, await verification.consume(), callbackURL);
 			setDelivery("accepted");
 			setResendCompleted(true);
-		} catch {
+		}
+		catch
+		{
 			setDelivery("failed");
-		} finally {
+		}
+		finally
+		{
 			setSubmitting(false);
 		}
 	}
@@ -1166,7 +1364,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 			) : (
 				<form
 					className="account-form"
-					onSubmit={(event) => {
+					onSubmit={(event) =>
+					{
 						event.preventDefault();
 						void resend();
 					}}
@@ -1179,7 +1378,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 							autoComplete="email"
 							required
 							value={email}
-							onChange={(event) => {
+							onChange={(event) =>
+							{
 								setEmail(event.currentTarget.value);
 							}}
 						/>
@@ -1193,7 +1393,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 			<div className="account-links">
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("sign-in");
 					}}
 				>
@@ -1201,7 +1402,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 				</button>
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("deck");
 					}}
 				>
@@ -1212,7 +1414,8 @@ function VerifyEmail({initialDelivery, initialEmail, onNavigate, theme}: VerifyE
 	);
 }
 
-function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElement {
+function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElement
+{
 	const oauthQuery = oauthQueryFromLocation();
 	const {blocked, discoveryError, methods, verification} = useAccountForm("reset_password", theme);
 	const [email, setEmail] = useState("");
@@ -1220,14 +1423,18 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 	const [error, setError] = useState<string | null>(null);
 	const displayedError = error ?? discoveryError;
 
-	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void>
+	{
 		event.preventDefault();
 		setError(null);
-		try {
+		try
+		{
 			await requestPasswordReset(email, await verification.consume());
 			rememberPasswordResetOAuthQuery(oauthQuery);
 			setSent(true);
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
 		}
 	}
@@ -1247,7 +1454,8 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 						autoComplete="email"
 						required
 						value={email}
-						onChange={(event) => {
+						onChange={(event) =>
+						{
 							setEmail(event.currentTarget.value);
 						}}
 					/>
@@ -1285,7 +1493,8 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 			<div className="account-links">
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("sign-in");
 					}}
 				>
@@ -1293,7 +1502,8 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 				</button>
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("deck");
 					}}
 				>
@@ -1304,7 +1514,8 @@ function ForgotPassword({onNavigate, theme}: AccountFormRouteProps): ReactElemen
 	);
 }
 
-enum PasswordResetPhase {
+enum PasswordResetPhase
+{
 	Ready,
 	Resetting,
 	SigningIn,
@@ -1313,13 +1524,20 @@ enum PasswordResetPhase {
 	AuthorizationResumeFailed,
 }
 
-interface ResetPasswordProps extends AccountFormRouteProps, AuthenticationCompletionProps {}
+interface ResetPasswordProps extends AccountFormRouteProps, AuthenticationCompletionProps
+{
+}
 
-function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: ResetPasswordProps): ReactElement {
-	const [{invalid, token}] = useState(() => {
+function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme}: ResetPasswordProps): ReactElement
+{
+	const [{invalid, token}] = useState(() =>
+	{
 		const parameters = new URLSearchParams(window.location.search);
 		const initialToken = parameters.get("token");
-		return {invalid: parameters.get("error") !== null || initialToken === null, token: initialToken};
+		return {
+			invalid: parameters.get("error") !== null || initialToken === null,
+			token: initialToken,
+		};
 	});
 	const [oauthQuery] = useState(passwordResetOAuthQuery);
 	// Consuming the emailed recovery link is not gated: it already carries a single-use credential.
@@ -1332,32 +1550,41 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 	const [error, setError] = useState<string | null>(null);
 	const displayedError = error ?? discoveryError;
 
-	async function resumeAuthorization(user: AuthenticationUser, oauthQueryToResume: string): Promise<void> {
+	async function resumeAuthorization(user: AuthenticationUser, oauthQueryToResume: string): Promise<void>
+	{
 		setPhase(PasswordResetPhase.ResumingAuthorization);
 		setError(null);
-		try {
+		try
+		{
 			const redirectUrl = await resumeOAuthAuthorization(oauthQueryToResume);
 			rememberPasswordResetOAuthQuery(null);
 			onOAuthAuthenticated(user, redirectUrl);
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
 			setPhase(PasswordResetPhase.AuthorizationResumeFailed);
 		}
 	}
 
-	async function authenticateAfterReset(): Promise<void> {
+	async function authenticateAfterReset(): Promise<void>
+	{
 		setPhase(PasswordResetPhase.SigningIn);
 		setError(null);
 		let user: AuthenticationUser;
-		try {
+		try
+		{
 			user = await signIn(email, password, await verification.consume());
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
 			setPhase(PasswordResetPhase.SignInFailed);
 			return;
 		}
 		setAuthenticatedUser(user);
-		if (oauthQuery === null) {
+		if (oauthQuery === null)
+		{
 			rememberPasswordResetOAuthQuery(null);
 			onAuthenticated(user);
 			return;
@@ -1365,16 +1592,21 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 		await resumeAuthorization(user, oauthQuery);
 	}
 
-	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void>
+	{
 		event.preventDefault();
-		if (token === null || phase !== PasswordResetPhase.Ready) {
+		if (token === null || phase !== PasswordResetPhase.Ready)
+		{
 			return;
 		}
 		setPhase(PasswordResetPhase.Resetting);
 		setError(null);
-		try {
+		try
+		{
 			await consumePasswordResetToken(token, password);
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
 			setPhase(PasswordResetPhase.Ready);
 			return;
@@ -1398,7 +1630,8 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 					</p>
 					<button
 						type="button"
-						onClick={() => {
+						onClick={() =>
+						{
 							onNavigate("forgot-password");
 						}}
 					>
@@ -1424,7 +1657,8 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 					{phase === PasswordResetPhase.SignInFailed && (
 						<form
 							className="account-form"
-							onSubmit={(event) => {
+							onSubmit={(event) =>
+							{
 								event.preventDefault();
 								void authenticateAfterReset();
 							}}
@@ -1437,7 +1671,8 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 									autoComplete="email"
 									required
 									value={email}
-									onChange={(event) => {
+									onChange={(event) =>
+									{
 										setEmail(event.currentTarget.value);
 									}}
 								/>
@@ -1469,7 +1704,8 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 							autoComplete="email"
 							required
 							value={email}
-							onChange={(event) => {
+							onChange={(event) =>
+							{
 								setEmail(event.currentTarget.value);
 							}}
 						/>
@@ -1483,7 +1719,8 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 							minLength={8}
 							required
 							value={password}
-							onChange={(event) => {
+							onChange={(event) =>
+							{
 								setPassword(event.currentTarget.value);
 							}}
 						/>
@@ -1502,7 +1739,8 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 			<div className="account-links">
 				<button
 					type="button"
-					onClick={() => {
+					onClick={() =>
+					{
 						onNavigate("deck");
 					}}
 				>
@@ -1513,26 +1751,32 @@ function ResetPassword({onAuthenticated, onNavigate, onOAuthAuthenticated, theme
 	);
 }
 
-const OAUTH_CAPABILITIES = {
-	openid: {
+const OAUTH_CAPABILITIES =
+{
+	openid:
+	{
 		description: "Confirm which verified YepNope account is authorizing the connection.",
 		label: "Use your YepNope identity",
 	},
-	offline_access: {
+	offline_access:
+	{
 		description: "Refresh this connection without asking you to sign in each time.",
 		label: "Stay connected",
 	},
-	"yepnope:questions": {
+	"yepnope:questions":
+	{
 		description: "Send questions to YepNope and wait for your Yep, Nope, or Skip answer.",
 		label: "Ask questions",
 	},
 } as const;
 
-function isOAuthCapability(scope: string): scope is keyof typeof OAUTH_CAPABILITIES {
+function isOAuthCapability(scope: string): scope is keyof typeof OAUTH_CAPABILITIES
+{
 	return Object.hasOwn(OAUTH_CAPABILITIES, scope);
 }
 
-function grantedScopeSummary(scopes: string[]): string {
+function grantedScopeSummary(scopes: string[]): string
+{
 	return scopes
 		.map((scope) => (isOAuthCapability(scope) ? `${OAUTH_CAPABILITIES[scope].label} (${scope})` : scope))
 		.join(", ");
@@ -1540,7 +1784,8 @@ function grantedScopeSummary(scopes: string[]): string {
 
 type OAuthHandoff = "allowed" | "declined";
 
-interface OAuthHandoffPanelProps {
+interface OAuthHandoffPanelProps
+{
 	clientName: string;
 	handoff: OAuthHandoff;
 }
@@ -1550,7 +1795,8 @@ interface OAuthHandoffPanelProps {
  * panel is the last surface YepNope owns. The browser is already navigating to the client while it
  * renders; nothing here delays, replaces, or inspects the authorization response.
  */
-function OAuthHandoffPanel({clientName, handoff}: OAuthHandoffPanelProps): ReactElement {
+function OAuthHandoffPanel({clientName, handoff}: OAuthHandoffPanelProps): ReactElement
+{
 	const allowed = handoff === "allowed";
 	return (
 		<AccountPanel title={allowed ? "Connection authorized" : "Connection declined"}>
@@ -1570,7 +1816,8 @@ function OAuthHandoffPanel({clientName, handoff}: OAuthHandoffPanelProps): React
 	);
 }
 
-function OAuthConsent(): ReactElement {
+function OAuthConsent(): ReactElement
+{
 	const oauthQuery = oauthQueryFromLocation();
 	const parameters = new URLSearchParams(oauthQuery ?? "");
 	const clientId = parameters.get("client_id");
@@ -1591,46 +1838,60 @@ function OAuthConsent(): ReactElement {
 	const [submitting, setSubmitting] = useState(false);
 	const [handoff, setHandoff] = useState<OAuthHandoff | null>(null);
 
-	useEffect(() => {
+	useEffect(() =>
+	{
 		let cancelled = false;
-		if (!requestIsValid) {
+		if (!requestIsValid)
+		{
 			setError("This authorization request is invalid or has expired.");
 			return undefined;
 		}
 		fetchOAuthClient(clientId).then(
-			(loadedClient) => {
-				if (!cancelled) {
+			(loadedClient) =>
+			{
+				if (!cancelled)
+				{
 					setClient(loadedClient);
 				}
 			},
-			() => {
-				if (!cancelled) {
+			() =>
+			{
+				if (!cancelled)
+				{
 					setError("This MCP client could not be verified. Start the connection again from the client.");
 				}
 			},
 		);
-		return () => {
+		return () =>
+		{
 			cancelled = true;
 		};
 	}, [clientId, requestIsValid]);
 
-	async function decide(accept: boolean): Promise<void> {
-		if (oauthQuery === null || !requestIsValid) {
+	async function decide(accept: boolean): Promise<void>
+	{
+		if (oauthQuery === null || !requestIsValid)
+		{
 			return;
 		}
 		setSubmitting(true);
 		setError(null);
-		try {
-			if (followOAuthRedirect(await submitOAuthConsent(oauthQuery, accept))) {
+		try
+		{
+			if (followOAuthRedirect(await submitOAuthConsent(oauthQuery, accept)))
+			{
 				setHandoff(accept ? "allowed" : "declined");
 			}
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
 			setSubmitting(false);
 		}
 	}
 
-	if (handoff !== null) {
+	if (handoff !== null)
+	{
 		return <OAuthHandoffPanel clientName={client?.name ?? "the MCP client"} handoff={handoff} />;
 	}
 
@@ -1645,7 +1906,8 @@ function OAuthConsent(): ReactElement {
 			)}
 			{requestIsValid && (
 				<ul className="oauth-capabilities">
-					{recognizedScopes.map((scope) => {
+					{recognizedScopes.map((scope) =>
+					{
 						const capability = OAUTH_CAPABILITIES[scope];
 						return (
 							<li key={scope}>
@@ -1684,29 +1946,39 @@ type DeviceAuthorizationOutcome = DeviceAuthorizationDecision | "decided" | "exp
 
 const DEVICE_AUTHORIZATION_OUTCOMES: Record<
 	DeviceAuthorizationOutcome,
-	{detail: string; headline: string; title: string}
-> = {
-	approved: {
+	{
+		detail: string;
+		headline: string;
+		title: string;
+	}
+> =
+{
+	approved:
+	{
 		detail: "You can revoke it any time under Settings, Connected MCP clients.",
 		headline: "Approved. You can go back to your terminal.",
 		title: "Device approved",
 	},
-	denied: {
+	denied:
+	{
 		detail: "You can close this tab and go back to your terminal.",
 		headline: "Denied. Nothing was connected to your account.",
 		title: "Device denied",
 	},
-	decided: {
+	decided:
+	{
 		detail: "Run the command again if you still need to connect.",
 		headline: "This code was already approved or denied.",
 		title: "Code already used",
 	},
-	expired: {
+	expired:
+	{
 		detail: "Codes last ten minutes. Run the command again to get a fresh one.",
 		headline: "This code has expired.",
 		title: "Code expired",
 	},
-	not_found: {
+	not_found:
+	{
 		detail: "Check the code your terminal printed, or run the command again to get a fresh one.",
 		headline: "No pending request matches that code.",
 		title: "Code not found",
@@ -1715,8 +1987,10 @@ const DEVICE_AUTHORIZATION_OUTCOMES: Record<
 
 // 🏁 Losing the write race and finding an answer already on file tell the reader the same thing:
 // this code has been answered, so stop waiting on this tab.
-function deviceOutcomeFromResult(result: DeviceAuthorizationResult): DeviceAuthorizationOutcome {
-	if (result.status === "decided") {
+function deviceOutcomeFromResult(result: DeviceAuthorizationResult): DeviceAuthorizationOutcome
+{
+	if (result.status === "decided")
+	{
 		return result.decision;
 	}
 	return result.status === "expired" || result.status === "not_found" ? result.status : "decided";
@@ -1726,7 +2000,8 @@ function deviceOutcomeFromResult(result: DeviceAuthorizationResult): DeviceAutho
  * Every way the device grant can end — including the two the account holder chose — is a dead end
  * for this tab: the terminal, not the browser, carries the result forward.
  */
-function DeviceAuthorizationOutcomePanel({outcome}: {outcome: DeviceAuthorizationOutcome}): ReactElement {
+function DeviceAuthorizationOutcomePanel({outcome}: {outcome: DeviceAuthorizationOutcome}): ReactElement
+{
 	const copy = DEVICE_AUTHORIZATION_OUTCOMES[outcome];
 	return (
 		<AccountPanel title={copy.title}>
@@ -1738,7 +2013,8 @@ function DeviceAuthorizationOutcomePanel({outcome}: {outcome: DeviceAuthorizatio
 	);
 }
 
-function DeviceAuthorization(): ReactElement {
+function DeviceAuthorization(): ReactElement
+{
 	const initialUserCode = deviceUserCodeFromLocation();
 	const [userCode, setUserCode] = useState(initialUserCode);
 	const [authorization, setAuthorization] = useState<PendingDeviceAuthorization | null>(null);
@@ -1746,75 +2022,98 @@ function DeviceAuthorization(): ReactElement {
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(initialUserCode !== "");
 
-	const applyLookup = useCallback((lookup: DeviceAuthorizationLookup) => {
-		if (lookup.status === "pending") {
+	const applyLookup = useCallback((lookup: DeviceAuthorizationLookup) =>
+	{
+		if (lookup.status === "pending")
+		{
 			setAuthorization(lookup.authorization);
-		} else {
+		}
+		else
+		{
 			setOutcome(lookup.status);
 		}
 		setBusy(false);
 	}, []);
 
-	useEffect(() => {
-		if (initialUserCode === "") {
+	useEffect(() =>
+	{
+		if (initialUserCode === "")
+		{
 			return undefined;
 		}
 		let cancelled = false;
 		fetchDeviceAuthorization(initialUserCode).then(
-			(lookup) => {
-				if (!cancelled) {
+			(lookup) =>
+			{
+				if (!cancelled)
+				{
 					applyLookup(lookup);
 				}
 			},
-			(caught: unknown) => {
-				if (!cancelled) {
+			(caught: unknown) =>
+			{
+				if (!cancelled)
+				{
 					setError(errorMessage(caught));
 					setBusy(false);
 				}
 			},
 		);
-		return () => {
+		return () =>
+		{
 			cancelled = true;
 		};
 	}, [applyLookup, initialUserCode]);
 
-	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+	async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void>
+	{
 		event.preventDefault();
 		setBusy(true);
 		setError(null);
-		try {
+		try
+		{
 			applyLookup(await fetchDeviceAuthorization(userCode));
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
 			setBusy(false);
 		}
 	}
 
-	async function decide(decision: DeviceAuthorizationDecision): Promise<void> {
-		if (authorization === null) {
+	async function decide(decision: DeviceAuthorizationDecision): Promise<void>
+	{
+		if (authorization === null)
+		{
 			return;
 		}
 		setBusy(true);
 		setError(null);
-		try {
+		try
+		{
 			setOutcome(deviceOutcomeFromResult(await decideDeviceAuthorization(authorization.userCode, decision)));
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(errorMessage(caught));
 			setBusy(false);
 		}
 	}
 
-	if (outcome !== null) {
+	if (outcome !== null)
+	{
 		return <DeviceAuthorizationOutcomePanel outcome={outcome} />;
 	}
-	if (authorization === null && busy && error === null) {
+	if (authorization === null && busy && error === null)
+	{
 		return (
 			<AccountPanel title="Approve a device">
 				<p>Checking the code from your terminal…</p>
 			</AccountPanel>
 		);
 	}
-	if (authorization === null) {
+	if (authorization === null)
+	{
 		return (
 			<AccountPanel title="Approve a device">
 				<p>Enter the code your terminal printed. It stays valid for ten minutes.</p>
@@ -1828,7 +2127,8 @@ function DeviceAuthorization(): ReactElement {
 							autoCapitalize="characters"
 							required
 							value={userCode}
-							onChange={(event) => {
+							onChange={(event) =>
+							{
 								setUserCode(event.currentTarget.value);
 							}}
 						/>
@@ -1885,7 +2185,8 @@ function DeviceAuthorization(): ReactElement {
 	);
 }
 
-interface ManagedDeviceRowProps {
+interface ManagedDeviceRowProps
+{
 	label: string;
 	metadata: string;
 	onRename?: (label: string) => Promise<void>;
@@ -1899,21 +2200,27 @@ function ManagedDeviceRow({
 	onRename,
 	onRevoke,
 	revokeLabel = "Revoke",
-}: ManagedDeviceRowProps): ReactElement {
+}: ManagedDeviceRowProps): ReactElement
+{
 	const [editing, setEditing] = useState(false);
 	const [nextLabel, setNextLabel] = useState(label);
 	const [busy, setBusy] = useState(false);
 
-	async function save(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+	async function save(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void>
+	{
 		event.preventDefault();
 		setBusy(true);
-		if (onRename === undefined) {
+		if (onRename === undefined)
+		{
 			throw new Error("this connected client cannot be renamed");
 		}
-		try {
+		try
+		{
 			await onRename(nextLabel);
 			setEditing(false);
-		} finally {
+		}
+		finally
+		{
 			setBusy(false);
 		}
 	}
@@ -1929,7 +2236,8 @@ function ManagedDeviceRow({
 							maxLength={100}
 							required
 							value={nextLabel}
-							onChange={(event) => {
+							onChange={(event) =>
+							{
 								setNextLabel(event.currentTarget.value);
 							}}
 						/>
@@ -1942,7 +2250,8 @@ function ManagedDeviceRow({
 							type="button"
 							className="secondary"
 							disabled={busy}
-							onClick={() => {
+							onClick={() =>
+							{
 								setNextLabel(label);
 								setEditing(false);
 							}}
@@ -1963,7 +2272,8 @@ function ManagedDeviceRow({
 								<button
 									type="button"
 									className="secondary"
-									onClick={() => {
+									onClick={() =>
+									{
 										setEditing(true);
 									}}
 								>
@@ -1975,9 +2285,11 @@ function ManagedDeviceRow({
 									type="button"
 									className="secondary"
 									disabled={busy}
-									onClick={() => {
+									onClick={() =>
+									{
 										setBusy(true);
-										void onRevoke().finally(() => {
+										void onRevoke().finally(() =>
+										{
 											setBusy(false);
 										});
 									}}
@@ -1993,12 +2305,14 @@ function ManagedDeviceRow({
 	);
 }
 
-interface InstallCommandProps {
+interface InstallCommandProps
+{
 	command: string;
 	label: string;
 }
 
-function InstallCommand({command, label}: InstallCommandProps): ReactElement {
+function InstallCommand({command, label}: InstallCommandProps): ReactElement
+{
 	const [copyState, setCopyState] = useState<"copied" | "error" | "idle">("idle");
 	return (
 		<div className="install-command">
@@ -2009,12 +2323,15 @@ function InstallCommand({command, label}: InstallCommandProps): ReactElement {
 			<button
 				type="button"
 				className="secondary"
-				onClick={() => {
+				onClick={() =>
+				{
 					void navigator.clipboard.writeText(command).then(
-						() => {
+						() =>
+						{
 							setCopyState("copied");
 						},
-						() => {
+						() =>
+						{
 							setCopyState("error");
 						},
 					);
@@ -2027,16 +2344,19 @@ function InstallCommand({command, label}: InstallCommandProps): ReactElement {
 	);
 }
 
-function newPasskeyName(): string {
+function newPasskeyName(): string
+{
 	return `Passkey added ${new Date().toLocaleDateString()}`;
 }
 
-interface SignInMethodsPanelProps {
+interface SignInMethodsPanelProps
+{
 	onSignedOut: () => void;
 }
 
 // 🔐 One place to see every way into this account, and the only place to add or remove one.
-function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElement {
+function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElement
+{
 	// This panel is behind a session and adds no method the Worker gates, so discovery stays the
 	// enhancement it always was here.
 	const methods = alternativeMethods(useAuthenticationMethods());
@@ -2046,36 +2366,47 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 	const [busy, setBusy] = useState(false);
 	const passkeyAvailable = passkeysUsable(methods);
 
-	const reload = useCallback(async (): Promise<void> => {
+	const reload = useCallback(async (): Promise<void> =>
+	{
 		const [accounts, credentials] = await Promise.all([fetchLinkedAccounts(), fetchPasskeys()]);
 		setLinkedAccounts(accounts);
 		setPasskeys(credentials);
 	}, []);
 
-	useEffect(() => {
-		void reload().catch((caught: unknown) => {
+	useEffect(() =>
+	{
+		void reload().catch((caught: unknown) =>
+		{
 			setError(errorMessage(caught));
 		});
 	}, [reload]);
 
-	async function run(action: () => Promise<void>): Promise<void> {
+	async function run(action: () => Promise<void>): Promise<void>
+	{
 		setBusy(true);
 		setError(null);
-		try {
+		try
+		{
 			await action();
 			await reload();
-		} catch (caught) {
-			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+		}
+		catch (caught)
+		{
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403))
+			{
 				onSignedOut();
 				return;
 			}
 			setError(errorMessage(caught));
-		} finally {
+		}
+		finally
+		{
 			setBusy(false);
 		}
 	}
 
-	function linkedAccountFor(provider: SocialProvider): LinkedAccount | undefined {
+	function linkedAccountFor(provider: SocialProvider): LinkedAccount | undefined
+	{
 		return linkedAccounts.find((account) => account.provider === provider);
 	}
 
@@ -2086,7 +2417,8 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 				Any method listed here signs you into this same account. Keep at least two so losing one device never
 				locks you out.
 			</p>
-			{methods.social.map((provider) => {
+			{methods.social.map((provider) =>
+			{
 				const linked = linkedAccountFor(provider);
 				const label = SOCIAL_PROVIDER_LABELS[provider];
 				return (
@@ -2096,8 +2428,10 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 						className="secondary"
 						disabled={busy}
 						onClick={() =>
-							void run(async () => {
-								if (linked === undefined) {
+							void run(async () =>
+							{
+								if (linked === undefined)
+								{
 									followOAuthRedirect(await linkSocialAccount(provider, "/settings/account"));
 									return;
 								}
@@ -2122,8 +2456,10 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 									label={passkey.name}
 									metadata={`Added ${new Date(passkey.createdAt).toLocaleDateString()}`}
 									revokeLabel="Remove"
-									onRevoke={async () => {
-										await run(async () => {
+									onRevoke={async () =>
+									{
+										await run(async () =>
+										{
 											await deletePasskey(passkey.id);
 										});
 									}}
@@ -2135,7 +2471,8 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 						type="button"
 						disabled={busy}
 						onClick={() =>
-							void run(async () => {
+							void run(async () =>
+							{
 								await registerPasskey(newPasskeyName());
 							})
 						}
@@ -2155,13 +2492,15 @@ function SignInMethodsPanel({onSignedOut}: SignInMethodsPanelProps): ReactElemen
 	);
 }
 
-interface AppearancePanelProps {
+interface AppearancePanelProps
+{
 	theme: Theme;
 }
 
 // 🌗 A native radio group: arrow keys move between the three states, the legend names the group,
 // and the checked radio is the state a screen reader reports. No ARIA of our own is needed.
-function AppearancePanel({theme}: AppearancePanelProps): ReactElement {
+function AppearancePanel({theme}: AppearancePanelProps): ReactElement
+{
 	return (
 		<div className="hint appearance" role="region" aria-label="Appearance">
 			<p>
@@ -2177,7 +2516,8 @@ function AppearancePanel({theme}: AppearancePanelProps): ReactElement {
 							name="theme"
 							value={choice.preference}
 							checked={theme.preference === choice.preference}
-							onChange={() => {
+							onChange={() =>
+							{
 								theme.select(choice.preference);
 							}}
 						/>
@@ -2197,11 +2537,13 @@ function SettingsLink({
 	view: AppView;
 	onNavigate: (view: AppView) => void;
 	children: ReactNode;
-}): ReactElement {
+}): ReactElement
+{
 	return (
 		<a
 			href={pathForView(view)}
-			onClick={(event) => {
+			onClick={(event) =>
+			{
 				if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 				event.preventDefault();
 				onNavigate(view);
@@ -2222,9 +2564,11 @@ function Settings({
 	onSignIn,
 	onRegister,
 	onSignedOut,
-}: SettingsProps): ReactElement {
+}: SettingsProps): ReactElement
+{
 	const heading = useRef<HTMLHeadingElement | null>(null);
-	useEffect(() => {
+	useEffect(() =>
+	{
 		heading.current?.focus();
 	}, [view]);
 	const requiresIosInstall = isIos() && !isStandalone();
@@ -2233,8 +2577,10 @@ function Settings({
 	const [devicesError, setDevicesError] = useState<string | null>(null);
 	const [devicesLoading, setDevicesLoading] = useState(false);
 	const [pushState, setPushState] = useState<PushSetupResult | "idle" | "error">("idle");
-	useEffect(() => {
-		void currentPushState().then(setPushState, () => {
+	useEffect(() =>
+	{
+		void currentPushState().then(setPushState, () =>
+		{
 			setPushState("idle");
 		});
 	}, []);
@@ -2245,38 +2591,52 @@ function Settings({
 	const onSignedOutRef = useRef(onSignedOut);
 	onSignedOutRef.current = onSignedOut;
 
-	const reloadDevices = useCallback(async (): Promise<void> => {
-		if (session === null) {
+	const reloadDevices = useCallback(async (): Promise<void> =>
+	{
+		if (session === null)
+		{
 			setAccountDevices(null);
 			return;
 		}
 		setDevicesLoading(true);
-		try {
+		try
+		{
 			setAccountDevices(await fetchAccountDevices());
 			setDevicesError(null);
-		} catch (caught) {
-			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+		}
+		catch (caught)
+		{
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403))
+			{
 				setAccountDevices(null);
 				onSignedOutRef.current();
 				return;
 			}
 			setDevicesError(errorMessage(caught));
-		} finally {
+		}
+		finally
+		{
 			setDevicesLoading(false);
 		}
 	}, [session]);
 
-	useEffect(() => {
+	useEffect(() =>
+	{
 		void reloadDevices();
 	}, [connectedMcpClientCount, reloadDevices]);
 
-	async function runDeviceAction(action: () => Promise<void>): Promise<void> {
+	async function runDeviceAction(action: () => Promise<void>): Promise<void>
+	{
 		setDevicesError(null);
-		try {
+		try
+		{
 			await action();
 			await reloadDevices();
-		} catch (caught) {
-			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+		}
+		catch (caught)
+		{
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403))
+			{
 				onSignedOutRef.current();
 				return;
 			}
@@ -2339,9 +2699,11 @@ function Settings({
 								<button
 									type="button"
 									className="secondary"
-									onClick={() => {
+									onClick={() =>
+									{
 										setAccountError(null);
-										void signOut().then(onSignedOut, (caught: unknown) => {
+										void signOut().then(onSignedOut, (caught: unknown) =>
+										{
 											setAccountError(errorMessage(caught));
 										});
 									}}
@@ -2383,9 +2745,11 @@ function Settings({
 									label={client.displayName}
 									metadata={`Authorized ${new Date(client.authorizedAt).toLocaleString()} · ${client.lastUsedAt === null ? "Not used yet" : `Last used ${new Date(client.lastUsedAt).toLocaleString()}`} · Granted scopes: ${grantedScopeSummary(client.grantedScopes)} · ${client.status}`}
 									{...(client.status === "active"
-										? {
+										?
+											{
 												onRevoke: async () =>
-													runDeviceAction(async () => {
+													runDeviceAction(async () =>
+													{
 														await revokeConnectedMcpClient(client.id);
 													}),
 											}
@@ -2469,15 +2833,19 @@ function Settings({
 							<>
 								<button
 									type="button"
-									onClick={() => {
+									onClick={() =>
+									{
 										void enablePush().then(
-											(result) => {
+											(result) =>
+											{
 												setPushState(result);
-												if (result === "subscribed") {
+												if (result === "subscribed")
+												{
 													void reloadDevices();
 												}
 											},
-											() => {
+											() =>
+											{
 												setPushState("error");
 											},
 										);
@@ -2538,11 +2906,14 @@ function Settings({
  * new client is a different errand with different steps for every CLI, and inlining all of them
  * buried the account controls underneath instructions for somebody else's agent.
  */
-function ConnectClients({session, focusHeading, onBack, onSignIn}: ConnectClientsProps): ReactElement {
+function ConnectClients({session, focusHeading, onBack, onSignIn}: ConnectClientsProps): ReactElement
+{
 	const pageHeading = useRef<HTMLHeadingElement | null>(null);
 
-	useEffect(() => {
-		if (focusHeading) {
+	useEffect(() =>
+	{
+		if (focusHeading)
+		{
 			pageHeading.current?.focus();
 		}
 	}, [focusHeading]);
@@ -2599,7 +2970,8 @@ function ConnectClients({session, focusHeading, onBack, onSignIn}: ConnectClient
 	);
 }
 
-export function App(): ReactElement {
+export function App(): ReactElement
+{
 	const theme = useTheme();
 	const [session, setSession] = useState<AuthenticationUser | null>(null);
 	const sessionRef = useRef(session);
@@ -2615,19 +2987,24 @@ export function App(): ReactElement {
 	const [verificationDelivery, setVerificationDelivery] = useState<VerificationDelivery>("idle");
 	const currentDeckStream = useRef<CurrentDeckStream | null>(null);
 
-	useEffect(() => {
-		function onPopState(): void {
+	useEffect(() =>
+	{
+		function onPopState(): void
+		{
 			setOAuthResumeFailed(false);
 			setView(viewFromPath(window.location.pathname));
 		}
 		window.addEventListener("popstate", onPopState);
-		return () => {
+		return () =>
+		{
 			window.removeEventListener("popstate", onPopState);
 		};
 	}, []);
 
-	useEffect(() => {
-		const titles: Record<AppView, string> = {
+	useEffect(() =>
+	{
+		const titles: Record<AppView, string> =
+		{
 			deck: "YepNope",
 			settings: "Settings · YepNope",
 			"settings/account": `${SETTINGS_PAGES["settings/account"].title} · Settings · YepNope`,
@@ -2650,7 +3027,8 @@ export function App(): ReactElement {
 		document.title = titles[view];
 	}, [view]);
 
-	function navigate(nextView: AppView): void {
+	function navigate(nextView: AppView): void
+	{
 		const oauthQuery = oauthQueryFromLocation();
 		const preserveOAuthQuery =
 			oauthQuery !== null &&
@@ -2659,17 +3037,20 @@ export function App(): ReactElement {
 				nextView === "verify-email" ||
 				nextView === "forgot-password");
 		const target = `${pathForView(nextView)}${preserveOAuthQuery ? `?${oauthQuery}` : deviceHandoffQuery(nextView)}`;
-		if (`${window.location.pathname}${window.location.search}` !== target) {
+		if (`${window.location.pathname}${window.location.search}` !== target)
+		{
 			window.history.pushState({}, "", target);
 		}
-		if (nextView !== "connect") {
+		if (nextView !== "connect")
+		{
 			setConnectingClient(false);
 		}
 		setOAuthResumeFailed(false);
 		setView(nextView);
 	}
 
-	const showSignedOutLanding = useCallback(() => {
+	const showSignedOutLanding = useCallback(() =>
+	{
 		sessionRef.current = null;
 		currentDeckStream.current?.close();
 		currentDeckStream.current = null;
@@ -2681,7 +3062,8 @@ export function App(): ReactElement {
 		rememberPasswordResetOAuthQuery(null);
 		setSession(null);
 		setSessionReady(true);
-		if (`${window.location.pathname}${window.location.search}` !== "/") {
+		if (`${window.location.pathname}${window.location.search}` !== "/")
+		{
 			window.history.replaceState({}, "", "/");
 		}
 		setView("deck");
@@ -2690,19 +3072,25 @@ export function App(): ReactElement {
 	// 🚪 A 401 or 403 means the session that sent the request is over. A request still in flight when
 	// the user signed out is refused after the landing is already showing — often after they have
 	// moved on to sign in again — so a refusal only ends a session that is still current.
-	const endRefusedSession = useCallback(() => {
-		if (sessionRef.current !== null) {
+	const endRefusedSession = useCallback(() =>
+	{
+		if (sessionRef.current !== null)
+		{
 			showSignedOutLanding();
 		}
 	}, [showSignedOutLanding]);
 
-	useEffect(() => {
+	useEffect(() =>
+	{
 		let cancelled = false;
 		fetchSession().then(
-			(user) => {
-				if (!cancelled) {
+			(user) =>
+			{
+				if (!cancelled)
+				{
 					const oauthQuery = oauthQueryFromLocation();
-					if (user === null && oauthQuery !== null && window.location.pathname === "/oauth/consent") {
+					if (user === null && oauthQuery !== null && window.location.pathname === "/oauth/consent")
+					{
 						window.history.replaceState({}, "", `/sign-in?${oauthQuery}`);
 						setView("sign-in");
 					}
@@ -2710,11 +3098,14 @@ export function App(): ReactElement {
 						user !== null &&
 						oauthQuery !== null &&
 						(window.location.pathname === "/sign-in" || window.location.pathname === "/verify-email")
-					) {
+					)
+					{
 						setSession(user);
 						setSessionReady(true);
-						resumeOAuthAuthorization(oauthQuery).then(followOAuthRedirect, () => {
-							if (cancelled) {
+						resumeOAuthAuthorization(oauthQuery).then(followOAuthRedirect, () =>
+						{
+							if (cancelled)
+							{
 								return;
 							}
 							// Landing on the sign-in form the visitor already satisfied would tell
@@ -2727,7 +3118,8 @@ export function App(): ReactElement {
 						return;
 					}
 					const deviceUserCode = deviceUserCodeFromLocation();
-					if (user === null && window.location.pathname === "/device") {
+					if (user === null && window.location.pathname === "/device")
+					{
 						window.history.replaceState({}, "", `/sign-in${deviceHandoffQuery("sign-in")}`);
 						setView("sign-in");
 					}
@@ -2735,39 +3127,49 @@ export function App(): ReactElement {
 						user !== null &&
 						deviceUserCode !== "" &&
 						(window.location.pathname === "/sign-in" || window.location.pathname === "/verify-email")
-					) {
+					)
+					{
 						window.history.replaceState({}, "", `/device${deviceHandoffQuery("device")}`);
 						setView("device");
 					}
-					if (user === null && isSettingsView(viewFromPath(window.location.pathname))) {
+					if (user === null && isSettingsView(viewFromPath(window.location.pathname)))
+					{
 						showSignedOutLanding();
 						return;
 					}
 					setSession(user);
-					if (user !== null && window.location.pathname === "/verify-email") {
+					if (user !== null && window.location.pathname === "/verify-email")
+					{
 						window.history.replaceState({}, "", "/");
 						setView("deck");
 					}
 					setSessionReady(true);
 				}
 			},
-			() => {
-				if (!cancelled) {
+			() =>
+			{
+				if (!cancelled)
+				{
 					showSignedOutLanding();
 				}
 			},
 		);
-		return () => {
+		return () =>
+		{
 			cancelled = true;
 		};
 	}, [showSignedOutLanding]);
 
-	const refreshAfk = useCallback(() => {
-		if (session === null) {
+	const refreshAfk = useCallback(() =>
+	{
+		if (session === null)
+		{
 			return;
 		}
-		fetchAfk().then(setAfkState, (caught: unknown) => {
-			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403)) {
+		fetchAfk().then(setAfkState, (caught: unknown) =>
+		{
+			if (caught instanceof ApiResponseError && (caught.status === 401 || caught.status === 403))
+			{
 				endRefusedSession();
 				return;
 			}
@@ -2775,8 +3177,10 @@ export function App(): ReactElement {
 		});
 	}, [endRefusedSession, session]);
 
-	useEffect(() => {
-		if (session === null) {
+	useEffect(() =>
+	{
+		if (session === null)
+		{
 			setCurrentQuestions([]);
 			setAfkState(null);
 			setConnectedMcpClientCount(null);
@@ -2786,8 +3190,10 @@ export function App(): ReactElement {
 		refreshAfk();
 		let active = true;
 		const stream = openCurrentDeckStream(
-			(state) => {
-				if (!active) {
+			(state) =>
+			{
+				if (!active)
+				{
 					return;
 				}
 				setAfkState(state.afk);
@@ -2796,25 +3202,32 @@ export function App(): ReactElement {
 				updateBadge(state.currentDeck.length);
 			},
 			{
-				onSignedOut: () => {
-					if (active) {
+				onSignedOut: () =>
+				{
+					if (active)
+					{
 						showSignedOutLanding();
 					}
 				},
 			},
 		);
 		currentDeckStream.current = stream;
-		function onVisible(): void {
-			if (document.visibilityState === "visible") {
+		function onVisible(): void
+		{
+			if (document.visibilityState === "visible")
+			{
 				stream.refresh();
 				refreshAfk();
 			}
 		}
-		function onServiceWorkerMessage(event: MessageEvent<unknown>): void {
-			if (typeof event.data !== "object" || event.data === null || !("type" in event.data)) {
+		function onServiceWorkerMessage(event: MessageEvent<unknown>): void
+		{
+			if (typeof event.data !== "object" || event.data === null || !("type" in event.data))
+			{
 				return;
 			}
-			if (event.data.type !== "account-state-changed") {
+			if (event.data.type !== "account-state-changed")
+			{
 				return;
 			}
 			stream.refresh();
@@ -2823,9 +3236,11 @@ export function App(): ReactElement {
 		document.addEventListener("visibilitychange", onVisible);
 		const workerContainer = "serviceWorker" in navigator ? navigator.serviceWorker : null;
 		workerContainer?.addEventListener("message", onServiceWorkerMessage);
-		return () => {
+		return () =>
+		{
 			active = false;
-			if (currentDeckStream.current === stream) {
+			if (currentDeckStream.current === stream)
+			{
 				stream.close();
 				currentDeckStream.current = null;
 			}
@@ -2834,33 +3249,42 @@ export function App(): ReactElement {
 		};
 	}, [refreshAfk, session, showSignedOutLanding, view]);
 
-	function onAnswer(questionId: string, disposition: Disposition): void {
-		if (session === null) {
+	function onAnswer(questionId: string, disposition: Disposition): void
+	{
+		if (session === null)
+		{
 			return;
 		}
-		setCurrentQuestions((current) => {
+		setCurrentQuestions((current) =>
+		{
 			const remaining = current.filter((question) => question.questionId !== questionId);
 			updateBadge(remaining.length);
 			return remaining;
 		});
-		submitAnswer(questionId, disposition).catch(() => {
+		submitAnswer(questionId, disposition).catch(() =>
+		{
 			currentDeckStream.current?.refresh();
 		});
 	}
 
-	function onToggleAfk(): void {
-		if (session === null || afk === null) {
+	function onToggleAfk(): void
+	{
+		if (session === null || afk === null)
+		{
 			return;
 		}
 		const next = !afk;
 		setAfkState(next);
-		updateAfk(next).then(setAfkState, () => {
+		updateAfk(next).then(setAfkState, () =>
+		{
 			setAfkState(afk);
 		});
 	}
 
-	function currentView(): ReactElement {
-		switch (view) {
+	function currentView(): ReactElement
+	{
+		switch (view)
+		{
 			case "settings/account":
 			case "settings/devices":
 			case "settings/appearance":
@@ -2868,10 +3292,12 @@ export function App(): ReactElement {
 			case "settings/notifications":
 			case "settings/privacy":
 			case "settings":
-				if (!sessionReady) {
+				if (!sessionReady)
+				{
 					return <div className="loading">Checking your session…</div>;
 				}
-				if (session === null) {
+				if (session === null)
+				{
 					return <SignedOutLanding onNavigate={navigate} />;
 				}
 				return (
@@ -2881,16 +3307,20 @@ export function App(): ReactElement {
 						session={session}
 						connectedMcpClientCount={connectedMcpClientCount}
 						theme={theme}
-						onConnectClient={() => {
+						onConnectClient={() =>
+						{
 							navigate("connect");
 						}}
-						onSignIn={() => {
+						onSignIn={() =>
+						{
 							navigate("sign-in");
 						}}
-						onRegister={() => {
+						onRegister={() =>
+						{
 							navigate("register");
 						}}
-						onSignedOut={() => {
+						onSignedOut={() =>
+						{
 							endRefusedSession();
 						}}
 					/>
@@ -2900,10 +3330,12 @@ export function App(): ReactElement {
 					<ConnectClients
 						session={session}
 						focusHeading={connectingClient}
-						onBack={() => {
+						onBack={() =>
+						{
 							navigate("deck");
 						}}
-						onSignIn={() => {
+						onSignIn={() =>
+						{
 							navigate("sign-in");
 						}}
 					/>
@@ -2913,12 +3345,14 @@ export function App(): ReactElement {
 					<SignIn
 						theme={theme.resolved}
 						onNavigate={navigate}
-						onAuthenticated={(user) => {
+						onAuthenticated={(user) =>
+						{
 							setSession(user);
 							setSessionReady(true);
 							navigate(deviceUserCodeFromLocation() === "" ? "settings" : "device");
 						}}
-						onOAuthAuthenticated={(user, redirectUrl) => {
+						onOAuthAuthenticated={(user, redirectUrl) =>
+						{
 							setSession(user);
 							setSessionReady(true);
 							followOAuthRedirect(redirectUrl);
@@ -2930,7 +3364,8 @@ export function App(): ReactElement {
 					<Register
 						theme={theme.resolved}
 						onNavigate={navigate}
-						onRegistered={(email, delivery) => {
+						onRegistered={(email, delivery) =>
+						{
 							setRegistrationEmail(email);
 							setVerificationDelivery(delivery);
 							navigate("verify-email");
@@ -2953,12 +3388,14 @@ export function App(): ReactElement {
 					<ResetPassword
 						theme={theme.resolved}
 						onNavigate={navigate}
-						onAuthenticated={(user) => {
+						onAuthenticated={(user) =>
+						{
 							setSession(user);
 							setSessionReady(true);
 							navigate("settings");
 						}}
-						onOAuthAuthenticated={(user, redirectUrl) => {
+						onOAuthAuthenticated={(user, redirectUrl) =>
+						{
 							setSession(user);
 							setSessionReady(true);
 							followOAuthRedirect(redirectUrl);
@@ -2966,28 +3403,34 @@ export function App(): ReactElement {
 					/>
 				);
 			case "oauth-consent":
-				if (!sessionReady) {
+				if (!sessionReady)
+				{
 					return <div className="loading">Checking your session…</div>;
 				}
-				if (session === null) {
+				if (session === null)
+				{
 					return <div className="loading">Sign in is required to continue.</div>;
 				}
 				return <OAuthConsent />;
 			case "pair-phone":
 				return <PairPhone />;
 			case "device":
-				if (!sessionReady) {
+				if (!sessionReady)
+				{
 					return <div className="loading">Checking your session…</div>;
 				}
-				if (session === null) {
+				if (session === null)
+				{
 					return <div className="loading">Sign in is required to continue.</div>;
 				}
 				return <DeviceAuthorization />;
 			case "deck":
-				if (!sessionReady) {
+				if (!sessionReady)
+				{
 					return <div className="loading">Checking your session…</div>;
 				}
-				if (session === null) {
+				if (session === null)
+				{
 					return <SignedOutLanding onNavigate={navigate} />;
 				}
 				return <Deck questions={currentQuestions} onAnswer={onAnswer} />;
@@ -3005,7 +3448,8 @@ export function App(): ReactElement {
 							<AfkToggle
 								afk={afk}
 								connectedMcpClientCount={connectedMcpClientCount}
-								onConnectClient={() => {
+								onConnectClient={() =>
+								{
 									setConnectingClient(true);
 									navigate("connect");
 								}}
@@ -3016,7 +3460,8 @@ export function App(): ReactElement {
 							type="button"
 							className="settings-button"
 							aria-label={isSettingsView(view) ? "Close settings" : "Settings"}
-							onClick={() => {
+							onClick={() =>
+							{
 								navigate(view === "deck" ? "settings" : "deck");
 							}}
 						>

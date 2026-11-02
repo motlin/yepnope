@@ -2,27 +2,39 @@ import {readFile} from "node:fs/promises";
 import {runInNewContext} from "node:vm";
 import {beforeAll, describe, expect, it, vi} from "vitest";
 
-interface PushPayload {
+interface PushPayload
+{
 	batch_id: string;
 	project: string;
 	count: number;
 	outstanding: number;
 }
 
-interface ServiceWorkerHarness {
+interface ServiceWorkerHarness
+{
 	clearAppBadge: ReturnType<typeof vi.fn>;
 	claimClients: ReturnType<typeof vi.fn>;
 	dispatchActivate(): Promise<void>;
 	dispatchInstall(): Promise<void>;
 	dispatchMessage(data: Record<string, unknown>, sourceId: string): Promise<void>;
 	dispatchNotificationClick(payload: Record<string, unknown>, action: string): Promise<void>;
-	dispatchPush(payload: PushPayload | {type: "clear"; batch_id: string; outstanding: number}): Promise<void>;
+	dispatchPush(
+		payload:
+			| PushPayload
+			|
+			  {
+					type: "clear";
+					batch_id: string;
+					outstanding: number;
+			  },
+	): Promise<void>;
 	getNotifications: ReturnType<typeof vi.fn>;
 	fetchMock: ReturnType<typeof vi.fn>;
 	skipWaiting: ReturnType<typeof vi.fn>;
 	showNotification: ReturnType<typeof vi.fn>;
 	setAppBadge: ReturnType<typeof vi.fn>;
-	windowClients: Array<{
+	windowClients: Array<
+	{
 		id: string;
 		navigate: ReturnType<typeof vi.fn>;
 		postMessage: ReturnType<typeof vi.fn>;
@@ -31,7 +43,8 @@ interface ServiceWorkerHarness {
 
 let serviceWorkerSource = "";
 
-beforeAll(async () => {
+beforeAll(async () =>
+{
 	serviceWorkerSource = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
 });
 
@@ -39,77 +52,117 @@ function createHarness(options: {
 	userAgent: string;
 	maxActions: number;
 	fetchQuestions: () => Promise<unknown>;
-	windowClients?: Array<{id: string; understandsVersionProtocol: boolean; url: string}>;
-}): ServiceWorkerHarness {
+	windowClients?: Array<
+	{
+		id: string;
+		understandsVersionProtocol: boolean;
+		url: string;
+	}>;
+}): ServiceWorkerHarness
+{
 	const listeners = new Map<string, (event: unknown) => void>();
 	const showNotification = vi.fn<(title: string, notificationOptions: unknown) => Promise<void>>(async () =>
 		Promise.resolve(),
 	);
 	const setAppBadge = vi.fn<(outstanding: number) => Promise<void>>(async () => Promise.resolve());
 	const clearAppBadge = vi.fn<() => Promise<void>>(async () => Promise.resolve());
-	const getNotifications = vi.fn<(options: {tag: string}) => Promise<Array<{close(): void}>>>(async () =>
-		Promise.resolve([]),
-	);
+	const getNotifications = vi.fn<
+		(options: {tag: string}) => Promise<
+			Array<
+			{
+				close(): void;
+			}>
+		>
+	>(async () => Promise.resolve([]));
 	const fetchMock = vi.fn<() => Promise<unknown>>(options.fetchQuestions);
 	const skipWaiting = vi.fn<() => Promise<void>>(async () => Promise.resolve());
 	const claimClients = vi.fn<() => Promise<void>>(async () => Promise.resolve());
-	const windowClients = (options.windowClients ?? []).map((client) => ({
+	const windowClients = (options.windowClients ?? []).map((client) => (
+	{
 		frameType: "top-level",
 		id: client.id,
 		navigate: vi.fn<(url: string) => Promise<void>>(async () => Promise.resolve()),
-		postMessage: vi.fn<(message: Record<string, unknown>) => void>((message) => {
-			if (client.understandsVersionProtocol && message["type"] === "service-worker-version-probe") {
-				listeners.get("message")?.({
-					data: {
-						type: "application-version",
-						applicationVersion: "application-version-n",
-						serviceWorkerVersion: message["serviceWorkerVersion"],
+		postMessage: vi.fn<(message: Record<string, unknown>) => void>((message) =>
+		{
+			if (client.understandsVersionProtocol && message["type"] === "service-worker-version-probe")
+			{
+				listeners.get("message")?.(
+					{
+						data:
+						{
+							type: "application-version",
+							applicationVersion: "application-version-n",
+							serviceWorkerVersion: message["serviceWorkerVersion"],
+						},
+						source:
+						{
+							id: client.id,
+						},
 					},
-					source: {id: client.id},
-				});
+				);
 			}
 		}),
 		url: client.url,
 	}));
-	const self = {
-		Notification: {maxActions: options.maxActions},
-		addEventListener(type: string, listener: (event: unknown) => void) {
+	const self =
+	{
+		Notification:
+		{
+			maxActions: options.maxActions,
+		},
+		addEventListener(type: string, listener: (event: unknown) => void)
+		{
 			listeners.set(type, listener);
 		},
-		clients: {
+		clients:
+		{
 			claim: claimClients,
 			matchAll: vi.fn<() => Promise<unknown[]>>(async () => Promise.resolve(windowClients)),
 			openWindow: vi.fn<(url: string) => Promise<void>>(async () => Promise.resolve()),
 		},
-		registration: {showNotification, getNotifications},
+		registration:
+		{
+			showNotification,
+			getNotifications,
+		},
 		skipWaiting,
 	};
-	const navigator = {
+	const navigator =
+	{
 		userAgent: options.userAgent,
 		setAppBadge,
 		clearAppBadge,
 	};
-	runInNewContext(serviceWorkerSource, {
-		fetch: fetchMock,
-		navigator,
-		self,
-		setTimeout(callback: () => void) {
-			callback();
+	runInNewContext(
+		serviceWorkerSource,
+		{
+			fetch: fetchMock,
+			navigator,
+			self,
+			setTimeout(callback: () => void)
+			{
+				callback();
+			},
 		},
-	});
+	);
 
-	async function dispatchExtendableEvent(type: string, eventProperties: Record<string, unknown> = {}): Promise<void> {
+	async function dispatchExtendableEvent(type: string, eventProperties: Record<string, unknown> = {}): Promise<void>
+	{
 		let completion = Promise.resolve();
 		const listener = listeners.get(type);
-		if (listener === undefined) {
+		if (listener === undefined)
+		{
 			throw new Error(`${type} listener was not registered`);
 		}
-		listener({
-			...eventProperties,
-			waitUntil(promise: Promise<unknown>) {
-				completion = promise.then(() => undefined);
+		listener(
+			{
+				...eventProperties,
+				waitUntil(promise: Promise<unknown>)
+				{
+					completion = promise.then(() => undefined);
+				},
 			},
-		});
+		);
 		await completion;
 	}
 
@@ -122,228 +175,357 @@ function createHarness(options: {
 		showNotification,
 		setAppBadge,
 		windowClients,
-		async dispatchActivate() {
+		async dispatchActivate()
+		{
 			await dispatchExtendableEvent("activate");
 		},
-		async dispatchInstall() {
+		async dispatchInstall()
+		{
 			await dispatchExtendableEvent("install");
 		},
-		async dispatchMessage(data, sourceId) {
+		async dispatchMessage(data, sourceId)
+		{
 			const source = windowClients.find((client) => client.id === sourceId);
-			if (source === undefined) {
+			if (source === undefined)
+			{
 				throw new Error(`message source ${sourceId} is missing`);
 			}
-			await dispatchExtendableEvent("message", {data, source});
+			await dispatchExtendableEvent(
+				"message",
+				{
+					data,
+					source,
+				},
+			);
 		},
-		async dispatchNotificationClick(payload, action) {
+		async dispatchNotificationClick(payload, action)
+		{
 			let completion = Promise.resolve();
 			const listener = listeners.get("notificationclick");
-			if (listener === undefined) {
+			if (listener === undefined)
+			{
 				throw new Error("notification click listener was not registered");
 			}
-			listener({
-				action,
-				notification: {close: vi.fn<() => void>(), data: payload},
-				waitUntil(promise: Promise<unknown>) {
-					completion = promise.then(() => undefined);
+			listener(
+				{
+					action,
+					notification:
+					{
+						close: vi.fn<() => void>(),
+						data: payload,
+					},
+					waitUntil(promise: Promise<unknown>)
+					{
+						completion = promise.then(() => undefined);
+					},
 				},
-			});
+			);
 			await completion;
 		},
-		async dispatchPush(payload) {
+		async dispatchPush(payload)
+		{
 			let completion = Promise.resolve();
 			const listener = listeners.get("push");
-			if (listener === undefined) {
+			if (listener === undefined)
+			{
 				throw new Error("push listener was not registered");
 			}
-			listener({
-				data: {json: () => payload},
-				waitUntil(promise: Promise<unknown>) {
-					completion = promise.then(() => undefined);
+			listener(
+				{
+					data:
+					{
+						json: () => payload,
+					},
+					waitUntil(promise: Promise<unknown>)
+					{
+						completion = promise.then(() => undefined);
+					},
 				},
-			});
+			);
 			await completion;
 		},
 	};
 }
 
-function callsFrom(mock: ReturnType<typeof vi.fn>): unknown {
+function callsFrom(mock: ReturnType<typeof vi.fn>): unknown
+{
 	return JSON.parse(JSON.stringify(mock.mock.calls));
 }
 
-const singlePayload: PushPayload = {
+const singlePayload: PushPayload =
+{
 	batch_id: "batch-100",
 	project: "demo",
 	count: 1,
 	outstanding: 1,
 };
 
-const singleQuestionResponse = {
+const singleQuestionResponse =
+{
 	ok: true,
 	json: async () =>
-		Promise.resolve({
-			current_deck: [
-				{
-					batch_id: "batch-100",
-					project: "demo",
-					question_id: "question-100",
-					position: 0,
-					title: "Ship the release?",
-					body: "Publish the tested build.",
-					created_at: 946_684_800_000,
-					repo: null,
-					branch: null,
-					worktree: null,
-					directory: null,
-				},
-			],
-		}),
+		Promise.resolve(
+			{
+				current_deck: [
+					{
+						batch_id: "batch-100",
+						project: "demo",
+						question_id: "question-100",
+						position: 0,
+						title: "Ship the release?",
+						body: "Publish the tested build.",
+						created_at: 946_684_800_000,
+						repo: null,
+						branch: null,
+						worktree: null,
+						directory: null,
+					},
+				],
+			},
+		),
 };
 
-describe("service worker application updates", () => {
-	it("waits for an application handshake before activating a protocol-aware client", async () => {
-		const harness = createHarness({
-			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
-			maxActions: 2,
-			fetchQuestions: async () => Promise.resolve({ok: true}),
-			windowClients: [
-				{id: "window-client-100", understandsVersionProtocol: true, url: "https://example.com/settings"},
-			],
-		});
+describe("service worker application updates", () =>
+{
+	it("waits for an application handshake before activating a protocol-aware client", async () =>
+	{
+		const harness = createHarness(
+			{
+				userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+				maxActions: 2,
+				fetchQuestions: async () =>
+					Promise.resolve(
+						{
+							ok: true,
+						},
+					),
+				windowClients: [
+					{
+						id: "window-client-100",
+						understandsVersionProtocol: true,
+						url: "https://example.com/settings",
+					},
+				],
+			},
+		);
 
 		await harness.dispatchInstall();
 		await harness.dispatchMessage(
-			{type: "activate-service-worker", applicationVersion: "application-version-n"},
+			{
+				type: "activate-service-worker",
+				applicationVersion: "application-version-n",
+			},
 			"window-client-100",
 		);
 		await harness.dispatchActivate();
 		const client = harness.windowClients[0];
-		if (client === undefined) {
+		if (client === undefined)
+		{
 			throw new Error("version-aware test client is missing");
 		}
 
-		expect({
-			claimCalls: harness.claimClients.mock.calls,
-			navigateCalls: client.navigate.mock.calls,
-			skipWaitingCalls: harness.skipWaiting.mock.calls,
-			versionProbeCalls: callsFrom(client.postMessage),
-		}).toStrictEqual({
-			claimCalls: [[]],
-			navigateCalls: [],
-			skipWaitingCalls: [[]],
-			versionProbeCalls: [
-				[
-					{
-						type: "service-worker-version-probe",
-						serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
-					},
+		expect(
+			{
+				claimCalls: harness.claimClients.mock.calls,
+				navigateCalls: client.navigate.mock.calls,
+				skipWaitingCalls: harness.skipWaiting.mock.calls,
+				versionProbeCalls: callsFrom(client.postMessage),
+			},
+		).toStrictEqual(
+			{
+				claimCalls: [[]],
+				navigateCalls: [],
+				skipWaitingCalls: [[]],
+				versionProbeCalls: [
+					[
+						{
+							type: "service-worker-version-probe",
+							serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
+						},
+					],
+					[
+						{
+							type: "service-worker-version-probe",
+							serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
+						},
+					],
+					[
+						{
+							type: "service-worker-version-probe",
+							serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
+						},
+					],
 				],
-				[
-					{
-						type: "service-worker-version-probe",
-						serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
-					},
-				],
-				[
-					{
-						type: "service-worker-version-probe",
-						serviceWorkerVersion: "__SERVICE_WORKER_VERSION__",
-					},
-				],
-			],
-		});
+			},
+		);
 	});
 
-	it("activates and navigates an unresponsive legacy client only once", async () => {
-		const harness = createHarness({
-			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
-			maxActions: 2,
-			fetchQuestions: async () => Promise.resolve({ok: true}),
-			windowClients: [
-				{id: "window-client-100", understandsVersionProtocol: false, url: "https://example.com/register"},
-			],
-		});
+	it("activates and navigates an unresponsive legacy client only once", async () =>
+	{
+		const harness = createHarness(
+			{
+				userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+				maxActions: 2,
+				fetchQuestions: async () =>
+					Promise.resolve(
+						{
+							ok: true,
+						},
+					),
+				windowClients: [
+					{
+						id: "window-client-100",
+						understandsVersionProtocol: false,
+						url: "https://example.com/register",
+					},
+				],
+			},
+		);
 
 		await harness.dispatchInstall();
 		await harness.dispatchActivate();
 		await harness.dispatchActivate();
 		const client = harness.windowClients[0];
-		if (client === undefined) {
+		if (client === undefined)
+		{
 			throw new Error("legacy test client is missing");
 		}
 
-		expect({
-			claimCalls: harness.claimClients.mock.calls,
-			navigateCalls: client.navigate.mock.calls,
-			skipWaitingCalls: harness.skipWaiting.mock.calls,
-		}).toStrictEqual({
-			claimCalls: [[], []],
-			navigateCalls: [["https://example.com/register"]],
-			skipWaitingCalls: [[]],
-		});
+		expect(
+			{
+				claimCalls: harness.claimClients.mock.calls,
+				navigateCalls: client.navigate.mock.calls,
+				skipWaitingCalls: harness.skipWaiting.mock.calls,
+			},
+		).toStrictEqual(
+			{
+				claimCalls: [[], []],
+				navigateCalls: [["https://example.com/register"]],
+				skipWaitingCalls: [[]],
+			},
+		);
 	});
 });
 
-describe("service worker push notifications", () => {
+describe("service worker push notifications", () =>
+{
 	it.each([0, 2])(
 		"closes matching notifications without showing another and updates a badge of %i",
-		async (outstanding) => {
-			const harness = createHarness({
-				userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
-				maxActions: 0,
-				fetchQuestions: async () => Promise.reject(new Error("clear must not fetch")),
-				windowClients: [
-					{id: "window-client-100", understandsVersionProtocol: true, url: "https://example.com/"},
-				],
-			});
+		async (outstanding) =>
+		{
+			const harness = createHarness(
+				{
+					userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+					maxActions: 0,
+					fetchQuestions: async () => Promise.reject(new Error("clear must not fetch")),
+					windowClients: [
+						{
+							id: "window-client-100",
+							understandsVersionProtocol: true,
+							url: "https://example.com/",
+						},
+					],
+				},
+			);
 			const firstClose = vi.fn<() => void>();
 			const secondClose = vi.fn<() => void>();
-			harness.getNotifications.mockResolvedValue([{close: firstClose}, {close: secondClose}]);
-			await harness.dispatchPush({type: "clear", batch_id: "batch-100", outstanding});
-			expect({
-				getNotifications: callsFrom(harness.getNotifications),
-				closed: [firstClose.mock.calls, secondClose.mock.calls],
-				shown: callsFrom(harness.showNotification),
-				fetched: callsFrom(harness.fetchMock),
-				setBadge: callsFrom(harness.setAppBadge),
-				clearBadge: callsFrom(harness.clearAppBadge),
-				messages: harness.windowClients.map((client) => callsFrom(client.postMessage)),
-			}).toStrictEqual({
-				getNotifications: [[{tag: "batch-100"}]],
-				closed: [[[]], [[]]],
-				shown: [],
-				fetched: [],
-				setBadge: outstanding > 0 ? [[outstanding]] : [],
-				clearBadge: outstanding === 0 ? [[]] : [],
-				messages: [[[{type: "account-state-changed"}]]],
-			});
+			harness.getNotifications.mockResolvedValue([
+				{
+					close: firstClose,
+				},
+				{
+					close: secondClose,
+				},
+			]);
+			await harness.dispatchPush(
+				{
+					type: "clear",
+					batch_id: "batch-100",
+					outstanding,
+				},
+			);
+			expect(
+				{
+					getNotifications: callsFrom(harness.getNotifications),
+					closed: [firstClose.mock.calls, secondClose.mock.calls],
+					shown: callsFrom(harness.showNotification),
+					fetched: callsFrom(harness.fetchMock),
+					setBadge: callsFrom(harness.setAppBadge),
+					clearBadge: callsFrom(harness.clearAppBadge),
+					messages: harness.windowClients.map((client) => callsFrom(client.postMessage)),
+				},
+			).toStrictEqual(
+				{
+					getNotifications: [
+						[
+							{
+								tag: "batch-100",
+							},
+						],
+					],
+					closed: [[[]], [[]]],
+					shown: [],
+					fetched: [],
+					setBadge: outstanding > 0 ? [[outstanding]] : [],
+					clearBadge: outstanding === 0 ? [[]] : [],
+					messages: [
+						[
+							[
+								{
+									type: "account-state-changed",
+								},
+							],
+						],
+					],
+				},
+			);
 		},
 	);
 
 	it.each([
 		["Android", "Mozilla/5.0 (Linux; Android 15)"],
 		["desktop", "Mozilla/5.0 (X11; Linux x86_64)"],
-	])("fetches a single question and shows actions on %s", async (_platform, userAgent) => {
-		const harness = createHarness({
-			userAgent,
-			maxActions: 2,
-			fetchQuestions: async () => Promise.resolve(singleQuestionResponse),
-		});
+	])("fetches a single question and shows actions on %s", async (_platform, userAgent) =>
+	{
+		const harness = createHarness(
+			{
+				userAgent,
+				maxActions: 2,
+				fetchQuestions: async () => Promise.resolve(singleQuestionResponse),
+			},
+		);
 
 		await harness.dispatchPush(singlePayload);
 
-		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/current-deck", {credentials: "same-origin"}]]);
+		expect(callsFrom(harness.fetchMock)).toStrictEqual([
+			[
+				"/api/v1/current-deck",
+				{
+					credentials: "same-origin",
+				},
+			],
+		]);
 		expect(callsFrom(harness.showNotification)).toStrictEqual([
 			[
 				"Ship the release?",
 				{
 					actions: [
-						{action: "yep", title: "Yep"},
-						{action: "nope", title: "Nope"},
+						{
+							action: "yep",
+							title: "Yep",
+						},
+						{
+							action: "nope",
+							title: "Nope",
+						},
 					],
 					badge: "/icons/badge-96.png",
 					body: "demo",
-					data: {...singlePayload, question_id: "question-100"},
+					data:
+					{
+						...singlePayload,
+						question_id: "question-100",
+					},
 					icon: "/icons/icon-192.png",
 					tag: "batch-100",
 				},
@@ -352,16 +534,26 @@ describe("service worker push notifications", () => {
 		expect(callsFrom(harness.setAppBadge)).toStrictEqual([[1]]);
 	});
 
-	it("keeps a single-question notification generic on iOS", async () => {
-		const harness = createHarness({
-			userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
-			maxActions: 2,
-			fetchQuestions: async () => Promise.resolve(singleQuestionResponse),
-		});
+	it("keeps a single-question notification generic on iOS", async () =>
+	{
+		const harness = createHarness(
+			{
+				userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+				maxActions: 2,
+				fetchQuestions: async () => Promise.resolve(singleQuestionResponse),
+			},
+		);
 
 		await harness.dispatchPush(singlePayload);
 
-		expect(callsFrom(harness.fetchMock)).toStrictEqual([["/api/v1/current-deck", {credentials: "same-origin"}]]);
+		expect(callsFrom(harness.fetchMock)).toStrictEqual([
+			[
+				"/api/v1/current-deck",
+				{
+					credentials: "same-origin",
+				},
+			],
+		]);
 		expect(callsFrom(harness.showNotification)).toStrictEqual([
 			[
 				"1 question from demo",
@@ -376,12 +568,15 @@ describe("service worker push notifications", () => {
 		]);
 	});
 
-	it("keeps a single-question notification generic when actions are unsupported", async () => {
-		const harness = createHarness({
-			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
-			maxActions: 0,
-			fetchQuestions: async () => Promise.resolve(singleQuestionResponse),
-		});
+	it("keeps a single-question notification generic when actions are unsupported", async () =>
+	{
+		const harness = createHarness(
+			{
+				userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+				maxActions: 0,
+				fetchQuestions: async () => Promise.resolve(singleQuestionResponse),
+			},
+		);
 
 		await harness.dispatchPush(singlePayload);
 
@@ -399,14 +594,32 @@ describe("service worker push notifications", () => {
 		]);
 	});
 
-	it("keeps multi-question notifications generic", async () => {
-		const payload = {...singlePayload, count: 2, outstanding: 2};
-		const harness = createHarness({
-			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
-			maxActions: 2,
-			fetchQuestions: async () =>
-				Promise.resolve({ok: true, json: async () => Promise.resolve({current_deck: []})}),
-		});
+	it("keeps multi-question notifications generic", async () =>
+	{
+		const payload =
+		{
+			...singlePayload,
+			count: 2,
+			outstanding: 2,
+		};
+		const harness = createHarness(
+			{
+				userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+				maxActions: 2,
+				fetchQuestions: async () =>
+					Promise.resolve(
+						{
+							ok: true,
+							json: async () =>
+								Promise.resolve(
+									{
+										current_deck: [],
+									},
+								),
+						},
+					),
+			},
+		);
 
 		await harness.dispatchPush(payload);
 
@@ -424,12 +637,15 @@ describe("service worker push notifications", () => {
 		]);
 	});
 
-	it("falls back to a generic notification and preserves the badge when content fetch fails", async () => {
-		const harness = createHarness({
-			userAgent: "Mozilla/5.0 (Linux; Android 15)",
-			maxActions: 2,
-			fetchQuestions: async () => Promise.reject(new Error("test network failure")),
-		});
+	it("falls back to a generic notification and preserves the badge when content fetch fails", async () =>
+	{
+		const harness = createHarness(
+			{
+				userAgent: "Mozilla/5.0 (Linux; Android 15)",
+				maxActions: 2,
+				fetchQuestions: async () => Promise.reject(new Error("test network failure")),
+			},
+		);
 
 		await harness.dispatchPush(singlePayload);
 
@@ -448,16 +664,34 @@ describe("service worker push notifications", () => {
 		expect(callsFrom(harness.setAppBadge)).toStrictEqual([[1]]);
 	});
 
-	it("answers notification actions with the Better Auth session cookie", async () => {
-		const harness = createHarness({
-			userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
-			maxActions: 2,
-			fetchQuestions: async () => Promise.resolve({ok: true}),
-			windowClients: [{id: "window-client-100", understandsVersionProtocol: true, url: "https://example.com/"}],
-		});
+	it("answers notification actions with the Better Auth session cookie", async () =>
+	{
+		const harness = createHarness(
+			{
+				userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+				maxActions: 2,
+				fetchQuestions: async () =>
+					Promise.resolve(
+						{
+							ok: true,
+						},
+					),
+				windowClients: [
+					{
+						id: "window-client-100",
+						understandsVersionProtocol: true,
+						url: "https://example.com/",
+					},
+				],
+			},
+		);
 
 		await harness.dispatchNotificationClick(
-			{batch_id: "batch-100", outstanding: 1, question_id: "question-100"},
+			{
+				batch_id: "batch-100",
+				outstanding: 1,
+				question_id: "question-100",
+			},
 			"yep",
 		);
 
@@ -465,9 +699,21 @@ describe("service worker push notifications", () => {
 			[
 				"/api/v1/answers",
 				{
-					body: JSON.stringify({answers: [{question_id: "question-100", disposition: "yep"}]}),
+					body: JSON.stringify(
+						{
+							answers: [
+								{
+									question_id: "question-100",
+									disposition: "yep",
+								},
+							],
+						},
+					),
 					credentials: "same-origin",
-					headers: {"Content-Type": "application/json"},
+					headers:
+					{
+						"Content-Type": "application/json",
+					},
 					method: "POST",
 				},
 			],
@@ -475,9 +721,16 @@ describe("service worker push notifications", () => {
 		expect(callsFrom(harness.setAppBadge)).toStrictEqual([]);
 		expect(callsFrom(harness.clearAppBadge)).toStrictEqual([[]]);
 		const [windowClient] = harness.windowClients;
-		if (windowClient === undefined) {
+		if (windowClient === undefined)
+		{
 			throw new Error("Expected one open browser window");
 		}
-		expect(callsFrom(windowClient.postMessage)).toStrictEqual([[{type: "account-state-changed"}]]);
+		expect(callsFrom(windowClient.postMessage)).toStrictEqual([
+			[
+				{
+					type: "account-state-changed",
+				},
+			],
+		]);
 	});
 });

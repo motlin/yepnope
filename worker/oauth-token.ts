@@ -1,6 +1,7 @@
 import {createLocalJWKSet, errors, jwtVerify} from "jose";
 import {z} from "zod";
-import {
+import
+{
 	authenticateBrowserSession,
 	MCP_RESOURCE_PATH,
 	observeWorkerAuthentication,
@@ -16,7 +17,11 @@ import {recordConnectedMcpClientUse} from "./connected-mcp-clients";
 
 export const QUESTION_SCOPE = "yepnope:questions";
 
-const jsonWebKeySetSchema = z.object({keys: z.array(z.record(z.string(), z.unknown()))});
+const jsonWebKeySetSchema = z.object(
+	{
+		keys: z.array(z.record(z.string(), z.unknown())),
+	},
+);
 const storedStringArraySchema = z.array(z.string());
 
 // 🪪 `sid` names the browser session an authorization-code grant was minted from. A device grant is
@@ -24,46 +29,54 @@ const storedStringArraySchema = z.array(z.string());
 // check below matches on that absence instead of inventing a session for it. Absent and explicitly
 // null both mean the same thing: issuance omits the claim, a refresh writes it as null.
 const accessTokenClaimsSchema = z
-	.object({
-		azp: z.string().min(1),
-		client_id: z.string().min(1),
-		exp: z.number().int(),
-		iat: z.number().int(),
-		jti: z.string().min(1),
-		scope: z.string().min(1),
-		sid: z.string().min(1).nullish(),
-		sub: z.string().min(1),
-	})
+	.object(
+		{
+			azp: z.string().min(1),
+			client_id: z.string().min(1),
+			exp: z.number().int(),
+			iat: z.number().int(),
+			jti: z.string().min(1),
+			scope: z.string().min(1),
+			sid: z.string().min(1).nullish(),
+			sub: z.string().min(1),
+		},
+	)
 	.loose();
 
 export type AccessTokenClaims = z.infer<typeof accessTokenClaimsSchema>;
 
 /** The browser session behind a delegated grant, or null when the grant was approved on a device. */
-export function grantSessionId(claims: AccessTokenClaims): string | null {
+export function grantSessionId(claims: AccessTokenClaims): string | null
+{
 	return claims.sid ?? null;
 }
 
-interface ActiveGrantRow {
+interface ActiveGrantRow
+{
 	consent_resources: string | null;
 	consent_scopes: string;
 	refresh_resources: string | null;
 	refresh_scopes: string;
 }
 
-export function mcpResource(environment: Pick<Env, "BETTER_AUTH_URL">): string {
+export function mcpResource(environment: Pick<Env, "BETTER_AUTH_URL">): string
+{
 	return `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
 }
 
-export function bearerToken(request: Request): string | null {
+export function bearerToken(request: Request): string | null
+{
 	const authorization = request.headers.get("Authorization");
-	if (authorization === null || !authorization.startsWith("Bearer ")) {
+	if (authorization === null || !authorization.startsWith("Bearer "))
+	{
 		return null;
 	}
 	const token = authorization.slice("Bearer ".length);
 	return token.length === 0 || token.includes(" ") ? null : token;
 }
 
-function parseStoredStringArray(value: string | null): string[] {
+function parseStoredStringArray(value: string | null): string[]
+{
 	return value === null ? [] : storedStringArraySchema.parse(JSON.parse(value) as unknown);
 }
 
@@ -72,7 +85,8 @@ function parseStoredStringArray(value: string | null): string[] {
 // way, so nothing here tells an attacker which part of their guess was wrong. The operator gets the
 // distinction instead, because "the client re-authorizes forever" has a cause every entry below can
 // produce, and a bare 401 names none of them.
-enum AccessTokenRejection {
+enum AccessTokenRejection
+{
 	AudienceMismatch = "audience_mismatch",
 	// Signed by this deployment, but carrying a claim set no grant can be looked up from.
 	ClaimsUnusable = "claims_unusable",
@@ -92,23 +106,30 @@ const OPERATOR_FAULT_REJECTIONS = new Set<AccessTokenRejection>([
 	AccessTokenRejection.JwksUnavailable,
 ]);
 
-function refuseAccessToken(rejection: AccessTokenRejection): null {
-	observeWorkerAuthentication({
-		event: "access_token_rejected",
-		failure: null,
-		level: OPERATOR_FAULT_REJECTIONS.has(rejection) ? "error" : "warn",
-		reason: rejection,
-		status: null,
-	});
+function refuseAccessToken(rejection: AccessTokenRejection): null
+{
+	observeWorkerAuthentication(
+		{
+			event: "access_token_rejected",
+			failure: null,
+			level: OPERATOR_FAULT_REJECTIONS.has(rejection) ? "error" : "warn",
+			reason: rejection,
+			status: null,
+		},
+	);
 	return null;
 }
 
-function joseRejection(caught: unknown): AccessTokenRejection {
-	if (caught instanceof errors.JWTExpired) {
+function joseRejection(caught: unknown): AccessTokenRejection
+{
+	if (caught instanceof errors.JWTExpired)
+	{
 		return AccessTokenRejection.Expired;
 	}
-	if (caught instanceof errors.JWTClaimValidationFailed) {
-		switch (caught.claim) {
+	if (caught instanceof errors.JWTClaimValidationFailed)
+	{
+		switch (caught.claim)
+		{
 			case "aud":
 				return AccessTokenRejection.AudienceMismatch;
 			case "iss":
@@ -117,7 +138,8 @@ function joseRejection(caught: unknown): AccessTokenRejection {
 				return AccessTokenRejection.ClaimsUnusable;
 		}
 	}
-	if (caught instanceof errors.JWSSignatureVerificationFailed || caught instanceof errors.JWKSNoMatchingKey) {
+	if (caught instanceof errors.JWSSignatureVerificationFailed || caught instanceof errors.JWKSNoMatchingKey)
+	{
 		return AccessTokenRejection.SignatureInvalid;
 	}
 	return AccessTokenRejection.Malformed;
@@ -128,11 +150,13 @@ async function verificationKeys(
 	issuer: string,
 	environment: Env,
 	executionContext: ExecutionContext,
-): Promise<ReturnType<typeof createLocalJWKSet> | null> {
+): Promise<ReturnType<typeof createLocalJWKSet> | null>
+{
 	const response = await withRequestBackgroundTasks(executionContext, async () =>
 		workerAuthentication(environment).handler(new Request(`${issuer}/jwks`)),
 	).catch(() => null);
-	if (response === null || !response.ok) {
+	if (response === null || !response.ok)
+	{
 		return refuseAccessToken(AccessTokenRejection.JwksUnavailable);
 	}
 	const jwks = jsonWebKeySetSchema.safeParse(await response.json().catch(() => null));
@@ -148,16 +172,24 @@ export async function verifyAccessToken(
 	token: string,
 	environment: Env,
 	executionContext: ExecutionContext,
-): Promise<AccessTokenClaims | null> {
+): Promise<AccessTokenClaims | null>
+{
 	const issuer = `${environment.BETTER_AUTH_URL}/api/auth`;
 	const keys = await verificationKeys(issuer, environment, executionContext);
-	if (keys === null) {
+	if (keys === null)
+	{
 		return null;
 	}
-	const verified = await jwtVerify(token, keys, {audience: mcpResource(environment), issuer}).catch(
-		(caught: unknown) => refuseAccessToken(joseRejection(caught)),
-	);
-	if (verified === null) {
+	const verified = await jwtVerify(
+		token,
+		keys,
+		{
+			audience: mcpResource(environment),
+			issuer,
+		},
+	).catch((caught: unknown) => refuseAccessToken(joseRejection(caught)));
+	if (verified === null)
+	{
 		return null;
 	}
 	const parsed = accessTokenClaimsSchema.safeParse(verified.payload);
@@ -174,8 +206,10 @@ export async function hasActiveGrant(
 	database: D1Database,
 	claims: AccessTokenClaims,
 	resource: string,
-): Promise<boolean> {
-	if (claims.azp !== claims.client_id) {
+): Promise<boolean>
+{
+	if (claims.azp !== claims.client_id)
+	{
 		return false;
 	}
 	const now = Date.now();
@@ -209,7 +243,8 @@ export async function hasActiveGrant(
 		)
 		.all<ActiveGrantRow>();
 	const tokenScopes = new Set(claims.scope.split(" "));
-	return rows.results.some((row) => {
+	return rows.results.some((row) =>
+	{
 		const refreshScopes = new Set(parseStoredStringArray(row.refresh_scopes));
 		const consentScopes = new Set(parseStoredStringArray(row.consent_scopes));
 		return (
@@ -226,16 +261,20 @@ async function authenticateAccessToken(
 	request: Request,
 	environment: Env,
 	executionContext: ExecutionContext,
-): Promise<string | null> {
+): Promise<string | null>
+{
 	const token = bearerToken(request);
-	if (token === null) {
+	if (token === null)
+	{
 		return null;
 	}
 	const claims = await verifyAccessToken(token, environment, executionContext);
-	if (claims === null || !new Set(claims.scope.split(" ")).has(QUESTION_SCOPE)) {
+	if (claims === null || !new Set(claims.scope.split(" ")).has(QUESTION_SCOPE))
+	{
 		return null;
 	}
-	if (!(await hasActiveGrant(environment.DB, claims, mcpResource(environment)))) {
+	if (!(await hasActiveGrant(environment.DB, claims, mcpResource(environment))))
+	{
 		return null;
 	}
 	// The hook posts over the same grant the `/mcp` tool call uses, so both count as the client
@@ -254,7 +293,8 @@ export async function authenticateRequest(
 	request: Request,
 	environment: Env,
 	executionContext: ExecutionContext,
-): Promise<string | null> {
+): Promise<string | null>
+{
 	return (
 		(await authenticateAccessToken(request, environment, executionContext)) ??
 		(await authenticateBrowserSession(request, environment, executionContext))

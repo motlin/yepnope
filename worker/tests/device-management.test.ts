@@ -3,7 +3,8 @@ import {runInDurableObject} from "cloudflare:test";
 import {describe, expect, it} from "vitest";
 import {hashToken} from "../auth";
 import type {UserDurableObject} from "../user-do";
-import {
+import
+{
 	API_ORIGIN,
 	cookieFrom,
 	createVerifiedBrowserSession,
@@ -16,79 +17,141 @@ import {authorizeDeviceClient, seedOAuthMcpClient} from "./oauth-client-helpers"
 
 const AUTHORIZED_AT = Date.UTC(2000, 0, 1);
 
-async function seedPushDevice(userId: string, endpoint: string, label: string): Promise<string> {
-	const subscription = {endpoint, keys: {p256dh: "fake-public-key", auth: "fake-auth-secret"}};
+async function seedPushDevice(userId: string, endpoint: string, label: string): Promise<string>
+{
+	const subscription =
+	{
+		endpoint,
+		keys:
+		{
+			p256dh: "fake-public-key",
+			auth: "fake-auth-secret",
+		},
+	};
 	const stub = env.USER_DO.getByName(userId);
 	await stub.registerDevice(subscription, label);
-	await runInDurableObject(stub, (_instance: UserDurableObject, state) => {
+	await runInDurableObject(stub, (_instance: UserDurableObject, state) =>
+	{
 		state.storage.sql.exec("UPDATE devices SET created_at = ?", AUTHORIZED_AT);
 	});
 	return hashToken(endpoint);
 }
 
-async function accountRequest(cookie: string, path: string, method = "GET", label?: string): Promise<Response> {
-	return worker.fetch(`${API_ORIGIN}${path}`, {
-		method,
-		headers: {
-			Cookie: cookie,
-			...(label === undefined ? {} : {"Content-Type": "application/json"}),
+async function accountRequest(cookie: string, path: string, method = "GET", label?: string): Promise<Response>
+{
+	return worker.fetch(
+		`${API_ORIGIN}${path}`,
+		{
+			method,
+			headers:
+			{
+				Cookie: cookie,
+				...(label === undefined
+					? {}
+					:
+						{
+							"Content-Type": "application/json",
+						}),
+			},
+			...(label === undefined
+				? {}
+				:
+					{
+						body: JSON.stringify(
+							{
+								label,
+							},
+						),
+					}),
 		},
-		...(label === undefined ? {} : {body: JSON.stringify({label})}),
-	});
+	);
 }
 
-interface ListedConnectedMcpClient {
+interface ListedConnectedMcpClient
+{
 	id: string;
 	last_used_at: number | null;
 }
 
-async function connectedMcpClients(cookie: string): Promise<ListedConnectedMcpClient[]> {
+async function connectedMcpClients(cookie: string): Promise<ListedConnectedMcpClient[]>
+{
 	const response = await accountRequest(cookie, "/api/v1/account/devices");
-	if (response.status !== 200) {
+	if (response.status !== 200)
+	{
 		throw new Error(`expected the device listing to succeed, got ${String(response.status)}`);
 	}
-	return (await response.json<{connected_mcp_clients: ListedConnectedMcpClient[]}>()).connected_mcp_clients;
+	return (
+		await response.json<
+		{
+			connected_mcp_clients: ListedConnectedMcpClient[];
+		}>()
+	).connected_mcp_clients;
 }
 
 /** One authenticated call over the client's own grant, which is what "last used" is supposed to mean. */
-async function useMcpConnection(accessToken: string): Promise<void> {
-	const response = await worker.fetch(`${API_ORIGIN}/mcp`, {
-		method: "POST",
-		headers: {
-			Accept: "application/json, text/event-stream",
-			Authorization: `Bearer ${accessToken}`,
-			"Content-Type": "application/json",
-			"MCP-Protocol-Version": "2025-11-25",
+async function useMcpConnection(accessToken: string): Promise<void>
+{
+	const response = await worker.fetch(
+		`${API_ORIGIN}/mcp`,
+		{
+			method: "POST",
+			headers:
+			{
+				Accept: "application/json, text/event-stream",
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json",
+				"MCP-Protocol-Version": "2025-11-25",
+			},
+			body: JSON.stringify(
+				{
+					id: 1,
+					jsonrpc: "2.0",
+					method: "tools/list",
+				},
+			),
 		},
-		body: JSON.stringify({id: 1, jsonrpc: "2.0", method: "tools/list"}),
-	});
+	);
 	const body = await response.text();
-	if (response.status !== 200) {
+	if (response.status !== 200)
+	{
 		throw new Error(`expected the MCP request to authenticate, got ${String(response.status)}: ${body}`);
 	}
 }
 
-describe("connected MCP client and browser notification management", () => {
-	it("requires the account's own browser session, and refuses even a valid agent token", async () => {
+describe("connected MCP client and browser notification management", () =>
+{
+	it("requires the account's own browser session, and refuses even a valid agent token", async () =>
+	{
 		const authorized = await authorizeDeviceClient("account-api-alice");
 
 		const unauthenticated = await worker.fetch(`${API_ORIGIN}/api/v1/account/devices`);
 		// 🔒 Managing what a client may do is the account holder's job, not a client's. A token that
 		// can ask questions still cannot read, rename, or revoke the authorizations behind it.
-		const agentAuthenticated = await worker.fetch(`${API_ORIGIN}/api/v1/account/devices`, {
-			headers: {Authorization: `Bearer ${authorized.accessToken}`},
-		});
+		const agentAuthenticated = await worker.fetch(
+			`${API_ORIGIN}/api/v1/account/devices`,
+			{
+				headers:
+				{
+					Authorization: `Bearer ${authorized.accessToken}`,
+				},
+			},
+		);
 
 		expect([unauthenticated.status, agentAuthenticated.status]).toStrictEqual([401, 401]);
 	});
 
-	it("lists one redacted entry per OAuth installation while keeping browser sessions and push separate", async () => {
+	it("lists one redacted entry per OAuth installation while keeping browser sessions and push separate", async () =>
+	{
 		const email = "connected-client-list-alice@example.com";
 		const session = await createVerifiedBrowserSession(email);
-		const client = await seedOAuthMcpClient(session.userId, "alice-laptop", {
-			authorizedAt: AUTHORIZED_AT,
-			name: "Alice Codex",
-		});
+		const client = await seedOAuthMcpClient(
+			session.userId,
+			"alice-laptop",
+			{
+				authorizedAt: AUTHORIZED_AT,
+				name: "Alice Codex",
+			},
+		);
 		await env.DB.prepare(
 			"INSERT INTO oauth_refresh_token " +
 				"(id, token, client_id, user_id, resources, expires_at, created_at, scopes) " +
@@ -101,25 +164,62 @@ describe("connected MCP client and browser notification management", () => {
 				client.refreshTokenId,
 			)
 			.run();
-		const secondBrowserSession = await worker.fetch(`${API_ORIGIN}/api/auth/sign-in/email`, {
-			method: "POST",
-			headers: {
-				...humanVerificationHeader("sign_in"),
-				"Content-Type": "application/json",
-				Origin: API_ORIGIN,
-				"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0",
+		const secondBrowserSession = await worker.fetch(
+			`${API_ORIGIN}/api/auth/sign-in/email`,
+			{
+				method: "POST",
+				headers:
+				{
+					...humanVerificationHeader("sign_in"),
+					"Content-Type": "application/json",
+					Origin: API_ORIGIN,
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0",
+				},
+				body: JSON.stringify(
+					{
+						email,
+						password: "correct-horse-battery-staple",
+					},
+				),
 			},
-			body: JSON.stringify({email, password: "correct-horse-battery-staple"}),
-		});
+		);
 		expect(secondBrowserSession.status).toBe(200);
-		const firstSessionResponse = await worker.fetch(`${API_ORIGIN}/api/auth/get-session`, {
-			headers: {Cookie: session.cookie},
-		});
-		const secondSessionResponse = await worker.fetch(`${API_ORIGIN}/api/auth/get-session`, {
-			headers: {Cookie: cookieFrom(secondBrowserSession)},
-		});
-		const firstSessionId = (await firstSessionResponse.json<{session: {id: string}}>()).session.id;
-		const secondSessionId = (await secondSessionResponse.json<{session: {id: string}}>()).session.id;
+		const firstSessionResponse = await worker.fetch(
+			`${API_ORIGIN}/api/auth/get-session`,
+			{
+				headers:
+				{
+					Cookie: session.cookie,
+				},
+			},
+		);
+		const secondSessionResponse = await worker.fetch(
+			`${API_ORIGIN}/api/auth/get-session`,
+			{
+				headers:
+				{
+					Cookie: cookieFrom(secondBrowserSession),
+				},
+			},
+		);
+		const firstSessionId = (
+			await firstSessionResponse.json<
+			{
+				session:
+				{
+					id: string;
+				};
+			}>()
+		).session.id;
+		const secondSessionId = (
+			await secondSessionResponse.json<
+			{
+				session:
+				{
+					id: string;
+				};
+			}>()
+		).session.id;
 		const sessionExpiry = Date.UTC(2050, 0, 1);
 		await env.DB.batch([
 			env.DB.prepare(
@@ -137,46 +237,64 @@ describe("connected MCP client and browser notification management", () => {
 
 		const response = await accountRequest(session.cookie, "/api/v1/account/devices");
 		const body = await response.json();
-		expect({body, status: response.status}).toStrictEqual({
-			body: {
-				browser_sessions: [
-					{
-						id: await hashToken(`browser-session\0${session.userId}\0${secondSessionId}`),
-						display_name: "Chrome on Windows",
-						created_at: Date.UTC(2000, 0, 3),
-						last_active_at: Date.UTC(2000, 0, 4),
-						expires_at: sessionExpiry,
-						current: false,
-					},
-					{
-						id: await hashToken(`browser-session\0${session.userId}\0${firstSessionId}`),
-						display_name: "Browser on unknown platform",
-						created_at: Date.UTC(2000, 0, 1),
-						last_active_at: Date.UTC(2000, 0, 2),
-						expires_at: sessionExpiry,
-						current: true,
-					},
-				],
-				connected_mcp_clients: [
-					{
-						id: client.managementId,
-						display_name: "Alice Codex",
-						authorized_at: AUTHORIZED_AT,
-						last_used_at: null,
-						granted_scopes: ["offline_access", "openid", "yepnope:questions"],
-						status: "active",
-						revoked_at: null,
-					},
-				],
-				push_devices: [{id: pushDeviceId, label: "Alice browser", created_at: AUTHORIZED_AT}],
+		expect(
+			{
+				body,
+				status: response.status,
 			},
-			status: 200,
-		});
+		).toStrictEqual(
+			{
+				body:
+				{
+					browser_sessions: [
+						{
+							id: await hashToken(`browser-session\0${session.userId}\0${secondSessionId}`),
+							display_name: "Chrome on Windows",
+							created_at: Date.UTC(2000, 0, 3),
+							last_active_at: Date.UTC(2000, 0, 4),
+							expires_at: sessionExpiry,
+							current: false,
+						},
+						{
+							id: await hashToken(`browser-session\0${session.userId}\0${firstSessionId}`),
+							display_name: "Browser on unknown platform",
+							created_at: Date.UTC(2000, 0, 1),
+							last_active_at: Date.UTC(2000, 0, 2),
+							expires_at: sessionExpiry,
+							current: true,
+						},
+					],
+					connected_mcp_clients: [
+						{
+							id: client.managementId,
+							display_name: "Alice Codex",
+							authorized_at: AUTHORIZED_AT,
+							last_used_at: null,
+							granted_scopes: ["offline_access", "openid", "yepnope:questions"],
+							status: "active",
+							revoked_at: null,
+						},
+					],
+					push_devices: [
+						{
+							id: pushDeviceId,
+							label: "Alice browser",
+							created_at: AUTHORIZED_AT,
+						},
+					],
+				},
+				status: 200,
+			},
+		);
 		expect(
 			await env.DB.prepare("SELECT count(*) AS browser_sessions FROM session WHERE user_id = ?")
 				.bind(session.userId)
 				.first(),
-		).toStrictEqual({browser_sessions: 2});
+		).toStrictEqual(
+			{
+				browser_sessions: 2,
+			},
+		);
 		const serialized = JSON.stringify(body);
 		expect([
 			serialized.includes(client.clientId),
@@ -188,7 +306,8 @@ describe("connected MCP client and browser notification management", () => {
 		]).toStrictEqual([false, false, false, false, false, false]);
 	});
 
-	it("stamps a client's last use when it authenticates, and keeps the stamp coarse", async () => {
+	it("stamps a client's last use when it authenticates, and keeps the stamp coarse", async () =>
+	{
 		const session = await createVerifiedBrowserSession("connected-client-usage-alice@example.com");
 		const authorized = await authorizeDeviceClient(session.userId, "Alice hook");
 		const [neverUsed] = await connectedMcpClients(session.cookie);
@@ -199,38 +318,66 @@ describe("connected MCP client and browser notification management", () => {
 		await useMcpConnection(authorized.accessToken);
 		const [afterSecondUse] = await connectedMcpClients(session.cookie);
 
-		expect({
-			id: afterFirstUse?.id,
-			neverUsed: neverUsed?.last_used_at,
-			stampedOnFirstUse: (afterFirstUse?.last_used_at ?? 0) >= requestedAt,
-			// 🪙 A busy client must not cost a row rewrite per request: a second call inside the same
-			// bucket leaves the stamp exactly where the first one put it.
-			unchangedInsideBucket: afterSecondUse?.last_used_at === afterFirstUse?.last_used_at,
-		}).toStrictEqual({
-			id: authorized.managementId,
-			neverUsed: null,
-			stampedOnFirstUse: true,
-			unchangedInsideBucket: true,
-		});
+		expect(
+			{
+				id: afterFirstUse?.id,
+				neverUsed: neverUsed?.last_used_at,
+				stampedOnFirstUse: (afterFirstUse?.last_used_at ?? 0) >= requestedAt,
+				// 🪙 A busy client must not cost a row rewrite per request: a second call inside the same
+				// bucket leaves the stamp exactly where the first one put it.
+				unchangedInsideBucket: afterSecondUse?.last_used_at === afterFirstUse?.last_used_at,
+			},
+		).toStrictEqual(
+			{
+				id: authorized.managementId,
+				neverUsed: null,
+				stampedOnFirstUse: true,
+				unchangedInsideBucket: true,
+			},
+		);
 	});
 
-	it("revokes clients independently, rejects cross-account IDs, and broadcasts last-client AFK shutdown", async () => {
+	it("revokes clients independently, rejects cross-account IDs, and broadcasts last-client AFK shutdown", async () =>
+	{
 		const alice = await createVerifiedBrowserSession("connected-client-revoke-alice@example.com");
 		const bob = await createVerifiedBrowserSession("connected-client-revoke-bob@example.com");
-		const first = await seedOAuthMcpClient(alice.userId, "alice-first", {name: "Alice Codex"});
-		const second = await seedOAuthMcpClient(alice.userId, "alice-second", {name: "Alice Claude"});
-		const bobClient = await seedOAuthMcpClient(bob.userId, "bob-first", {name: "Bob Codex"});
+		const first = await seedOAuthMcpClient(
+			alice.userId,
+			"alice-first",
+			{
+				name: "Alice Codex",
+			},
+		);
+		const second = await seedOAuthMcpClient(
+			alice.userId,
+			"alice-second",
+			{
+				name: "Alice Claude",
+			},
+		);
+		const bobClient = await seedOAuthMcpClient(
+			bob.userId,
+			"bob-first",
+			{
+				name: "Bob Codex",
+			},
+		);
 		await env.DB.prepare(
 			"INSERT INTO verification (id, identifier, value, expires_at, updated_at) VALUES (?, ?, ?, ?, ?)",
 		)
 			.bind(
 				"alice-first-authorization-code",
 				"alice-first-authorization-code",
-				JSON.stringify({
-					type: "authorization_code",
-					userId: alice.userId,
-					query: {client_id: first.clientId},
-				}),
+				JSON.stringify(
+					{
+						type: "authorization_code",
+						userId: alice.userId,
+						query:
+						{
+							client_id: first.clientId,
+						},
+					},
+				),
 				Date.UTC(2099, 0, 1),
 				AUTHORIZED_AT,
 			)
@@ -249,20 +396,34 @@ describe("connected MCP client and browser notification management", () => {
 			),
 		]);
 		const stub = env.USER_DO.getByName(alice.userId);
-		expect(await stub.setAfk(true, true)).toStrictEqual({status: "updated", afk: true});
+		expect(await stub.setAfk(true, true)).toStrictEqual(
+			{
+				status: "updated",
+				afk: true,
+			},
+		);
 
-		const streamResponse = await worker.fetch(`${API_ORIGIN}/api/v1/current-deck/stream`, {
-			headers: {Cookie: alice.cookie, Upgrade: "websocket"},
-		});
+		const streamResponse = await worker.fetch(
+			`${API_ORIGIN}/api/v1/current-deck/stream`,
+			{
+				headers:
+				{
+					Cookie: alice.cookie,
+					Upgrade: "websocket",
+				},
+			},
+		);
 		const socket = required(streamResponse.webSocket ?? undefined, "current deck websocket");
 		const initial = nextMessage(socket);
 		socket.accept();
-		expect(JSON.parse(await initial)).toStrictEqual({
-			type: "current_deck",
-			afk: true,
-			connected_mcp_client_count: 2,
-			current_deck: [],
-		});
+		expect(JSON.parse(await initial)).toStrictEqual(
+			{
+				type: "current_deck",
+				afk: true,
+				connected_mcp_client_count: 2,
+				current_deck: [],
+			},
+		);
 
 		const denied = await accountRequest(
 			bob.cookie,
@@ -276,26 +437,46 @@ describe("connected MCP client and browser notification management", () => {
 			`/api/v1/account/connected-mcp-clients/${first.managementId}`,
 			"DELETE",
 		);
-		expect({body: await revokedFirst.json(), status: revokedFirst.status}).toStrictEqual({
-			body: {status: "ok", connected_mcp_client_count: 1},
-			status: 200,
-		});
-		expect(JSON.parse(await afterFirstRevocation)).toStrictEqual({
-			type: "current_deck",
-			afk: true,
-			connected_mcp_client_count: 1,
-			current_deck: [],
-		});
+		expect(
+			{
+				body: await revokedFirst.json(),
+				status: revokedFirst.status,
+			},
+		).toStrictEqual(
+			{
+				body:
+				{
+					status: "ok",
+					connected_mcp_client_count: 1,
+				},
+				status: 200,
+			},
+		);
+		expect(JSON.parse(await afterFirstRevocation)).toStrictEqual(
+			{
+				type: "current_deck",
+				afk: true,
+				connected_mcp_client_count: 1,
+				current_deck: [],
+			},
+		);
 		expect(await stub.getAfk(true)).toBe(true);
 		const repeatedFirstRevocation = await accountRequest(
 			alice.cookie,
 			`/api/v1/account/connected-mcp-clients/${first.managementId}`,
 			"DELETE",
 		);
-		expect({body: await repeatedFirstRevocation.text(), status: repeatedFirstRevocation.status}).toStrictEqual({
-			body: "",
-			status: 404,
-		});
+		expect(
+			{
+				body: await repeatedFirstRevocation.text(),
+				status: repeatedFirstRevocation.status,
+			},
+		).toStrictEqual(
+			{
+				body: "",
+				status: 404,
+			},
+		);
 
 		const afterLastRevocation = nextMessage(socket);
 		const revokedLast = await accountRequest(
@@ -303,67 +484,116 @@ describe("connected MCP client and browser notification management", () => {
 			`/api/v1/account/connected-mcp-clients/${second.managementId}`,
 			"DELETE",
 		);
-		expect({body: await revokedLast.json(), status: revokedLast.status}).toStrictEqual({
-			body: {status: "ok", connected_mcp_client_count: 0},
-			status: 200,
-		});
-		expect(JSON.parse(await afterLastRevocation)).toStrictEqual({
-			type: "current_deck",
-			afk: false,
-			connected_mcp_client_count: 0,
-			current_deck: [],
-		});
+		expect(
+			{
+				body: await revokedLast.json(),
+				status: revokedLast.status,
+			},
+		).toStrictEqual(
+			{
+				body:
+				{
+					status: "ok",
+					connected_mcp_client_count: 0,
+				},
+				status: 200,
+			},
+		);
+		expect(JSON.parse(await afterLastRevocation)).toStrictEqual(
+			{
+				type: "current_deck",
+				afk: false,
+				connected_mcp_client_count: 0,
+				current_deck: [],
+			},
+		);
 		expect(await stub.getAfk(true)).toBe(false);
-		expect({
-			aliceAccessTokens: await env.DB.prepare(
-				"SELECT count(*) AS value FROM oauth_access_token WHERE user_id = ?",
-			)
-				.bind(alice.userId)
-				.first(),
-			aliceAuthorizationCodes: await env.DB.prepare(
-				"SELECT count(*) AS value FROM verification WHERE json_valid(value) " +
-					"AND json_extract(value, '$.userId') = ?",
-			)
-				.bind(alice.userId)
-				.first(),
-			aliceClientUses: await env.DB.prepare("SELECT count(*) AS value FROM mcp_client_use WHERE user_id = ?")
-				.bind(alice.userId)
-				.first(),
-			aliceConsents: await env.DB.prepare("SELECT count(*) AS value FROM oauth_consent WHERE user_id = ?")
-				.bind(alice.userId)
-				.first(),
-			aliceRefreshTokens: await env.DB.prepare(
-				"SELECT count(*) AS value FROM oauth_refresh_token WHERE user_id = ?",
-			)
-				.bind(alice.userId)
-				.first(),
-			bobRefreshTokens: await env.DB.prepare(
-				"SELECT client_id, revoked FROM oauth_refresh_token WHERE user_id = ?",
-			)
-				.bind(bob.userId)
-				.all(),
-			clients: await env.DB.prepare(
-				"SELECT client_id FROM oauth_client WHERE client_id IN (?, ?, ?) ORDER BY client_id",
-			)
-				.bind(first.clientId, second.clientId, bobClient.clientId)
-				.all(),
-		}).toStrictEqual({
-			aliceAccessTokens: {value: 0},
-			aliceAuthorizationCodes: {value: 0},
-			aliceClientUses: {value: 0},
-			aliceConsents: {value: 0},
-			aliceRefreshTokens: {value: 0},
-			bobRefreshTokens: {
-				success: true,
-				results: [{client_id: bobClient.clientId, revoked: null}],
-				meta: expect.any(Object),
+		expect(
+			{
+				aliceAccessTokens: await env.DB.prepare(
+					"SELECT count(*) AS value FROM oauth_access_token WHERE user_id = ?",
+				)
+					.bind(alice.userId)
+					.first(),
+				aliceAuthorizationCodes: await env.DB.prepare(
+					"SELECT count(*) AS value FROM verification WHERE json_valid(value) " +
+						"AND json_extract(value, '$.userId') = ?",
+				)
+					.bind(alice.userId)
+					.first(),
+				aliceClientUses: await env.DB.prepare("SELECT count(*) AS value FROM mcp_client_use WHERE user_id = ?")
+					.bind(alice.userId)
+					.first(),
+				aliceConsents: await env.DB.prepare("SELECT count(*) AS value FROM oauth_consent WHERE user_id = ?")
+					.bind(alice.userId)
+					.first(),
+				aliceRefreshTokens: await env.DB.prepare(
+					"SELECT count(*) AS value FROM oauth_refresh_token WHERE user_id = ?",
+				)
+					.bind(alice.userId)
+					.first(),
+				bobRefreshTokens: await env.DB.prepare(
+					"SELECT client_id, revoked FROM oauth_refresh_token WHERE user_id = ?",
+				)
+					.bind(bob.userId)
+					.all(),
+				clients: await env.DB.prepare(
+					"SELECT client_id FROM oauth_client WHERE client_id IN (?, ?, ?) ORDER BY client_id",
+				)
+					.bind(first.clientId, second.clientId, bobClient.clientId)
+					.all(),
 			},
-			clients: {
-				success: true,
-				results: [{client_id: first.clientId}, {client_id: second.clientId}, {client_id: bobClient.clientId}],
-				meta: expect.any(Object),
+		).toStrictEqual(
+			{
+				aliceAccessTokens:
+				{
+					value: 0,
+				},
+				aliceAuthorizationCodes:
+				{
+					value: 0,
+				},
+				aliceClientUses:
+				{
+					value: 0,
+				},
+				aliceConsents:
+				{
+					value: 0,
+				},
+				aliceRefreshTokens:
+				{
+					value: 0,
+				},
+				bobRefreshTokens:
+				{
+					success: true,
+					results: [
+						{
+							client_id: bobClient.clientId,
+							revoked: null,
+						},
+					],
+					meta: expect.any(Object),
+				},
+				clients:
+				{
+					success: true,
+					results: [
+						{
+							client_id: first.clientId,
+						},
+						{
+							client_id: second.clientId,
+						},
+						{
+							client_id: bobClient.clientId,
+						},
+					],
+					meta: expect.any(Object),
+				},
 			},
-		});
+		);
 		socket.close();
 	});
 });

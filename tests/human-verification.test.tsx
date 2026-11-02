@@ -8,7 +8,8 @@ import {humanVerificationBlocksSubmit, useHumanVerification} from "../src/turnst
 
 const TEST_SITE_KEY = "1x00000000000000000000AA";
 
-interface StubRenderOptions {
+interface StubRenderOptions
+{
 	action: string;
 	appearance: string;
 	callback: (token: string) => void;
@@ -22,7 +23,8 @@ interface StubRenderOptions {
 	"timeout-callback": () => void;
 }
 
-interface TurnstileStub {
+interface TurnstileStub
+{
 	options: () => StubRenderOptions;
 	removals: string[];
 	resets: string[];
@@ -33,16 +35,20 @@ interface TurnstileStub {
  * Cloudflare's widget script, reduced to the surface this module actually uses. The test drives the
  * callbacks itself, so every state the visitor can land in is reached deterministically.
  */
-function installTurnstileStub(): TurnstileStub {
+function installTurnstileStub(): TurnstileStub
+{
 	const rendered: StubRenderOptions[] = [];
 	const removals: string[] = [];
 	const resets: string[] = [];
 	let counter = 0;
-	window.turnstile = {
-		remove: (widgetId) => {
+	window.turnstile =
+	{
+		remove: (widgetId) =>
+		{
 			removals.push(widgetId);
 		},
-		render: (container, options) => {
+		render: (container, options) =>
+		{
 			counter += 1;
 			const frame = document.createElement("div");
 			frame.textContent = "Cloudflare Turnstile challenge";
@@ -50,14 +56,17 @@ function installTurnstileStub(): TurnstileStub {
 			rendered.push(options);
 			return `widget-${counter}`;
 		},
-		reset: (widgetId) => {
+		reset: (widgetId) =>
+		{
 			resets.push(widgetId);
 		},
 	};
 	return {
-		options: () => {
+		options: () =>
+		{
 			const latest = rendered.at(-1);
-			if (latest === undefined) {
+			if (latest === undefined)
+			{
 				throw new Error("the widget was never rendered");
 			}
 			return latest;
@@ -68,25 +77,30 @@ function installTurnstileStub(): TurnstileStub {
 	};
 }
 
-interface HarnessProps {
+interface HarnessProps
+{
 	action?: string;
 	siteKey: string | null;
 	theme?: ResolvedTheme;
 }
 
-function Harness({action = "sign_in", siteKey, theme = "dark"}: HarnessProps): ReactElement {
+function Harness({action = "sign_in", siteKey, theme = "dark"}: HarnessProps): ReactElement
+{
 	const verification = useHumanVerification(action, siteKey, theme);
 	const [outcome, setOutcome] = useState("idle");
 	return (
 		<form
-			onSubmit={(event) => {
+			onSubmit={(event) =>
+			{
 				event.preventDefault();
 				setOutcome("submitting");
 				void verification.consume().then(
-					(token) => {
+					(token) =>
+					{
 						setOutcome(token ?? "waived");
 					},
-					() => {
+					() =>
+					{
 						setOutcome("refused");
 					},
 				);
@@ -101,147 +115,215 @@ function Harness({action = "sign_in", siteKey, theme = "dark"}: HarnessProps): R
 	);
 }
 
-function submitButton(): HTMLButtonElement {
-	return screen.getByRole("button", {name: "Submit"});
+function submitButton(): HTMLButtonElement
+{
+	return screen.getByRole(
+		"button",
+		{
+			name: "Submit",
+		},
+	);
 }
 
-function outcome(): string {
+function outcome(): string
+{
 	return screen.getByTestId("outcome").textContent;
 }
 
-function status(): string {
+function status(): string
+{
 	return screen.getByRole("status").textContent;
 }
 
-beforeEach(() => {
+beforeEach(() =>
+{
 	delete window.turnstile;
 });
 
-afterEach(() => {
+afterEach(() =>
+{
 	delete window.turnstile;
-	for (const script of document.querySelectorAll("script")) {
+	for (const script of document.querySelectorAll("script"))
+	{
 		script.remove();
 	}
 });
 
-describe("A deployment that configured no widget", () => {
-	it("draws no check and lets the form submit with no token", async () => {
+describe("A deployment that configured no widget", () =>
+{
+	it("draws no check and lets the form submit with no token", async () =>
+	{
 		render(<Harness siteKey={null} />);
 
-		expect({
-			blocked: submitButton().disabled,
-			group: screen.queryByRole("group", {name: "Human verification"}),
-		}).toStrictEqual({blocked: false, group: null});
+		expect(
+			{
+				blocked: submitButton().disabled,
+				group: screen.queryByRole(
+					"group",
+					{
+						name: "Human verification",
+					},
+				),
+			},
+		).toStrictEqual(
+			{
+				blocked: false,
+				group: null,
+			},
+		);
 
 		fireEvent.submit(submitButton());
 
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(outcome()).toBe("waived");
 		});
 	});
 });
 
-describe("The human-verification check", () => {
-	it("renders one dark, flexible widget that names its own surface", async () => {
+describe("The human-verification check", () =>
+{
+	it("renders one dark, flexible widget that names its own surface", async () =>
+	{
 		const turnstile = installTurnstileStub();
 
 		render(<Harness action="reset_password" siteKey={TEST_SITE_KEY} />);
 
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
 		const options = turnstile.options();
-		expect({
-			action: options.action,
-			appearance: options.appearance,
-			refreshExpired: options["refresh-expired"],
-			retry: options.retry,
-			sitekey: options.sitekey,
-			size: options.size,
-			theme: options.theme,
-		}).toStrictEqual({
-			action: "reset_password",
-			appearance: "always",
-			refreshExpired: "auto",
-			retry: "never",
-			sitekey: TEST_SITE_KEY,
-			size: "flexible",
-			theme: "dark",
-		});
+		expect(
+			{
+				action: options.action,
+				appearance: options.appearance,
+				refreshExpired: options["refresh-expired"],
+				retry: options.retry,
+				sitekey: options.sitekey,
+				size: options.size,
+				theme: options.theme,
+			},
+		).toStrictEqual(
+			{
+				action: "reset_password",
+				appearance: "always",
+				refreshExpired: "auto",
+				retry: "never",
+				sitekey: TEST_SITE_KEY,
+				size: "flexible",
+				theme: "dark",
+			},
+		);
 	});
 
 	// 🌗 Cloudflare draws the widget itself, so the only way it can match a light page is to be told.
-	it("draws the widget in the palette the page is painted in, and redraws it when that changes", async () => {
+	it("draws the widget in the palette the page is painted in, and redraws it when that changes", async () =>
+	{
 		const turnstile = installTurnstileStub();
 
 		const view = render(<Harness siteKey={TEST_SITE_KEY} theme="light" />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
 		expect(turnstile.options().theme).toBe("light");
 
 		view.rerender(<Harness siteKey={TEST_SITE_KEY} theme="dark" />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(2);
 		});
-		expect({removals: turnstile.removals, theme: turnstile.options().theme}).toStrictEqual({
-			removals: ["widget-1"],
-			theme: "dark",
-		});
+		expect(
+			{
+				removals: turnstile.removals,
+				theme: turnstile.options().theme,
+			},
+		).toStrictEqual(
+			{
+				removals: ["widget-1"],
+				theme: "dark",
+			},
+		);
 	});
 
-	it("holds the submit until the check reports a token, then releases it", async () => {
+	it("holds the submit until the check reports a token, then releases it", async () =>
+	{
 		const turnstile = installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(status()).toBe("Checking that you are human…");
 		});
 
 		expect(submitButton().disabled).toBe(true);
-		act(() => {
+		act(() =>
+		{
 			turnstile.options().callback("solved-token");
 		});
 
-		expect({blocked: submitButton().disabled, status: status()}).toStrictEqual({
-			blocked: false,
-			status: "Human verification complete.",
-		});
+		expect(
+			{
+				blocked: submitButton().disabled,
+				status: status(),
+			},
+		).toStrictEqual(
+			{
+				blocked: false,
+				status: "Human verification complete.",
+			},
+		);
 	});
 
 	// 🎟️ A token is redeemable exactly once, so handing it over must start the next one.
-	it("spends the held token on the submission and immediately earns a replacement", async () => {
+	it("spends the held token on the submission and immediately earns a replacement", async () =>
+	{
 		const turnstile = installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
-		act(() => {
+		act(() =>
+		{
 			turnstile.options().callback("first-token");
 		});
 
 		fireEvent.submit(submitButton());
 
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(outcome()).toBe("first-token");
 		});
-		expect({blocked: submitButton().disabled, resets: turnstile.resets.length}).toStrictEqual({
-			blocked: true,
-			resets: 1,
-		});
+		expect(
+			{
+				blocked: submitButton().disabled,
+				resets: turnstile.resets.length,
+			},
+		).toStrictEqual(
+			{
+				blocked: true,
+				resets: 1,
+			},
+		);
 
-		act(() => {
+		act(() =>
+		{
 			turnstile.options().callback("second-token");
 		});
 		fireEvent.submit(submitButton());
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(outcome()).toBe("second-token");
 		});
 	});
 
-	it("makes a submission wait for a check that has not finished yet", async () => {
+	it("makes a submission wait for a check that has not finished yet", async () =>
+	{
 		const turnstile = installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
 
@@ -250,109 +332,171 @@ describe("The human-verification check", () => {
 		fireEvent.submit(submitButton());
 		expect(outcome()).toBe("submitting");
 
-		act(() => {
+		act(() =>
+		{
 			turnstile.options().callback("late-token");
 		});
 
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(outcome()).toBe("late-token");
 		});
 	});
 
-	it("says an expired check is being rerun, and clears the notice when it is", async () => {
+	it("says an expired check is being rerun, and clears the notice when it is", async () =>
+	{
 		const turnstile = installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
-		act(() => {
+		act(() =>
+		{
 			turnstile.options().callback("aging-token");
 		});
 
-		act(() => {
+		act(() =>
+		{
 			turnstile.options()["expired-callback"]();
 		});
-		const expired = {blocked: submitButton().disabled, status: status()};
+		const expired =
+		{
+			blocked: submitButton().disabled,
+			status: status(),
+		};
 
-		act(() => {
+		act(() =>
+		{
 			turnstile.options().callback("fresh-token");
 		});
 
-		expect({expired, refreshed: {blocked: submitButton().disabled, status: status()}}).toStrictEqual({
-			expired: {blocked: true, status: "That check expired. Running it again…"},
-			refreshed: {blocked: false, status: "Human verification complete."},
-		});
+		expect(
+			{
+				expired,
+				refreshed:
+				{
+					blocked: submitButton().disabled,
+					status: status(),
+				},
+			},
+		).toStrictEqual(
+			{
+				expired:
+				{
+					blocked: true,
+					status: "That check expired. Running it again…",
+				},
+				refreshed:
+				{
+					blocked: false,
+					status: "Human verification complete.",
+				},
+			},
+		);
 	});
 
-	it("explains a refused check and rebuilds the widget when the visitor retries", async () => {
+	it("explains a refused check and rebuilds the widget when the visitor retries", async () =>
+	{
 		const turnstile = installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
 
-		act(() => {
+		act(() =>
+		{
 			turnstile.options()["error-callback"]();
 		});
 
-		expect({
-			alert: screen.getByRole("alert").textContent,
-			blocked: submitButton().disabled,
-		}).toStrictEqual({
-			alert: "We could not verify this browser. Retry the check below, then submit again.",
-			blocked: true,
-		});
+		expect(
+			{
+				alert: screen.getByRole("alert").textContent,
+				blocked: submitButton().disabled,
+			},
+		).toStrictEqual(
+			{
+				alert: "We could not verify this browser. Retry the check below, then submit again.",
+				blocked: true,
+			},
+		);
 
-		fireEvent.click(screen.getByRole("button", {name: "Retry verification"}));
+		fireEvent.click(
+			screen.getByRole(
+				"button",
+				{
+					name: "Retry verification",
+				},
+			),
+		);
 
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(2);
 		});
 		expect(turnstile.removals).toStrictEqual(["widget-1"]);
 	});
 
-	it("refuses a submission that was already waiting when the check failed", async () => {
+	it("refuses a submission that was already waiting when the check failed", async () =>
+	{
 		const turnstile = installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
 
 		fireEvent.submit(submitButton());
-		act(() => {
+		act(() =>
+		{
 			turnstile.options()["timeout-callback"]();
 		});
 
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(outcome()).toBe("refused");
 		});
 	});
 
 	// 🕸️ Turnstile's script is a third-party request that an extension, a proxy, or a flaky network
 	// can simply not deliver. The page has to say so rather than present a form that cannot work.
-	it("reports a script that never loads instead of waiting silently", async () => {
+	it("reports a script that never loads instead of waiting silently", async () =>
+	{
 		render(<Harness siteKey={TEST_SITE_KEY} />);
 
-		const script = await waitFor(() => {
+		const script = await waitFor(() =>
+		{
 			const candidate = document.querySelector<HTMLScriptElement>(
 				'script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]',
 			);
-			if (candidate === null) {
+			if (candidate === null)
+			{
 				throw new Error("the widget script was never requested");
 			}
 			return candidate;
 		});
-		expect({
-			async: script.async,
-			defer: script.defer,
-			explicit: script.src.includes("render=explicit"),
-		}).toStrictEqual({async: true, defer: true, explicit: true});
+		expect(
+			{
+				async: script.async,
+				defer: script.defer,
+				explicit: script.src.includes("render=explicit"),
+			},
+		).toStrictEqual(
+			{
+				async: true,
+				defer: true,
+				explicit: true,
+			},
+		);
 
-		act(() => {
+		act(() =>
+		{
 			script.dispatchEvent(new Event("error"));
 		});
 
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(screen.getByRole("alert").textContent).toBe(
 				"We could not verify this browser. Retry the check below, then submit again.",
 			);
@@ -361,46 +505,72 @@ describe("The human-verification check", () => {
 	});
 });
 
-describe("The check as a screen reader and a keyboard reach it", () => {
-	it("names its group, announces politely, and discloses who is doing the checking", async () => {
+describe("The check as a screen reader and a keyboard reach it", () =>
+{
+	it("names its group, announces politely, and discloses who is doing the checking", async () =>
+	{
 		installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
 
-		const group = await screen.findByRole("group", {name: "Human verification"});
+		const group = await screen.findByRole(
+			"group",
+			{
+				name: "Human verification",
+			},
+		);
 		const announcement = screen.getByRole("status");
 
-		expect({
-			busyWhileWorking: announcement.getAttribute("aria-busy"),
-			disclosesProcessor: group.textContent.includes("Cloudflare Turnstile checks this browser"),
-			live: announcement.getAttribute("aria-live"),
-			privacyLink: group.querySelector('a[href="https://www.cloudflare.com/privacypolicy/"]') !== null,
-			promisesNoPassword: group.textContent.includes("It never receives your password."),
-			termsLink: group.querySelector('a[href="https://www.cloudflare.com/website-terms/"]') !== null,
-		}).toStrictEqual({
-			busyWhileWorking: "true",
-			disclosesProcessor: true,
-			live: "polite",
-			privacyLink: true,
-			promisesNoPassword: true,
-			termsLink: true,
-		});
+		expect(
+			{
+				busyWhileWorking: announcement.getAttribute("aria-busy"),
+				disclosesProcessor: group.textContent.includes("Cloudflare Turnstile checks this browser"),
+				live: announcement.getAttribute("aria-live"),
+				privacyLink: group.querySelector('a[href="https://www.cloudflare.com/privacypolicy/"]') !== null,
+				promisesNoPassword: group.textContent.includes("It never receives your password."),
+				termsLink: group.querySelector('a[href="https://www.cloudflare.com/website-terms/"]') !== null,
+			},
+		).toStrictEqual(
+			{
+				busyWhileWorking: "true",
+				disclosesProcessor: true,
+				live: "polite",
+				privacyLink: true,
+				promisesNoPassword: true,
+				termsLink: true,
+			},
+		);
 	});
 
-	it("offers the retry as a real button the keyboard can reach", async () => {
+	it("offers the retry as a real button the keyboard can reach", async () =>
+	{
 		const turnstile = installTurnstileStub();
 		render(<Harness siteKey={TEST_SITE_KEY} />);
-		await waitFor(() => {
+		await waitFor(() =>
+		{
 			expect(turnstile.widgetCount()).toBe(1);
 		});
 
-		act(() => {
+		act(() =>
+		{
 			turnstile.options()["error-callback"]();
 		});
-		const retry = screen.getByRole("button", {name: "Retry verification"});
+		const retry = screen.getByRole(
+			"button",
+			{
+				name: "Retry verification",
+			},
+		);
 
-		expect({tabbable: retry.getAttribute("tabindex"), type: retry.getAttribute("type")}).toStrictEqual({
-			tabbable: null,
-			type: "button",
-		});
+		expect(
+			{
+				tabbable: retry.getAttribute("tabindex"),
+				type: retry.getAttribute("type"),
+			},
+		).toStrictEqual(
+			{
+				tabbable: null,
+				type: "button",
+			},
+		);
 	});
 });

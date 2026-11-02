@@ -7,23 +7,28 @@ import {fileURLToPath} from "node:url";
 
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "icons");
 
-const CRC_TABLE = new Int32Array(256).map((_unused, n) => {
+const CRC_TABLE = new Int32Array(256).map((_unused, n) =>
+{
 	let c = n;
-	for (let k = 0; k < 8; k += 1) {
+	for (let k = 0; k < 8; k += 1)
+	{
 		c = (c & 1) === 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
 	}
 	return c;
 });
 
-function crc32(bytes) {
+function crc32(bytes)
+{
 	let crc = -1;
-	for (const byte of bytes) {
+	for (const byte of bytes)
+	{
 		crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
 	}
 	return (crc ^ -1) >>> 0;
 }
 
-function chunk(type, data) {
+function chunk(type, data)
+{
 	const length = Buffer.alloc(4);
 	length.writeUInt32BE(data.length);
 	const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
@@ -32,38 +37,52 @@ function chunk(type, data) {
 	return Buffer.concat([length, body, crc]);
 }
 
-function encodePng(size, pixels) {
+function encodePng(size, pixels)
+{
 	const ihdr = Buffer.alloc(13);
 	ihdr.writeUInt32BE(size, 0);
 	ihdr.writeUInt32BE(size, 4);
 	ihdr[8] = 8; // bit depth
 	ihdr[9] = 6; // RGBA
 	const raw = Buffer.alloc(size * (size * 4 + 1));
-	for (let y = 0; y < size; y += 1) {
+	for (let y = 0; y < size; y += 1)
+	{
 		raw[y * (size * 4 + 1)] = 0; // filter none
 		pixels.copy(raw, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
 	}
 	return Buffer.concat([
 		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
 		chunk("IHDR", ihdr),
-		chunk("IDAT", deflateSync(raw, {level: 9})),
+		chunk(
+			"IDAT",
+			deflateSync(
+				raw,
+				{
+					level: 9,
+				},
+			),
+		),
 		chunk("IEND", Buffer.alloc(0)),
 	]);
 }
 
-function roundedRectDistance(x, y, cx, cy, halfWidth, halfHeight, radius) {
+function roundedRectDistance(x, y, cx, cy, halfWidth, halfHeight, radius)
+{
 	const qx = Math.abs(x - cx) - (halfWidth - radius);
 	const qy = Math.abs(y - cy) - (halfHeight - radius);
 	const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
 	return outside + Math.min(Math.max(qx, qy), 0) - radius;
 }
 
-function coverage(distance) {
+function coverage(distance)
+{
 	return Math.min(1, Math.max(0, 0.5 - distance));
 }
 
-function blend(pixels, index, r, g, b, alpha) {
-	if (alpha <= 0) {
+function blend(pixels, index, r, g, b, alpha)
+{
+	if (alpha <= 0)
+	{
 		return;
 	}
 	const existingAlpha = pixels[index + 3] / 255;
@@ -74,12 +93,15 @@ function blend(pixels, index, r, g, b, alpha) {
 	pixels[index + 3] = Math.round(outAlpha * 255);
 }
 
-function drawIcon(size, background) {
+function drawIcon(size, background)
+{
 	const pixels = Buffer.alloc(size * size * 4);
 	const center = size / 2;
 	const stampAngle = (-12 * Math.PI) / 180;
-	for (let y = 0; y < size; y += 1) {
-		for (let x = 0; x < size; x += 1) {
+	for (let y = 0; y < size; y += 1)
+	{
+		for (let x = 0; x < size; x += 1)
+		{
 			const index = (y * size + x) * 4;
 			pixels[index] = background[0];
 			pixels[index + 1] = background[1];
@@ -98,12 +120,15 @@ function drawIcon(size, background) {
 	return encodePng(size, pixels);
 }
 
-function drawBadge(size) {
+function drawBadge(size)
+{
 	// Monochrome for the Android notification badge: white card outline on transparency.
 	const pixels = Buffer.alloc(size * size * 4);
 	const center = size / 2;
-	for (let y = 0; y < size; y += 1) {
-		for (let x = 0; x < size; x += 1) {
+	for (let y = 0; y < size; y += 1)
+	{
+		for (let x = 0; x < size; x += 1)
+		{
 			const index = (y * size + x) * 4;
 			const outline = Math.abs(roundedRectDistance(x, y, center, center, size * 0.3, size * 0.38, size * 0.08));
 			blend(pixels, index, 0xff, 0xff, 0xff, coverage(outline - size * 0.05));
@@ -112,7 +137,12 @@ function drawBadge(size) {
 	return encodePng(size, pixels);
 }
 
-mkdirSync(OUT_DIR, {recursive: true});
+mkdirSync(
+	OUT_DIR,
+	{
+		recursive: true,
+	},
+);
 const BACKGROUND = [0x17, 0x18, 0x1c];
 writeFileSync(join(OUT_DIR, "icon-192.png"), drawIcon(192, BACKGROUND));
 writeFileSync(join(OUT_DIR, "icon-512.png"), drawIcon(512, BACKGROUND));

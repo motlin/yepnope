@@ -2,7 +2,8 @@
 	"name": "yepnope",
 	"version": "0.1.2",
 	"description": "Route every yes-or-no coding-agent question to your phone first.",
-	"author": {
+	"author":
+	{
 		"name": "YepNope"
 	},
 	"homepage": "https://yepnope.app",
@@ -10,7 +11,8 @@
 	"license": "MIT",
 	"keywords": ["codex", "claude-code", "mcp", "yes-no"],
 	"skills": "./skills/",
-	"interface": {
+	"interface":
+	{
 		"displayName": "YepNope",
 		"shortDescription": "Answer coding-agent questions from your phone",
 		"longDescription": "Connect YepNope and try every yes-or-no coding-agent question on your phone before falling back to the native question flow.",

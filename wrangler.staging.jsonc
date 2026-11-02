@@ -19,12 +19,14 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"workers_dev": true,
 	"preview_urls": false,
-	"assets": {
+	"assets":
+	{
 		"directory": "./dist",
 		"not_found_handling": "single-page-application",
 		"run_worker_first": ["/api/*", "/.well-known/*", "/mcp"],
 	},
-	"durable_objects": {
+	"durable_objects":
+	{
 		"bindings": [{"name": "USER_DO", "class_name": "UserDurableObject"}],
 	},
 	"migrations": [{"tag": "v1", "new_sqlite_classes": ["UserDurableObject"]}],
@@ -42,12 +44,14 @@
 	// `vp exec wrangler secret put NAME --config wrangler.staging.jsonc`. Its Turnstile pair is
 	// optional: nothing the deployed check does is behind the gate, and a staging deployment without
 	// the pair simply answers its own signed-out forms with 403.
-	"vars": {
+	"vars":
+	{
 		"AUTH_EMAIL_FROM": "accounts@yepnope.app",
 		"BETTER_AUTH_URL": "https://yepnope-staging.cmotlin.workers.dev",
 		"VAPID_SUBJECT": "mailto:push@yepnope.app",
 	},
-	"observability": {
+	"observability":
+	{
 		"enabled": true,
 		"logs": {"enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "persist": true},
 		"traces": {"enabled": true, "head_sampling_rate": 1, "persist": true},

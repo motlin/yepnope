@@ -6,26 +6,42 @@ export const TOOL_NAME = "ask_yep_nope";
 export const NATIVE_QUESTION_FALLBACK_TEXT =
 	"YepNope phone routing is off. Immediately ask the same question through the client's native user-question tool.";
 
-export const NATIVE_QUESTION_FALLBACK = {reason: "afk_off", route: "native"} as const;
+export const NATIVE_QUESTION_FALLBACK =
+{
+	reason: "afk_off",
+	route: "native",
+} as const;
 
 // 🧭 The card's chips. A remote MCP server cannot see the caller's filesystem, so the only way
 // these ever reach a card is as tool arguments the agent fills in — which it will not do unless
 // the schema and the description below ask for them by name.
-const ASK_YEP_NOPE_ARGUMENTS_SCHEMA = z.object({
-	project: z.string().min(1),
-	repo: z.string().optional(),
-	branch: z.string().optional(),
-	worktree: z.string().optional(),
-	directory: z.string().optional(),
-	questions: z.array(z.object({title: z.string(), body: z.string()})).min(1),
-});
+const ASK_YEP_NOPE_ARGUMENTS_SCHEMA = z.object(
+	{
+		project: z.string().min(1),
+		repo: z.string().optional(),
+		branch: z.string().optional(),
+		worktree: z.string().optional(),
+		directory: z.string().optional(),
+		questions: z
+			.array(
+				z.object(
+					{
+						title: z.string(),
+						body: z.string(),
+					},
+				),
+			)
+			.min(1),
+	},
+);
 
 export type AskYepNopeArguments = z.infer<typeof ASK_YEP_NOPE_ARGUMENTS_SCHEMA>;
 
 const SKIP_INSTRUCTION =
 	"SKIPPED. The user declined to decide. Leave this alone and report it; do not choose for them.";
 
-const DISPOSITION_SUFFIX: Record<Disposition, string> = {
+const DISPOSITION_SUFFIX: Record<Disposition, string> =
+{
 	yep: "YEP",
 	nope: "NOPE",
 	skip: SKIP_INSTRUCTION,
@@ -34,11 +50,14 @@ const DISPOSITION_SUFFIX: Record<Disposition, string> = {
 export function formatAskYepNopeResult(
 	questions: AskYepNopeArguments["questions"],
 	dispositions: Disposition[],
-): string {
+): string
+{
 	return questions
-		.map((question, position) => {
+		.map((question, position) =>
+		{
 			const disposition = dispositions[position];
-			if (disposition === undefined) {
+			if (disposition === undefined)
+			{
 				throw new Error(`missing disposition for question ${String(position)}`);
 			}
 			return `${question.title} -> ${DISPOSITION_SUFFIX[disposition]}`;
@@ -79,22 +98,31 @@ export const TOOL_DESCRIPTION =
 	"from another. Derive them yourself from the shell, do not ask the user for them, and omit " +
 	"any you cannot determine.";
 
-export const TOOL_INPUT_SCHEMA = {
+export const TOOL_INPUT_SCHEMA =
+{
 	type: "object",
 	required: ["project", "questions"],
-	properties: {
-		project: {type: "string", description: "Human-readable label for the work"},
-		repo: {
+	properties:
+	{
+		project:
+		{
+			type: "string",
+			description: "Human-readable label for the work",
+		},
+		repo:
+		{
 			type: "string",
 			maxLength: CONTEXT_MAX_CHARACTERS,
 			description: "Repository the work is in, `owner/name` style, from `git remote get-url origin`",
 		},
-		branch: {
+		branch:
+		{
 			type: "string",
 			maxLength: CONTEXT_MAX_CHARACTERS,
 			description: "Checked-out branch, from `git rev-parse --abbrev-ref HEAD`",
 		},
-		worktree: {
+		worktree:
+		{
 			type: "string",
 			maxLength: CONTEXT_MAX_CHARACTERS,
 			description:
@@ -102,24 +130,30 @@ export const TOOL_INPUT_SCHEMA = {
 				"worktrees of one repository are often checked out at once and share a repo and often " +
 				"a branch, so this is what tells the user which of them is asking",
 		},
-		directory: {
+		directory:
+		{
 			type: "string",
 			maxLength: CONTEXT_MAX_CHARACTERS,
 			description: "Absolute path of your current working directory",
 		},
-		questions: {
+		questions:
+		{
 			type: "array",
 			minItems: 1,
-			items: {
+			items:
+			{
 				type: "object",
 				required: ["title", "body"],
-				properties: {
-					title: {
+				properties:
+				{
+					title:
+					{
 						type: "string",
 						maxLength: TITLE_MAX_CHARACTERS,
 						description: "Short yes-or-no decision that does not refer to console or chat context",
 					},
-					body: {
+					body:
+					{
 						type: "string",
 						maxLength: BODY_MAX_CHARACTERS,
 						description:
@@ -132,22 +166,43 @@ export const TOOL_INPUT_SCHEMA = {
 	},
 } as const;
 
-function schemaTypes<Input>(): {input: Input; output: Input} | undefined {
+function schemaTypes<Input>():
+	|
+	  {
+			input: Input;
+			output: Input;
+	  }
+	| undefined
+{
 	return undefined;
 }
 
-export const ASK_YEP_NOPE_STANDARD_SCHEMA = {
-	"~standard": {
+export const ASK_YEP_NOPE_STANDARD_SCHEMA =
+{
+	"~standard":
+	{
 		version: 1 as const,
 		vendor: "yepnope",
 		types: schemaTypes<AskYepNopeArguments>(),
-		validate(value: unknown) {
+		validate(value: unknown)
+		{
 			const parsed = ASK_YEP_NOPE_ARGUMENTS_SCHEMA.safeParse(value);
 			return parsed.success
-				? {value: parsed.data}
-				: {issues: parsed.error.issues.map((issue) => ({message: issue.message, path: issue.path}))};
+				?
+					{
+						value: parsed.data,
+					}
+				:
+					{
+						issues: parsed.error.issues.map((issue) => (
+						{
+							message: issue.message,
+							path: issue.path,
+						})),
+					};
 		},
-		jsonSchema: {
+		jsonSchema:
+		{
 			input: () => TOOL_INPUT_SCHEMA,
 			output: () => TOOL_INPUT_SCHEMA,
 		},
@@ -158,7 +213,8 @@ export const ASK_YEP_NOPE_STANDARD_SCHEMA = {
  * ⏳ What a call returns when its window closes first. It is not an error: the questions stay on the
  * phone, and an identical call rejoins them and collects any answer given in between.
  */
-export function pendingResult(answered: number, total: number) {
+export function pendingResult(answered: number, total: number)
+{
 	return {
 		content: [
 			{
@@ -169,6 +225,11 @@ export function pendingResult(answered: number, total: number) {
 					"keep waiting; answers given in the meantime are kept.",
 			},
 		],
-		structuredContent: {status: "pending" as const, answered, total},
+		structuredContent:
+		{
+			status: "pending" as const,
+			answered,
+			total,
+		},
 	};
 }

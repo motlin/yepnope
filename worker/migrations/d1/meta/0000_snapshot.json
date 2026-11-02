@@ -3,95 +3,111 @@
 	"dialect": "sqlite",
 	"id": "7c051b14-817b-4c00-9883-58663e49c67d",
 	"prevId": "00000000-0000-0000-0000-000000000000",
-	"tables": {
-		"account": {
+	"tables":
+	{
+		"account":
+		{
 			"name": "account",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"issuer": {
+				"issuer":
+				{
 					"name": "issuer",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"account_id": {
+				"account_id":
+				{
 					"name": "account_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"provider_id": {
+				"provider_id":
+				{
 					"name": "provider_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"access_token": {
+				"access_token":
+				{
 					"name": "access_token",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"refresh_token": {
+				"refresh_token":
+				{
 					"name": "refresh_token",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"id_token": {
+				"id_token":
+				{
 					"name": "id_token",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"access_token_expires_at": {
+				"access_token_expires_at":
+				{
 					"name": "access_token_expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"refresh_token_expires_at": {
+				"refresh_token_expires_at":
+				{
 					"name": "refresh_token_expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"scope": {
+				"scope":
+				{
 					"name": "scope",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"password": {
+				"password":
+				{
 					"name": "password",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -99,7 +115,8 @@
 					"autoincrement": false,
 					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
 				},
-				"updated_at": {
+				"updated_at":
+				{
 					"name": "updated_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -107,20 +124,25 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"account_issuer_account_id_unique": {
+			"indexes":
+			{
+				"account_issuer_account_id_unique":
+				{
 					"name": "account_issuer_account_id_unique",
 					"columns": ["issuer", "account_id"],
 					"isUnique": true
 				},
-				"account_user_id_idx": {
+				"account_user_id_idx":
+				{
 					"name": "account_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"account_user_id_user_id_fk": {
+			"foreignKeys":
+			{
+				"account_user_id_user_id_fk":
+				{
 					"name": "account_user_id_user_id_fk",
 					"tableFrom": "account",
 					"tableTo": "user",
@@ -134,87 +156,101 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"device_code": {
+		"device_code":
+		{
 			"name": "device_code",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"device_code": {
+				"device_code":
+				{
 					"name": "device_code",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"user_code": {
+				"user_code":
+				{
 					"name": "user_code",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"status": {
+				"status":
+				{
 					"name": "status",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"last_polled_at": {
+				"last_polled_at":
+				{
 					"name": "last_polled_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"polling_interval": {
+				"polling_interval":
+				{
 					"name": "polling_interval",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"client_id": {
+				"client_id":
+				{
 					"name": "client_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"scope": {
+				"scope":
+				{
 					"name": "scope",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"resources": {
+				"resources":
+				{
 					"name": "resources",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"oauth_client_id": {
+				"oauth_client_id":
+				{
 					"name": "oauth_client_id",
 					"type": "text",
 					"primaryKey": false,
@@ -222,25 +258,31 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"device_code_device_code_unique": {
+			"indexes":
+			{
+				"device_code_device_code_unique":
+				{
 					"name": "device_code_device_code_unique",
 					"columns": ["device_code"],
 					"isUnique": true
 				},
-				"device_code_user_code_unique": {
+				"device_code_user_code_unique":
+				{
 					"name": "device_code_user_code_unique",
 					"columns": ["user_code"],
 					"isUnique": true
 				},
-				"device_code_user_id_idx": {
+				"device_code_user_id_idx":
+				{
 					"name": "device_code_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"device_code_user_id_user_id_fk": {
+			"foreignKeys":
+			{
+				"device_code_user_id_user_id_fk":
+				{
 					"name": "device_code_user_id_user_id_fk",
 					"tableFrom": "device_code",
 					"tableTo": "user",
@@ -254,38 +296,45 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"durable_object_cleanup_jobs": {
+		"durable_object_cleanup_jobs":
+		{
 			"name": "durable_object_cleanup_jobs",
-			"columns": {
-				"object_name": {
+			"columns":
+			{
+				"object_name":
+				{
 					"name": "object_name",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"owner_user_id": {
+				"owner_user_id":
+				{
 					"name": "owner_user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"reason": {
+				"reason":
+				{
 					"name": "reason",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"requested_at": {
+				"requested_at":
+				{
 					"name": "requested_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"completed_at": {
+				"completed_at":
+				{
 					"name": "completed_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -293,8 +342,10 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"durable_object_cleanup_jobs_completed_at_idx": {
+			"indexes":
+			{
+				"durable_object_cleanup_jobs_completed_at_idx":
+				{
 					"name": "durable_object_cleanup_jobs_completed_at_idx",
 					"columns": ["completed_at"],
 					"isUnique": false
@@ -305,59 +356,69 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"identity_lifecycles": {
+		"identity_lifecycles":
+		{
 			"name": "identity_lifecycles",
-			"columns": {
-				"identity_id": {
+			"columns":
+			{
+				"identity_id":
+				{
 					"name": "identity_id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"identity_type": {
+				"identity_type":
+				{
 					"name": "identity_type",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"owner_user_id": {
+				"owner_user_id":
+				{
 					"name": "owner_user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"claimed_at": {
+				"claimed_at":
+				{
 					"name": "claimed_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"deletion_requested_at": {
+				"deletion_requested_at":
+				{
 					"name": "deletion_requested_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"deleted_at": {
+				"deleted_at":
+				{
 					"name": "deleted_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -365,13 +426,16 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"identity_lifecycles_owner_user_id_idx": {
+			"indexes":
+			{
+				"identity_lifecycles_owner_user_id_idx":
+				{
 					"name": "identity_lifecycles_owner_user_id_idx",
 					"columns": ["owner_user_id"],
 					"isUnique": false
 				},
-				"identity_lifecycles_expires_at_idx": {
+				"identity_lifecycles_expires_at_idx":
+				{
 					"name": "identity_lifecycles_expires_at_idx",
 					"columns": ["expires_at"],
 					"isUnique": false
@@ -382,52 +446,61 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"jwks": {
+		"jwks":
+		{
 			"name": "jwks",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"public_key": {
+				"public_key":
+				{
 					"name": "public_key",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"private_key": {
+				"private_key":
+				{
 					"name": "private_key",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"alg": {
+				"alg":
+				{
 					"name": "alg",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"crv": {
+				"crv":
+				{
 					"name": "crv",
 					"type": "text",
 					"primaryKey": false,
@@ -441,24 +514,29 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"mcp_client_use": {
+		"mcp_client_use":
+		{
 			"name": "mcp_client_use",
-			"columns": {
-				"user_id": {
+			"columns":
+			{
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"client_id": {
+				"client_id":
+				{
 					"name": "client_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"last_used_at": {
+				"last_used_at":
+				{
 					"name": "last_used_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -467,8 +545,10 @@
 				}
 			},
 			"indexes": {},
-			"foreignKeys": {
-				"mcp_client_use_user_id_user_id_fk": {
+			"foreignKeys":
+			{
+				"mcp_client_use_user_id_user_id_fk":
+				{
 					"name": "mcp_client_use_user_id_user_id_fk",
 					"tableFrom": "mcp_client_use",
 					"tableTo": "user",
@@ -477,7 +557,8 @@
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				},
-				"mcp_client_use_client_id_oauth_client_client_id_fk": {
+				"mcp_client_use_client_id_oauth_client_client_id_fk":
+				{
 					"name": "mcp_client_use_client_id_oauth_client_client_id_fk",
 					"tableFrom": "mcp_client_use",
 					"tableTo": "oauth_client",
@@ -487,8 +568,10 @@
 					"onUpdate": "no action"
 				}
 			},
-			"compositePrimaryKeys": {
-				"mcp_client_use_user_id_client_id_pk": {
+			"compositePrimaryKeys":
+			{
+				"mcp_client_use_user_id_client_id_pk":
+				{
 					"columns": ["user_id", "client_id"],
 					"name": "mcp_client_use_user_id_client_id_pk"
 				}
@@ -496,108 +579,125 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"oauth_access_token": {
+		"oauth_access_token":
+		{
 			"name": "oauth_access_token",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"token": {
+				"token":
+				{
 					"name": "token",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"client_id": {
+				"client_id":
+				{
 					"name": "client_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"session_id": {
+				"session_id":
+				{
 					"name": "session_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"reference_id": {
+				"reference_id":
+				{
 					"name": "reference_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"authorization_code_id": {
+				"authorization_code_id":
+				{
 					"name": "authorization_code_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"resources": {
+				"resources":
+				{
 					"name": "resources",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"requested_user_info_claims": {
+				"requested_user_info_claims":
+				{
 					"name": "requested_user_info_claims",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"refresh_id": {
+				"refresh_id":
+				{
 					"name": "refresh_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"revoked": {
+				"revoked":
+				{
 					"name": "revoked",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"confirmation": {
+				"confirmation":
+				{
 					"name": "confirmation",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"scopes": {
+				"scopes":
+				{
 					"name": "scopes",
 					"type": "text",
 					"primaryKey": false,
@@ -605,40 +705,49 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"oauth_access_token_token_unique": {
+			"indexes":
+			{
+				"oauth_access_token_token_unique":
+				{
 					"name": "oauth_access_token_token_unique",
 					"columns": ["token"],
 					"isUnique": true
 				},
-				"oauth_access_token_client_id_idx": {
+				"oauth_access_token_client_id_idx":
+				{
 					"name": "oauth_access_token_client_id_idx",
 					"columns": ["client_id"],
 					"isUnique": false
 				},
-				"oauth_access_token_session_id_idx": {
+				"oauth_access_token_session_id_idx":
+				{
 					"name": "oauth_access_token_session_id_idx",
 					"columns": ["session_id"],
 					"isUnique": false
 				},
-				"oauth_access_token_user_id_idx": {
+				"oauth_access_token_user_id_idx":
+				{
 					"name": "oauth_access_token_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				},
-				"oauth_access_token_authorization_code_id_idx": {
+				"oauth_access_token_authorization_code_id_idx":
+				{
 					"name": "oauth_access_token_authorization_code_id_idx",
 					"columns": ["authorization_code_id"],
 					"isUnique": false
 				},
-				"oauth_access_token_refresh_id_idx": {
+				"oauth_access_token_refresh_id_idx":
+				{
 					"name": "oauth_access_token_refresh_id_idx",
 					"columns": ["refresh_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"oauth_access_token_client_id_oauth_client_client_id_fk": {
+			"foreignKeys":
+			{
+				"oauth_access_token_client_id_oauth_client_client_id_fk":
+				{
 					"name": "oauth_access_token_client_id_oauth_client_client_id_fk",
 					"tableFrom": "oauth_access_token",
 					"tableTo": "oauth_client",
@@ -647,7 +756,8 @@
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				},
-				"oauth_access_token_session_id_session_id_fk": {
+				"oauth_access_token_session_id_session_id_fk":
+				{
 					"name": "oauth_access_token_session_id_session_id_fk",
 					"tableFrom": "oauth_access_token",
 					"tableTo": "session",
@@ -656,7 +766,8 @@
 					"onDelete": "set null",
 					"onUpdate": "no action"
 				},
-				"oauth_access_token_user_id_user_id_fk": {
+				"oauth_access_token_user_id_user_id_fk":
+				{
 					"name": "oauth_access_token_user_id_user_id_fk",
 					"tableFrom": "oauth_access_token",
 					"tableTo": "user",
@@ -665,7 +776,8 @@
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				},
-				"oauth_access_token_refresh_id_oauth_refresh_token_id_fk": {
+				"oauth_access_token_refresh_id_oauth_refresh_token_id_fk":
+				{
 					"name": "oauth_access_token_refresh_id_oauth_refresh_token_id_fk",
 					"tableFrom": "oauth_access_token",
 					"tableTo": "oauth_refresh_token",
@@ -679,17 +791,21 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"oauth_client_assertion": {
+		"oauth_client_assertion":
+		{
 			"name": "oauth_client_assertion",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -703,38 +819,45 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"oauth_client_resource": {
+		"oauth_client_resource":
+		{
 			"name": "oauth_client_resource",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"client_id": {
+				"client_id":
+				{
 					"name": "client_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"resource_id": {
+				"resource_id":
+				{
 					"name": "resource_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"metadata": {
+				"metadata":
+				{
 					"name": "metadata",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -742,25 +865,31 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"oauth_client_resource_client_id_idx": {
+			"indexes":
+			{
+				"oauth_client_resource_client_id_idx":
+				{
 					"name": "oauth_client_resource_client_id_idx",
 					"columns": ["client_id"],
 					"isUnique": false
 				},
-				"oauth_client_resource_resource_id_idx": {
+				"oauth_client_resource_resource_id_idx":
+				{
 					"name": "oauth_client_resource_resource_id_idx",
 					"columns": ["resource_id"],
 					"isUnique": false
 				},
-				"oauth_client_resource_client_id_resource_id_unique": {
+				"oauth_client_resource_client_id_resource_id_unique":
+				{
 					"name": "oauth_client_resource_client_id_resource_id_unique",
 					"columns": ["client_id", "resource_id"],
 					"isUnique": true
 				}
 			},
-			"foreignKeys": {
-				"oauth_client_resource_client_id_oauth_client_client_id_fk": {
+			"foreignKeys":
+			{
+				"oauth_client_resource_client_id_oauth_client_client_id_fk":
+				{
 					"name": "oauth_client_resource_client_id_oauth_client_client_id_fk",
 					"tableFrom": "oauth_client_resource",
 					"tableTo": "oauth_client",
@@ -769,7 +898,8 @@
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				},
-				"oauth_client_resource_resource_id_oauth_resource_identifier_fk": {
+				"oauth_client_resource_resource_id_oauth_resource_identifier_fk":
+				{
 					"name": "oauth_client_resource_resource_id_oauth_resource_identifier_fk",
 					"tableFrom": "oauth_client_resource",
 					"tableTo": "oauth_resource",
@@ -783,38 +913,45 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"oauth_client": {
+		"oauth_client":
+		{
 			"name": "oauth_client",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"client_id": {
+				"client_id":
+				{
 					"name": "client_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"client_secret": {
+				"client_secret":
+				{
 					"name": "client_secret",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"client_discovery_id": {
+				"client_discovery_id":
+				{
 					"name": "client_discovery_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"disabled": {
+				"disabled":
+				{
 					"name": "disabled",
 					"type": "integer",
 					"primaryKey": false,
@@ -822,35 +959,40 @@
 					"autoincrement": false,
 					"default": false
 				},
-				"skip_consent": {
+				"skip_consent":
+				{
 					"name": "skip_consent",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"enable_end_session": {
+				"enable_end_session":
+				{
 					"name": "enable_end_session",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"subject_type": {
+				"subject_type":
+				{
 					"name": "subject_type",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"scopes": {
+				"scopes":
+				{
 					"name": "scopes",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"client_credentials_scopes": {
+				"client_credentials_scopes":
+				{
 					"name": "client_credentials_scopes",
 					"type": "text",
 					"primaryKey": false,
@@ -858,168 +1000,192 @@
 					"autoincrement": false,
 					"default": "'[]'"
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"updated_at": {
+				"updated_at":
+				{
 					"name": "updated_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"name": {
+				"name":
+				{
 					"name": "name",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"uri": {
+				"uri":
+				{
 					"name": "uri",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"icon": {
+				"icon":
+				{
 					"name": "icon",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"contacts": {
+				"contacts":
+				{
 					"name": "contacts",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"tos": {
+				"tos":
+				{
 					"name": "tos",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"policy": {
+				"policy":
+				{
 					"name": "policy",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"software_id": {
+				"software_id":
+				{
 					"name": "software_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"software_version": {
+				"software_version":
+				{
 					"name": "software_version",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"software_statement": {
+				"software_statement":
+				{
 					"name": "software_statement",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"redirect_uris": {
+				"redirect_uris":
+				{
 					"name": "redirect_uris",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"post_logout_redirect_uris": {
+				"post_logout_redirect_uris":
+				{
 					"name": "post_logout_redirect_uris",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"backchannel_logout_uri": {
+				"backchannel_logout_uri":
+				{
 					"name": "backchannel_logout_uri",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"backchannel_logout_session_required": {
+				"backchannel_logout_session_required":
+				{
 					"name": "backchannel_logout_session_required",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"token_endpoint_auth_method": {
+				"token_endpoint_auth_method":
+				{
 					"name": "token_endpoint_auth_method",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"application_type": {
+				"application_type":
+				{
 					"name": "application_type",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"jwks": {
+				"jwks":
+				{
 					"name": "jwks",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"jwks_uri": {
+				"jwks_uri":
+				{
 					"name": "jwks_uri",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"grant_types": {
+				"grant_types":
+				{
 					"name": "grant_types",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"response_types": {
+				"response_types":
+				{
 					"name": "response_types",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"require_pkce": {
+				"require_pkce":
+				{
 					"name": "require_pkce",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"dpop_bound_access_tokens": {
+				"dpop_bound_access_tokens":
+				{
 					"name": "dpop_bound_access_tokens",
 					"type": "integer",
 					"primaryKey": false,
@@ -1027,14 +1193,16 @@
 					"autoincrement": false,
 					"default": false
 				},
-				"reference_id": {
+				"reference_id":
+				{
 					"name": "reference_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"metadata": {
+				"metadata":
+				{
 					"name": "metadata",
 					"type": "text",
 					"primaryKey": false,
@@ -1042,20 +1210,25 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"oauth_client_client_id_unique": {
+			"indexes":
+			{
+				"oauth_client_client_id_unique":
+				{
 					"name": "oauth_client_client_id_unique",
 					"columns": ["client_id"],
 					"isUnique": true
 				},
-				"oauth_client_user_id_idx": {
+				"oauth_client_user_id_idx":
+				{
 					"name": "oauth_client_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"oauth_client_user_id_user_id_fk": {
+			"foreignKeys":
+			{
+				"oauth_client_user_id_user_id_fk":
+				{
 					"name": "oauth_client_user_id_user_id_fk",
 					"tableFrom": "oauth_client",
 					"tableTo": "user",
@@ -1069,66 +1242,77 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"oauth_consent": {
+		"oauth_consent":
+		{
 			"name": "oauth_consent",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"client_id": {
+				"client_id":
+				{
 					"name": "client_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"reference_id": {
+				"reference_id":
+				{
 					"name": "reference_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"resources": {
+				"resources":
+				{
 					"name": "resources",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"requested_user_info_claims": {
+				"requested_user_info_claims":
+				{
 					"name": "requested_user_info_claims",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"scopes": {
+				"scopes":
+				{
 					"name": "scopes",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"updated_at": {
+				"updated_at":
+				{
 					"name": "updated_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -1136,20 +1320,25 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"oauth_consent_client_id_idx": {
+			"indexes":
+			{
+				"oauth_consent_client_id_idx":
+				{
 					"name": "oauth_consent_client_id_idx",
 					"columns": ["client_id"],
 					"isUnique": false
 				},
-				"oauth_consent_user_id_idx": {
+				"oauth_consent_user_id_idx":
+				{
 					"name": "oauth_consent_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"oauth_consent_client_id_oauth_client_client_id_fk": {
+			"foreignKeys":
+			{
+				"oauth_consent_client_id_oauth_client_client_id_fk":
+				{
 					"name": "oauth_consent_client_id_oauth_client_client_id_fk",
 					"tableFrom": "oauth_consent",
 					"tableTo": "oauth_client",
@@ -1158,7 +1347,8 @@
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				},
-				"oauth_consent_user_id_user_id_fk": {
+				"oauth_consent_user_id_user_id_fk":
+				{
 					"name": "oauth_consent_user_id_user_id_fk",
 					"tableFrom": "oauth_consent",
 					"tableTo": "user",
@@ -1172,129 +1362,149 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"oauth_refresh_token": {
+		"oauth_refresh_token":
+		{
 			"name": "oauth_refresh_token",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"token": {
+				"token":
+				{
 					"name": "token",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"client_id": {
+				"client_id":
+				{
 					"name": "client_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"session_id": {
+				"session_id":
+				{
 					"name": "session_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"reference_id": {
+				"reference_id":
+				{
 					"name": "reference_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"authorization_code_id": {
+				"authorization_code_id":
+				{
 					"name": "authorization_code_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"resources": {
+				"resources":
+				{
 					"name": "resources",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"requested_user_info_claims": {
+				"requested_user_info_claims":
+				{
 					"name": "requested_user_info_claims",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"revoked": {
+				"revoked":
+				{
 					"name": "revoked",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"rotated_at": {
+				"rotated_at":
+				{
 					"name": "rotated_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"rotation_replay_response": {
+				"rotation_replay_response":
+				{
 					"name": "rotation_replay_response",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"rotation_replay_expires_at": {
+				"rotation_replay_expires_at":
+				{
 					"name": "rotation_replay_expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"auth_time": {
+				"auth_time":
+				{
 					"name": "auth_time",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"confirmation": {
+				"confirmation":
+				{
 					"name": "confirmation",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"scopes": {
+				"scopes":
+				{
 					"name": "scopes",
 					"type": "text",
 					"primaryKey": false,
@@ -1302,35 +1512,43 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"oauth_refresh_token_token_unique": {
+			"indexes":
+			{
+				"oauth_refresh_token_token_unique":
+				{
 					"name": "oauth_refresh_token_token_unique",
 					"columns": ["token"],
 					"isUnique": true
 				},
-				"oauth_refresh_token_client_id_idx": {
+				"oauth_refresh_token_client_id_idx":
+				{
 					"name": "oauth_refresh_token_client_id_idx",
 					"columns": ["client_id"],
 					"isUnique": false
 				},
-				"oauth_refresh_token_session_id_idx": {
+				"oauth_refresh_token_session_id_idx":
+				{
 					"name": "oauth_refresh_token_session_id_idx",
 					"columns": ["session_id"],
 					"isUnique": false
 				},
-				"oauth_refresh_token_user_id_idx": {
+				"oauth_refresh_token_user_id_idx":
+				{
 					"name": "oauth_refresh_token_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				},
-				"oauth_refresh_token_authorization_code_id_idx": {
+				"oauth_refresh_token_authorization_code_id_idx":
+				{
 					"name": "oauth_refresh_token_authorization_code_id_idx",
 					"columns": ["authorization_code_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"oauth_refresh_token_client_id_oauth_client_client_id_fk": {
+			"foreignKeys":
+			{
+				"oauth_refresh_token_client_id_oauth_client_client_id_fk":
+				{
 					"name": "oauth_refresh_token_client_id_oauth_client_client_id_fk",
 					"tableFrom": "oauth_refresh_token",
 					"tableTo": "oauth_client",
@@ -1339,7 +1557,8 @@
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				},
-				"oauth_refresh_token_session_id_session_id_fk": {
+				"oauth_refresh_token_session_id_session_id_fk":
+				{
 					"name": "oauth_refresh_token_session_id_session_id_fk",
 					"tableFrom": "oauth_refresh_token",
 					"tableTo": "session",
@@ -1348,7 +1567,8 @@
 					"onDelete": "set null",
 					"onUpdate": "no action"
 				},
-				"oauth_refresh_token_user_id_user_id_fk": {
+				"oauth_refresh_token_user_id_user_id_fk":
+				{
 					"name": "oauth_refresh_token_user_id_user_id_fk",
 					"tableFrom": "oauth_refresh_token",
 					"tableTo": "user",
@@ -1362,73 +1582,85 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"oauth_resource": {
+		"oauth_resource":
+		{
 			"name": "oauth_resource",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"identifier": {
+				"identifier":
+				{
 					"name": "identifier",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"name": {
+				"name":
+				{
 					"name": "name",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"access_token_ttl": {
+				"access_token_ttl":
+				{
 					"name": "access_token_ttl",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"refresh_token_ttl": {
+				"refresh_token_ttl":
+				{
 					"name": "refresh_token_ttl",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"signing_algorithm": {
+				"signing_algorithm":
+				{
 					"name": "signing_algorithm",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"signing_key_id": {
+				"signing_key_id":
+				{
 					"name": "signing_key_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"allowed_scopes": {
+				"allowed_scopes":
+				{
 					"name": "allowed_scopes",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"custom_claims": {
+				"custom_claims":
+				{
 					"name": "custom_claims",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"dpop_bound_access_tokens_required": {
+				"dpop_bound_access_tokens_required":
+				{
 					"name": "dpop_bound_access_tokens_required",
 					"type": "integer",
 					"primaryKey": false,
@@ -1436,7 +1668,8 @@
 					"autoincrement": false,
 					"default": false
 				},
-				"disabled": {
+				"disabled":
+				{
 					"name": "disabled",
 					"type": "integer",
 					"primaryKey": false,
@@ -1444,21 +1677,24 @@
 					"autoincrement": false,
 					"default": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"updated_at": {
+				"updated_at":
+				{
 					"name": "updated_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"policy_version": {
+				"policy_version":
+				{
 					"name": "policy_version",
 					"type": "integer",
 					"primaryKey": false,
@@ -1466,7 +1702,8 @@
 					"autoincrement": false,
 					"default": 1
 				},
-				"metadata": {
+				"metadata":
+				{
 					"name": "metadata",
 					"type": "text",
 					"primaryKey": false,
@@ -1474,8 +1711,10 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"oauth_resource_identifier_unique": {
+			"indexes":
+			{
+				"oauth_resource_identifier_unique":
+				{
 					"name": "oauth_resource_identifier_unique",
 					"columns": ["identifier"],
 					"isUnique": true
@@ -1486,80 +1725,93 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"passkey": {
+		"passkey":
+		{
 			"name": "passkey",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"name": {
+				"name":
+				{
 					"name": "name",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"public_key": {
+				"public_key":
+				{
 					"name": "public_key",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"credential_id": {
+				"credential_id":
+				{
 					"name": "credential_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"counter": {
+				"counter":
+				{
 					"name": "counter",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"device_type": {
+				"device_type":
+				{
 					"name": "device_type",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"backed_up": {
+				"backed_up":
+				{
 					"name": "backed_up",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"transports": {
+				"transports":
+				{
 					"name": "transports",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"aaguid": {
+				"aaguid":
+				{
 					"name": "aaguid",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -1568,20 +1820,25 @@
 					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
 				}
 			},
-			"indexes": {
-				"passkey_credential_id_unique": {
+			"indexes":
+			{
+				"passkey_credential_id_unique":
+				{
 					"name": "passkey_credential_id_unique",
 					"columns": ["credential_id"],
 					"isUnique": true
 				},
-				"passkey_user_id_idx": {
+				"passkey_user_id_idx":
+				{
 					"name": "passkey_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"passkey_user_id_user_id_fk": {
+			"foreignKeys":
+			{
+				"passkey_user_id_user_id_fk":
+				{
 					"name": "passkey_user_id_user_id_fk",
 					"tableFrom": "passkey",
 					"tableTo": "user",
@@ -1595,31 +1852,37 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"session": {
+		"session":
+		{
 			"name": "session",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"token": {
+				"token":
+				{
 					"name": "token",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -1627,28 +1890,32 @@
 					"autoincrement": false,
 					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
 				},
-				"updated_at": {
+				"updated_at":
+				{
 					"name": "updated_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"ip_address": {
+				"ip_address":
+				{
 					"name": "ip_address",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"user_agent": {
+				"user_agent":
+				{
 					"name": "user_agent",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"user_id": {
+				"user_id":
+				{
 					"name": "user_id",
 					"type": "text",
 					"primaryKey": false,
@@ -1656,20 +1923,25 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"session_token_unique": {
+			"indexes":
+			{
+				"session_token_unique":
+				{
 					"name": "session_token_unique",
 					"columns": ["token"],
 					"isUnique": true
 				},
-				"session_user_id_idx": {
+				"session_user_id_idx":
+				{
 					"name": "session_user_id_idx",
 					"columns": ["user_id"],
 					"isUnique": false
 				}
 			},
-			"foreignKeys": {
-				"session_user_id_user_id_fk": {
+			"foreignKeys":
+			{
+				"session_user_id_user_id_fk":
+				{
 					"name": "session_user_id_user_id_fk",
 					"tableFrom": "session",
 					"tableTo": "user",
@@ -1683,31 +1955,37 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"user": {
+		"user":
+		{
 			"name": "user",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"name": {
+				"name":
+				{
 					"name": "name",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"email": {
+				"email":
+				{
 					"name": "email",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"email_verified": {
+				"email_verified":
+				{
 					"name": "email_verified",
 					"type": "integer",
 					"primaryKey": false,
@@ -1715,14 +1993,16 @@
 					"autoincrement": false,
 					"default": false
 				},
-				"image": {
+				"image":
+				{
 					"name": "image",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -1730,7 +2010,8 @@
 					"autoincrement": false,
 					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
 				},
-				"updated_at": {
+				"updated_at":
+				{
 					"name": "updated_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -1739,8 +2020,10 @@
 					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
 				}
 			},
-			"indexes": {
-				"user_email_unique": {
+			"indexes":
+			{
+				"user_email_unique":
+				{
 					"name": "user_email_unique",
 					"columns": ["email"],
 					"isUnique": true
@@ -1751,38 +2034,45 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"verification": {
+		"verification":
+		{
 			"name": "verification",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"identifier": {
+				"identifier":
+				{
 					"name": "identifier",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"value": {
+				"value":
+				{
 					"name": "value",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"expires_at": {
+				"expires_at":
+				{
 					"name": "expires_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -1790,7 +2080,8 @@
 					"autoincrement": false,
 					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
 				},
-				"updated_at": {
+				"updated_at":
+				{
 					"name": "updated_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -1798,8 +2089,10 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {
-				"verification_identifier_idx": {
+			"indexes":
+			{
+				"verification_identifier_idx":
+				{
 					"name": "verification_identifier_idx",
 					"columns": ["identifier"],
 					"isUnique": false
@@ -1813,12 +2106,14 @@
 	},
 	"views": {},
 	"enums": {},
-	"_meta": {
+	"_meta":
+	{
 		"schemas": {},
 		"tables": {},
 		"columns": {}
 	},
-	"internal": {
+	"internal":
+	{
 		"indexes": {}
 	}
 }

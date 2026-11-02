@@ -15,10 +15,12 @@ export const HEARTBEAT_GRACE_MILLISECONDS = 5 * 60 * 1000;
 export const dispositionSchema = z.enum(["yep", "nope", "skip"]);
 export type Disposition = z.infer<typeof dispositionSchema>;
 
-const questionInputSchema = z.object({
-	title: z.string().min(1).max(TITLE_MAX_CHARACTERS),
-	body: z.string().max(BODY_MAX_CHARACTERS),
-});
+const questionInputSchema = z.object(
+	{
+		title: z.string().min(1).max(TITLE_MAX_CHARACTERS),
+		body: z.string().max(BODY_MAX_CHARACTERS),
+	},
+);
 export type QuestionInput = z.infer<typeof questionInputSchema>;
 
 // 🧭 Card chips (variant 2 in .llm/decisions.md): derived by the calling agent, absent for
@@ -28,61 +30,87 @@ export type QuestionInput = z.infer<typeof questionInputSchema>;
 export const CONTEXT_MAX_CHARACTERS = 256;
 const contextFieldSchema = z.string().min(1).max(CONTEXT_MAX_CHARACTERS).optional().catch(undefined);
 
-export const createBatchRequestSchema = z.object({
-	project: z.string().min(1).max(TITLE_MAX_CHARACTERS),
-	repo: contextFieldSchema,
-	branch: contextFieldSchema,
-	worktree: contextFieldSchema,
-	directory: contextFieldSchema,
-	questions: z.array(questionInputSchema).min(1),
-});
+export const createBatchRequestSchema = z.object(
+	{
+		project: z.string().min(1).max(TITLE_MAX_CHARACTERS),
+		repo: contextFieldSchema,
+		branch: contextFieldSchema,
+		worktree: contextFieldSchema,
+		directory: contextFieldSchema,
+		questions: z.array(questionInputSchema).min(1),
+	},
+);
 export type CreateBatchRequest = z.infer<typeof createBatchRequestSchema>;
 
-export const submitAnswersRequestSchema = z.object({
-	answers: z
-		.array(
-			z.object({
-				question_id: z.string().min(1),
-				disposition: dispositionSchema,
-			}),
-		)
-		.min(1),
-});
+export const submitAnswersRequestSchema = z.object(
+	{
+		answers: z
+			.array(
+				z.object(
+					{
+						question_id: z.string().min(1),
+						disposition: dispositionSchema,
+					},
+				),
+			)
+			.min(1),
+	},
+);
 
 // 🧑‍🏫 Tool-layer check (spec §7.2): instruction, not a stack trace. The Worker's
 // 413/400 stays rude; this message is the prompt-engineering surface the model sees.
-export interface LengthViolation {
+export interface LengthViolation
+{
 	ordinal: number;
 	field: "title" | "body";
 	actualCharacters: number;
 	maxCharacters: number;
 }
 
-export interface ExternalContextReferenceViolation {
+export interface ExternalContextReferenceViolation
+{
 	ordinal: number;
 	field: "title" | "body";
 	reference: string;
 }
 
 const LENGTH_LIMITED_FIELDS = [
-	{field: "title", maxCharacters: TITLE_MAX_CHARACTERS},
-	{field: "body", maxCharacters: BODY_MAX_CHARACTERS},
+	{
+		field: "title",
+		maxCharacters: TITLE_MAX_CHARACTERS,
+	},
+	{
+		field: "body",
+		maxCharacters: BODY_MAX_CHARACTERS,
+	},
 ] as const;
 
-export function findLengthViolations(questions: QuestionInput[]): LengthViolation[] {
+export function findLengthViolations(questions: QuestionInput[]): LengthViolation[]
+{
 	const violations: LengthViolation[] = [];
-	questions.forEach((question, ordinal) => {
-		for (const {field, maxCharacters} of LENGTH_LIMITED_FIELDS) {
+	questions.forEach((question, ordinal) =>
+	{
+		for (const {field, maxCharacters} of LENGTH_LIMITED_FIELDS)
+		{
 			const actualCharacters = question[field].length;
-			if (actualCharacters > maxCharacters) {
-				violations.push({ordinal, field, actualCharacters, maxCharacters});
+			if (actualCharacters > maxCharacters)
+			{
+				violations.push(
+					{
+						ordinal,
+						field,
+						actualCharacters,
+						maxCharacters,
+					},
+				);
 			}
 		}
 	});
 	return violations;
 }
 
-export function teachingRejection(violations: LengthViolation[]): string {
+export function teachingRejection(violations: LengthViolation[]): string
+{
 	const named = violations.map(
 		(violation) =>
 			`questions[${violation.ordinal}].${violation.field} is ${violation.actualCharacters} characters; ` +
@@ -98,22 +126,31 @@ export function teachingRejection(violations: LengthViolation[]): string {
 const EXTERNAL_CONTEXT_REFERENCE =
 	/\b(?:listed|shown|described|mentioned)\s+above\b|\bas discussed\b|\b(?:previous|earlier)\s+(?:message|response)\b/iu;
 
-export function findExternalContextReferenceViolations(
-	questions: QuestionInput[],
-): ExternalContextReferenceViolation[] {
+export function findExternalContextReferenceViolations(questions: QuestionInput[]): ExternalContextReferenceViolation[]
+{
 	const violations: ExternalContextReferenceViolation[] = [];
-	questions.forEach((question, ordinal) => {
-		for (const field of ["title", "body"] as const) {
+	questions.forEach((question, ordinal) =>
+	{
+		for (const field of ["title", "body"] as const)
+		{
 			const match = EXTERNAL_CONTEXT_REFERENCE.exec(question[field]);
-			if (match !== null) {
-				violations.push({ordinal, field, reference: match[0]});
+			if (match !== null)
+			{
+				violations.push(
+					{
+						ordinal,
+						field,
+						reference: match[0],
+					},
+				);
 			}
 		}
 	});
 	return violations;
 }
 
-export function externalContextReferenceRejection(violations: ExternalContextReferenceViolation[]): string {
+export function externalContextReferenceRejection(violations: ExternalContextReferenceViolation[]): string
+{
 	const named = violations.map(
 		(violation) =>
 			`questions[${violation.ordinal}].${violation.field} refers to off-card context with ` +
@@ -127,23 +164,35 @@ export function externalContextReferenceRejection(violations: ExternalContextRef
 }
 
 // 🧍 AFK mode (spec §11): a single server-side boolean, read per request, never cached.
-export const afkRequestSchema = z.object({afk: z.boolean()});
+export const afkRequestSchema = z.object(
+	{
+		afk: z.boolean(),
+	},
+);
 
 // 📟 A device code is read off a terminal and typed into a phone, so the dashes and lower case a
 // person adds are theirs to add; the server normalizes before it looks anything up.
-export const deviceAuthorizationRequestSchema = z.object({
-	user_code: z.string().min(1).max(24),
-});
+export const deviceAuthorizationRequestSchema = z.object(
+	{
+		user_code: z.string().min(1).max(24),
+	},
+);
 
-export const deviceLabelRequestSchema = z.object({
-	label: z.string().trim().min(1).max(100),
-});
+export const deviceLabelRequestSchema = z.object(
+	{
+		label: z.string().trim().min(1).max(100),
+	},
+);
 
-export const pushSubscriptionSchema = z.object({
-	endpoint: z.url(),
-	replaces: z.url().optional(),
-	keys: z.object({
-		p256dh: z.string().min(1),
-		auth: z.string().min(1),
-	}),
-});
+export const pushSubscriptionSchema = z.object(
+	{
+		endpoint: z.url(),
+		replaces: z.url().optional(),
+		keys: z.object(
+			{
+				p256dh: z.string().min(1),
+				auth: z.string().min(1),
+			},
+		),
+	},
+);

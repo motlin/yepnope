@@ -1,6 +1,7 @@
 {
 	"$schema": "https://json.schemastore.org/claude-code-settings.json",
-	"env": {
+	"env":
+	{
 		"YEPNOPE_STATUSLINE_COMMAND": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" afk statusline"
 	}
 }

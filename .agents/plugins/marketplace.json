@@ -1,16 +1,19 @@
 {
 	"name": "yepnope",
-	"interface": {
+	"interface":
+	{
 		"displayName": "YepNope"
 	},
 	"plugins": [
 		{
 			"name": "yepnope",
-			"source": {
+			"source":
+			{
 				"source": "local",
 				"path": "./plugins/yepnope"
 			},
-			"policy": {
+			"policy":
+			{
 				"installation": "AVAILABLE",
 				"authentication": "ON_INSTALL"
 			},

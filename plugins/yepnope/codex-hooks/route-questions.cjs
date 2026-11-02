@@ -34,22 +34,27 @@ const WAITING_CONTINUATION =
 
 const OUTCOMES = new Set(["not_attempted", "pending", "waiting", "fallback", "answered"]);
 
-function record(value, label) {
-	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+function record(value, label)
+{
+	if (value === null || typeof value !== "object" || Array.isArray(value))
+	{
 		throw new TypeError(`${label} must be an object`);
 	}
 	return value;
 }
 
-function stringField(value, field) {
+function stringField(value, field)
+{
 	const fieldValue = value[field];
-	if (typeof fieldValue !== "string" || fieldValue.length === 0) {
+	if (typeof fieldValue !== "string" || fieldValue.length === 0)
+	{
 		throw new TypeError(`${field} must be a non-empty string`);
 	}
 	return fieldValue;
 }
 
-function parseInput() {
+function parseInput()
+{
 	const input = record(JSON.parse(readFileSync(0, "utf8")), "hook input");
 	stringField(input, "hook_event_name");
 	stringField(input, "session_id");
@@ -57,16 +62,25 @@ function parseInput() {
 	return input;
 }
 
-function pluginDataRoot() {
+function pluginDataRoot()
+{
 	const root = process.env.PLUGIN_DATA;
-	if (root === undefined || root.length === 0) {
+	if (root === undefined || root.length === 0)
+	{
 		throw new Error("PLUGIN_DATA is required");
 	}
-	mkdirSync(root, {recursive: true, mode: 0o700});
+	mkdirSync(
+		root,
+		{
+			recursive: true,
+			mode: 0o700,
+		},
+	);
 	return root;
 }
 
-function statePath(input) {
+function statePath(input)
+{
 	const key = createHash("sha256")
 		.update(stringField(input, "session_id"))
 		.update("\0")
@@ -75,46 +89,76 @@ function statePath(input) {
 	return join(pluginDataRoot(), `question-routing-${key}.json`);
 }
 
-function readOutcome(input) {
-	try {
+function readOutcome(input)
+{
+	try
+	{
 		const state = record(JSON.parse(readFileSync(statePath(input), "utf8")), "routing state");
 		const outcome = state.outcome;
-		if (typeof outcome !== "string" || !OUTCOMES.has(outcome)) {
+		if (typeof outcome !== "string" || !OUTCOMES.has(outcome))
+		{
 			throw new TypeError("routing state outcome is invalid");
 		}
 		return outcome;
-	} catch (error) {
-		if (error !== null && typeof error === "object" && error.code === "ENOENT") {
+	}
+	catch (error)
+	{
+		if (error !== null && typeof error === "object" && error.code === "ENOENT")
+		{
 			return "not_attempted";
 		}
 		throw error;
 	}
 }
 
-function writeOutcome(input, outcome) {
-	if (!OUTCOMES.has(outcome)) {
+function writeOutcome(input, outcome)
+{
+	if (!OUTCOMES.has(outcome))
+	{
 		throw new TypeError("routing outcome is invalid");
 	}
-	writeFileSync(statePath(input), JSON.stringify({outcome}), {encoding: "utf8", mode: 0o600});
+	writeFileSync(
+		statePath(input),
+		JSON.stringify(
+			{
+				outcome,
+			},
+		),
+		{
+			encoding: "utf8",
+			mode: 0o600,
+		},
+	);
 }
 
-function clearOutcome(input) {
-	rmSync(statePath(input), {force: true});
+function clearOutcome(input)
+{
+	rmSync(
+		statePath(input),
+		{
+			force: true,
+		},
+	);
 }
 
-function isAskYepNope(toolName) {
+function isAskYepNope(toolName)
+{
 	return /(^|__)ask_yep_nope$/u.test(toolName);
 }
 
-function isNativeQuestionTool(toolName) {
+function isNativeQuestionTool(toolName)
+{
 	return /^(request_user_input|AskUserQuestion)$/u.test(toolName);
 }
 
-function answeredToolResponse(toolResponse) {
-	if (toolResponse === null || typeof toolResponse !== "object" || Array.isArray(toolResponse)) {
+function answeredToolResponse(toolResponse)
+{
+	if (toolResponse === null || typeof toolResponse !== "object" || Array.isArray(toolResponse))
+	{
 		return false;
 	}
-	if (toolResponse.isError === true || !Array.isArray(toolResponse.content)) {
+	if (toolResponse.isError === true || !Array.isArray(toolResponse.content))
+	{
 		return false;
 	}
 	const text = toolResponse.content
@@ -127,28 +171,36 @@ function answeredToolResponse(toolResponse) {
 
 // A call whose window closed before the user answered: the cards are still on the phone, and the
 // agent should call again with the same arguments rather than fall back to a native question.
-function waitingToolResponse(toolResponse) {
-	if (toolResponse === null || typeof toolResponse !== "object" || Array.isArray(toolResponse)) {
+function waitingToolResponse(toolResponse)
+{
+	if (toolResponse === null || typeof toolResponse !== "object" || Array.isArray(toolResponse))
+	{
 		return false;
 	}
-	if (toolResponse.isError === true) {
+	if (toolResponse.isError === true)
+	{
 		return false;
 	}
 	const structured = toolResponse.structuredContent;
 	return structured !== null && typeof structured === "object" && structured.status === "pending";
 }
 
-function asksDirectQuestion(message) {
-	if (typeof message !== "string") {
+function asksDirectQuestion(message)
+{
+	if (typeof message !== "string")
+	{
 		return false;
 	}
 	let insideFence = false;
-	for (const line of message.split("\n")) {
-		if (/^\s*(```|~~~)/u.test(line)) {
+	for (const line of message.split("\n"))
+	{
+		if (/^\s*(```|~~~)/u.test(line))
+		{
 			insideFence = !insideFence;
 			continue;
 		}
-		if (insideFence) {
+		if (insideFence)
+		{
 			continue;
 		}
 		const prose = line
@@ -156,55 +208,68 @@ function asksDirectQuestion(message) {
 			.replace(/<https?:\/\/[^>]+>/gu, "")
 			.replace(/\]\([^)]*\)/gu, "]")
 			.trim();
-		if (/^(?:📌\s*)?You asked:/u.test(prose)) {
+		if (/^(?:📌\s*)?You asked:/u.test(prose))
+		{
 			continue;
 		}
-		if (/\?(?:[*_~]+)?$/u.test(prose)) {
+		if (/\?(?:[*_~]+)?$/u.test(prose))
+		{
 			return true;
 		}
 	}
 	return false;
 }
 
-function nativeFallbackAllowed(outcome) {
+function nativeFallbackAllowed(outcome)
+{
 	return outcome === "pending" || outcome === "fallback";
 }
 
-function handleHook(input) {
+function handleHook(input)
+{
 	const event = stringField(input, "hook_event_name");
-	if (event === "UserPromptSubmit") {
+	if (event === "UserPromptSubmit")
+	{
 		writeOutcome(input, "not_attempted");
 		return {
-			hookSpecificOutput: {
+			hookSpecificOutput:
+			{
 				hookEventName: "UserPromptSubmit",
 				additionalContext: ROUTING_INSTRUCTION,
 			},
 		};
 	}
-	if (event === "PreToolUse") {
+	if (event === "PreToolUse")
+	{
 		const toolName = stringField(input, "tool_name");
-		if (isAskYepNope(toolName)) {
+		if (isAskYepNope(toolName))
+		{
 			writeOutcome(input, "pending");
 			return undefined;
 		}
-		if (!isNativeQuestionTool(toolName)) {
+		if (!isNativeQuestionTool(toolName))
+		{
 			throw new Error(`unsupported PreToolUse tool: ${toolName}`);
 		}
 		const outcome = readOutcome(input);
-		if (nativeFallbackAllowed(outcome)) {
+		if (nativeFallbackAllowed(outcome))
+		{
 			return undefined;
 		}
 		return {
-			hookSpecificOutput: {
+			hookSpecificOutput:
+			{
 				hookEventName: "PreToolUse",
 				permissionDecision: "deny",
 				permissionDecisionReason: outcome === "waiting" ? WAITING_CONTINUATION : NATIVE_QUESTION_DENIAL,
 			},
 		};
 	}
-	if (event === "PostToolUse") {
+	if (event === "PostToolUse")
+	{
 		const toolName = stringField(input, "tool_name");
-		if (!isAskYepNope(toolName)) {
+		if (!isAskYepNope(toolName))
+		{
 			throw new Error(`unsupported PostToolUse tool: ${toolName}`);
 		}
 		const response = input.tool_response;
@@ -214,27 +279,38 @@ function handleHook(input) {
 		);
 		return undefined;
 	}
-	if (event === "Stop") {
+	if (event === "Stop")
+	{
 		const asksQuestion = asksDirectQuestion(input.last_assistant_message);
 		const outcome = readOutcome(input);
 		clearOutcome(input);
 		// Ending the turn abandons questions still on the phone; the heartbeat alarm would retract them.
-		if (outcome === "waiting" && input.stop_hook_active !== true) {
-			return {decision: "block", reason: WAITING_CONTINUATION};
+		if (outcome === "waiting" && input.stop_hook_active !== true)
+		{
+			return {
+				decision: "block",
+				reason: WAITING_CONTINUATION,
+			};
 		}
-		if (!asksQuestion) {
+		if (!asksQuestion)
+		{
 			return {};
 		}
-		if (nativeFallbackAllowed(outcome) || input.stop_hook_active === true) {
+		if (nativeFallbackAllowed(outcome) || input.stop_hook_active === true)
+		{
 			return {};
 		}
-		return {decision: "block", reason: STOP_CONTINUATION};
+		return {
+			decision: "block",
+			reason: STOP_CONTINUATION,
+		};
 	}
 	throw new Error(`unsupported hook event: ${event}`);
 }
 
 const input = parseInput();
 const output = handleHook(input);
-if (output !== undefined) {
+if (output !== undefined)
+{
 	process.stdout.write(JSON.stringify(output));
 }

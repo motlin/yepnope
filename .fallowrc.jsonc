@@ -48,7 +48,8 @@
 		"eslint-plugin-storybook",
 		"jiti",
 	],
-	"rules": {
+	"rules":
+	{
 		"unused-dependencies": "warn",
 	},
 	"ignoreExports": [

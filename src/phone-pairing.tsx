@@ -2,34 +2,44 @@ import {QRCodeSVG} from "qrcode.react";
 import {useEffect, useState, type ReactElement, type SyntheticEvent} from "react";
 import {claimPhonePairing, createPhonePairing, type PhonePairing} from "./api";
 
-export function PhonePairingPanel(): ReactElement {
+export function PhonePairingPanel(): ReactElement
+{
 	const [pairing, setPairing] = useState<PhonePairing | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [expired, setExpired] = useState(false);
-	useEffect(() => {
+	useEffect(() =>
+	{
 		if (pairing === null) return undefined;
 		const timeout = window.setTimeout(
-			() => {
+			() =>
+			{
 				setPairing(null);
 				setExpired(true);
 			},
 			Math.max(0, pairing.expiresAt - Date.now()),
 		);
-		return () => {
+		return () =>
+		{
 			window.clearTimeout(timeout);
 		};
 	}, [pairing]);
-	async function generate(): Promise<void> {
+	async function generate(): Promise<void>
+	{
 		setBusy(true);
 		setError(null);
 		setPairing(null);
 		setExpired(false);
-		try {
+		try
+		{
 			setPairing(await createPhonePairing());
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(caught instanceof Error ? caught.message : "Could not create a pairing code.");
-		} finally {
+		}
+		finally
+		{
 			setBusy(false);
 		}
 	}
@@ -62,7 +72,8 @@ export function PhonePairingPanel(): ReactElement {
 			<button
 				type="button"
 				disabled={busy}
-				onClick={() => {
+				onClick={() =>
+				{
 					void generate();
 				}}
 			>
@@ -72,24 +83,30 @@ export function PhonePairingPanel(): ReactElement {
 	);
 }
 
-export function PairPhone(): ReactElement {
+export function PairPhone(): ReactElement
+{
 	const [parameters] = useState(() => new URLSearchParams(window.location.hash.slice(1)));
 	const [code, setCode] = useState(() => parameters.get("code") ?? "");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const id = parameters.get("id");
-	useEffect(() => {
+	useEffect(() =>
+	{
 		window.history.replaceState(null, "", window.location.pathname);
 	}, []);
-	async function submit(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
+	async function submit(event: SyntheticEvent<HTMLFormElement>): Promise<void>
+	{
 		event.preventDefault();
 		if (id === null) return;
 		setBusy(true);
 		setError(null);
-		try {
+		try
+		{
 			await claimPhonePairing(id, code);
 			window.location.replace("/settings");
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			setError(caught instanceof Error ? caught.message : "Could not pair this phone.");
 			setBusy(false);
 		}
@@ -109,7 +126,8 @@ export function PairPhone(): ReactElement {
 					</p>
 				) : (
 					<form
-						onSubmit={(event) => {
+						onSubmit={(event) =>
+						{
 							void submit(event);
 						}}
 					>
@@ -121,7 +139,8 @@ export function PairPhone(): ReactElement {
 							spellCheck={false}
 							maxLength={64}
 							value={code}
-							onChange={(event) => {
+							onChange={(event) =>
+							{
 								setCode(event.target.value);
 							}}
 							required

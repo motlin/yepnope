@@ -6,10 +6,16 @@ import {fileURLToPath} from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const scratchRoot = join(repositoryRoot, ".llm");
-mkdirSync(scratchRoot, {recursive: true});
+mkdirSync(
+	scratchRoot,
+	{
+		recursive: true,
+	},
+);
 const installRoot = mkdtempSync(join(scratchRoot, "skills-install-smoke-"));
 
-try {
+try
+{
 	const result = spawnSync(
 		"npx",
 		[
@@ -31,7 +37,11 @@ try {
 		{
 			cwd: installRoot,
 			encoding: "utf8",
-			env: {...process.env, NO_COLOR: "1"},
+			env:
+			{
+				...process.env,
+				NO_COLOR: "1",
+			},
 			timeout: 120_000,
 		},
 	);
@@ -40,12 +50,14 @@ try {
 
 	const skillNames = ["yepnope", "yepnope-setup"] as const;
 	const agentRoots = [".agents", ".claude"] as const;
-	for (const skillName of skillNames) {
+	for (const skillName of skillNames)
+	{
 		const canonicalSkill = readFileSync(
 			join(repositoryRoot, "plugins", "yepnope", "skills", skillName, "SKILL.md"),
 			"utf8",
 		);
-		for (const agentRoot of agentRoots) {
+		for (const agentRoot of agentRoots)
+		{
 			const installedSkill = readFileSync(join(installRoot, agentRoot, "skills", skillName, "SKILL.md"), "utf8");
 			assert.equal(installedSkill, canonicalSkill);
 		}
@@ -54,9 +66,16 @@ try {
 	assert.equal(existsSync(join(installRoot, ".claude", "settings.json")), false);
 	assert.equal(existsSync(join(installRoot, ".codex", "config.toml")), false);
 	console.log("Installed both YepNope skills for Claude Code and Codex without client settings.");
-} finally {
+}
+finally
+{
 	const resolvedScratchRoot = resolve(scratchRoot);
 	const resolvedInstallRoot = resolve(installRoot);
 	assert.equal(resolvedInstallRoot.startsWith(`${resolvedScratchRoot}${sep}`), true);
-	rmSync(resolvedInstallRoot, {recursive: true});
+	rmSync(
+		resolvedInstallRoot,
+		{
+			recursive: true,
+		},
+	);
 }
