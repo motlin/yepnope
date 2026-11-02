@@ -15,7 +15,7 @@ export PATH := justfile_directory() / "node_modules/.bin" + ":" + env("PATH")
 [group('setup')]
 install:
     pnpm install
-    vp fmt CLAUDE.md
+    oxfmt-next-line CLAUDE.md
     # 🧬 worker-configuration.d.ts is generated and git-ignored, so a fresh checkout has none. The
     # type-aware lint rules need it: without it every Env type resolves to `error` and `vp check`
     # reports over a thousand no-unsafe-* violations that say nothing about the code.
@@ -32,9 +32,9 @@ lint: install
 # Run formatter
 format: install
     pre-commit run just-fmt --all-files
-    vp fmt {{ if ci != "" { "--check" } else { "" } }}
+    oxfmt-next-line {{ if ci != "" { "--check" } else { "" } }}
 
-# Run checks (format + lint + typecheck)
+# Run checks (lint + typecheck; formatting is `just format`)
 check *args: install
     vp run --cache check {{ if ci != "" { "" } else { "--fix" } }} {{ args }}
 

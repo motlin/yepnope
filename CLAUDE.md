@@ -26,6 +26,10 @@ release. Add a tool name to select part of the graph. For example, run
 
 <!--VITE PLUS END-->
 
+# Formatting
+
+Formatting uses [oxfmt-next-line](https://www.npmjs.com/package/oxfmt-next-line), a fork of oxfmt that puts opening braces on their own line. mise installs it, and it reads `.oxfmtrc.json`. Run `just format` or `oxfmt-next-line`, not `vp fmt`: Vite+'s bundled oxfmt does not support next-line braces, so `vite.config.ts` has no `fmt` block and sets `check.fmt: false`, which makes `vp check` lint and type-check without formatting. The pre-commit `oxfmt` hook enforces formatting in CI.
+
 # Releasing YepNope
 
 `just release` is the supported path to production. It refuses a dirty tree or a branch behind its upstream, refuses a deployment missing any binding, var, or secret the Worker reads (`scripts/preflight.ts`), runs `just verify`, cuts an annotated `vYYYY.MM.DD-<short-sha>` tag, deploys with `vp run deploy`, records the Cloudflare Version ID in the tag annotation, and pushes the tag last. `just release --dry-run` prints the plan and the preflight and touches nothing.
