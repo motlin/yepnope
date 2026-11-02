@@ -3,25 +3,31 @@
 	"dialect": "sqlite",
 	"id": "9aaf5078-e829-4fbe-b422-c667b2193863",
 	"prevId": "00000000-0000-0000-0000-000000000000",
-	"tables": {
-		"answers": {
+	"tables":
+	{
+		"answers":
+		{
 			"name": "answers",
-			"columns": {
-				"question_id": {
+			"columns":
+			{
+				"question_id":
+				{
 					"name": "question_id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"disposition": {
+				"disposition":
+				{
 					"name": "disposition",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"answered_at": {
+				"answered_at":
+				{
 					"name": "answered_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -30,8 +36,10 @@
 				}
 			},
 			"indexes": {},
-			"foreignKeys": {
-				"answers_question_id_questions_id_fk": {
+			"foreignKeys":
+			{
+				"answers_question_id_questions_id_fk":
+				{
 					"name": "answers_question_id_questions_id_fk",
 					"tableFrom": "answers",
 					"tableTo": "questions",
@@ -45,52 +53,61 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"batches": {
+		"batches":
+		{
 			"name": "batches",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"project": {
+				"project":
+				{
 					"name": "project",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"repo": {
+				"repo":
+				{
 					"name": "repo",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"branch": {
+				"branch":
+				{
 					"name": "branch",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"directory": {
+				"directory":
+				{
 					"name": "directory",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"last_heartbeat_at": {
+				"last_heartbeat_at":
+				{
 					"name": "last_heartbeat_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -104,17 +121,21 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"devices": {
+		"devices":
+		{
 			"name": "devices",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"label": {
+				"label":
+				{
 					"name": "label",
 					"type": "text",
 					"primaryKey": false,
@@ -122,14 +143,16 @@
 					"autoincrement": false,
 					"default": "'Browser notifications'"
 				},
-				"push_subscription": {
+				"push_subscription":
+				{
 					"name": "push_subscription",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -143,38 +166,45 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"question_activity": {
+		"question_activity":
+		{
 			"name": "question_activity",
-			"columns": {
-				"question_id": {
+			"columns":
+			{
+				"question_id":
+				{
 					"name": "question_id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"batch_id": {
+				"batch_id":
+				{
 					"name": "batch_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"outcome": {
+				"outcome":
+				{
 					"name": "outcome",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"created_at": {
+				"created_at":
+				{
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"outcome_at": {
+				"outcome_at":
+				{
 					"name": "outcome_at",
 					"type": "integer",
 					"primaryKey": false,
@@ -188,38 +218,45 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"questions": {
+		"questions":
+		{
 			"name": "questions",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "text",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"batch_id": {
+				"batch_id":
+				{
 					"name": "batch_id",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"position": {
+				"position":
+				{
 					"name": "position",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"title": {
+				"title":
+				{
 					"name": "title",
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"body": {
+				"body":
+				{
 					"name": "body",
 					"type": "text",
 					"primaryKey": false,
@@ -228,8 +265,10 @@
 				}
 			},
 			"indexes": {},
-			"foreignKeys": {
-				"questions_batch_id_batches_id_fk": {
+			"foreignKeys":
+			{
+				"questions_batch_id_batches_id_fk":
+				{
 					"name": "questions_batch_id_batches_id_fk",
 					"tableFrom": "questions",
 					"tableTo": "batches",
@@ -243,17 +282,21 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"state": {
+		"state":
+		{
 			"name": "state",
-			"columns": {
-				"id": {
+			"columns":
+			{
+				"id":
+				{
 					"name": "id",
 					"type": "integer",
 					"primaryKey": true,
 					"notNull": true,
 					"autoincrement": false
 				},
-				"afk": {
+				"afk":
+				{
 					"name": "afk",
 					"type": "integer",
 					"primaryKey": false,
@@ -271,12 +314,14 @@
 	},
 	"views": {},
 	"enums": {},
-	"_meta": {
+	"_meta":
+	{
 		"schemas": {},
 		"tables": {},
 		"columns": {}
 	},
-	"internal": {
+	"internal":
+	{
 		"indexes": {}
 	}
 }

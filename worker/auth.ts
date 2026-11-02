@@ -10,7 +10,8 @@ import {jwt, magicLink} from "better-auth/plugins";
 import {drizzle} from "drizzle-orm/d1";
 import {AsyncLocalStorage} from "node:async_hooks";
 import {z} from "zod";
-import {
+import
+{
 	accounts,
 	deviceCodes,
 	jsonWebKeys,
@@ -28,7 +29,8 @@ import {
 	verifications,
 } from "./db/d1-schema";
 import {deleteAccountDurableObject, markAccountDeletionRequested, recordAccountIdentity} from "./identity-lifecycle";
-import {
+import
+{
 	createTurnstileVerifier,
 	HUMAN_VERIFICATION_HEADER,
 	HumanVerificationOutcome,
@@ -47,7 +49,11 @@ const PASSWORD_RECOVERY_REQUEST_PATH = `${AUTHENTICATION_PATH}/request-password-
 const PUBLIC_AUTHENTICATION_RESPONSE_FLOOR_MILLISECONDS = 500;
 const AUTHENTICATION_TOKEN_EXPIRY_SECONDS = 60 * 60;
 const MAGIC_LINK_EXPIRY_SECONDS = 15 * 60;
-const MAGIC_LINK_RATE_LIMIT = {window: 60, max: 5} as const;
+const MAGIC_LINK_RATE_LIMIT =
+{
+	window: 60,
+	max: 5,
+} as const;
 const OAUTH_ACCESS_TOKEN_EXPIRY_SECONDS = 10 * 60;
 const OAUTH_AUTHORIZATION_CODE_EXPIRY_SECONDS = 5 * 60;
 const OAUTH_REFRESH_TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
@@ -62,71 +68,84 @@ const DEVICE_AUTHORIZATION_PATH = "/device";
 const DEVICE_CODE_EXPIRY = "10m";
 const DEVICE_CODE_POLLING_INTERVAL = "5s";
 const emailRegistrationSchema = z
-	.object({
-		callbackURL: z.string().optional(),
-		email: z.email(),
-		password: z.string().min(8).max(128),
-		rememberMe: z.boolean().optional(),
-	})
+	.object(
+		{
+			callbackURL: z.string().optional(),
+			email: z.email(),
+			password: z.string().min(8).max(128),
+			rememberMe: z.boolean().optional(),
+		},
+	)
 	.strict();
 const emailSignInSchema = z
-	.object({
-		callbackURL: z.string().optional(),
-		email: z.email(),
-		oauth_query: z.string().optional(),
-		password: z.string(),
-		rememberMe: z.boolean().optional(),
-	})
+	.object(
+		{
+			callbackURL: z.string().optional(),
+			email: z.email(),
+			oauth_query: z.string().optional(),
+			password: z.string(),
+			rememberMe: z.boolean().optional(),
+		},
+	)
 	.strict();
 const magicLinkSignInSchema = z
-	.object({
-		callbackURL: z.string().optional(),
-		email: z.email(),
-		name: z.string().optional(),
-		newUserCallbackURL: z.string().optional(),
-		errorCallbackURL: z.string().optional(),
-	})
+	.object(
+		{
+			callbackURL: z.string().optional(),
+			email: z.email(),
+			name: z.string().optional(),
+			newUserCallbackURL: z.string().optional(),
+			errorCallbackURL: z.string().optional(),
+		},
+	)
 	.strict();
 const emailVerificationRequestSchema = z
-	.object({
-		callbackURL: z.string().optional(),
-		email: z.email(),
-	})
+	.object(
+		{
+			callbackURL: z.string().optional(),
+			email: z.email(),
+		},
+	)
 	.strict();
 const passwordRecoveryRequestSchema = z
-	.object({
-		email: z.email(),
-		redirectTo: z.string().optional(),
-	})
+	.object(
+		{
+			email: z.email(),
+			redirectTo: z.string().optional(),
+		},
+	)
 	.strict();
 // 📝 RFC 7591 §2 lets an authorization server ignore registration metadata it does not understand,
 // so this schema is not strict: a member YepNope has no opinion about — `jwks_uri`, `subject_type`,
 // whatever the next client invents — is stripped rather than turned into a refusal. Every member
 // listed here is still checked, and the parsed result, never the caller's body, reaches Better Auth.
-const dynamicClientRegistrationSchema = z.object({
-	application_type: z.literal("native").optional(),
-	client_name: z.string().trim().min(1).max(120).optional(),
-	client_uri: z.url().optional(),
-	contacts: z.array(z.email()).max(5).optional(),
-	grant_types: z
-		.array(z.enum(["authorization_code", "refresh_token", DEVICE_CODE_GRANT_TYPE]))
-		.min(1)
-		.max(2),
-	logo_uri: z.url().optional(),
-	policy_uri: z.url().optional(),
-	redirect_uris: z.array(z.url()).min(1).max(8).optional(),
-	resources: z.array(z.string()).max(1).optional(),
-	response_types: z.tuple([z.literal("code")]).optional(),
-	scope: z.string().optional(),
-	software_id: z.string().trim().min(1).max(120).optional(),
-	software_version: z.string().trim().min(1).max(60).optional(),
-	token_endpoint_auth_method: z.literal("none"),
-	tos_uri: z.url().optional(),
-});
+const dynamicClientRegistrationSchema = z.object(
+	{
+		application_type: z.literal("native").optional(),
+		client_name: z.string().trim().min(1).max(120).optional(),
+		client_uri: z.url().optional(),
+		contacts: z.array(z.email()).max(5).optional(),
+		grant_types: z
+			.array(z.enum(["authorization_code", "refresh_token", DEVICE_CODE_GRANT_TYPE]))
+			.min(1)
+			.max(2),
+		logo_uri: z.url().optional(),
+		policy_uri: z.url().optional(),
+		redirect_uris: z.array(z.url()).min(1).max(8).optional(),
+		resources: z.array(z.string()).max(1).optional(),
+		response_types: z.tuple([z.literal("code")]).optional(),
+		scope: z.string().optional(),
+		software_id: z.string().trim().min(1).max(120).optional(),
+		software_version: z.string().trim().min(1).max(60).optional(),
+		token_endpoint_auth_method: z.literal("none"),
+		tos_uri: z.url().optional(),
+	},
+);
 
 type DynamicClientRegistration = z.infer<typeof dynamicClientRegistrationSchema>;
 
-function invalidRegistrationMembers(error: z.ZodError): string {
+function invalidRegistrationMembers(error: z.ZodError): string
+{
 	const members = [
 		...new Set(
 			error.issues.map((issue) => (typeof issue.path[0] === "string" ? issue.path[0] : "the request body")),
@@ -141,44 +160,58 @@ function invalidRegistrationMembers(error: z.ZodError): string {
  * a redirect URI or a response type it could never use. A refusal names the member that caused it,
  * because a client author reading a bare "not permitted" has to guess which field offended.
  */
-function impermissibleRegistrationMember(registration: DynamicClientRegistration, resource: string): string | null {
-	if (registration.grant_types.includes(DEVICE_CODE_GRANT_TYPE)) {
-		if (registration.grant_types.includes("authorization_code")) {
+function impermissibleRegistrationMember(registration: DynamicClientRegistration, resource: string): string | null
+{
+	if (registration.grant_types.includes(DEVICE_CODE_GRANT_TYPE))
+	{
+		if (registration.grant_types.includes("authorization_code"))
+		{
 			return "grant_types cannot combine the device code grant with authorization_code";
 		}
-		if (registration.redirect_uris !== undefined) {
+		if (registration.redirect_uris !== undefined)
+		{
 			return "redirect_uris is not permitted for a device code client";
 		}
-		if (registration.response_types !== undefined) {
+		if (registration.response_types !== undefined)
+		{
 			return "response_types is not permitted for a device code client";
 		}
-	} else {
-		if (!registration.grant_types.includes("authorization_code")) {
+	}
+	else
+	{
+		if (!registration.grant_types.includes("authorization_code"))
+		{
 			return "grant_types must include authorization_code";
 		}
-		if (registration.response_types === undefined) {
+		if (registration.response_types === undefined)
+		{
 			return 'response_types must be ["code"]';
 		}
-		if (registration.redirect_uris === undefined) {
+		if (registration.redirect_uris === undefined)
+		{
 			return "redirect_uris is required for an authorization_code client";
 		}
-		if (!registration.redirect_uris.every(isLoopbackRedirectUri)) {
+		if (!registration.redirect_uris.every(isLoopbackRedirectUri))
+		{
 			return "redirect_uris must each be an http loopback URL";
 		}
 	}
-	if (!hasExactOAuthScopes(registration.scope)) {
+	if (!hasExactOAuthScopes(registration.scope))
+	{
 		return `scope may request only: ${OAUTH_SCOPES.join(" ")}`;
 	}
 	if (
 		registration.resources !== undefined &&
 		(registration.resources.length !== 1 || registration.resources[0] !== resource)
-	) {
+	)
+	{
 		return `resources may name only ${resource}`;
 	}
 	return null;
 }
 
-const authenticationSchema = {
+const authenticationSchema =
+{
 	account: accounts,
 	deviceCode: deviceCodes,
 	jwks: jsonWebKeys,
@@ -214,27 +247,46 @@ type AuthenticationEnvironment = Pick<
 const SOCIAL_PROVIDERS = ["github", "google"] as const;
 export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
 
-interface SocialProviderCredentials {
+interface SocialProviderCredentials
+{
 	clientId: string;
 	clientSecret: string;
 }
 
 const SOCIAL_PROVIDER_CREDENTIAL_NAMES: Readonly<
-	Record<SocialProvider, {id: keyof AuthenticationEnvironment; secret: keyof AuthenticationEnvironment}>
-> = {
-	github: {id: "GITHUB_CLIENT_ID", secret: "GITHUB_CLIENT_SECRET"},
-	google: {id: "GOOGLE_CLIENT_ID", secret: "GOOGLE_CLIENT_SECRET"},
+	Record<
+		SocialProvider,
+		{
+			id: keyof AuthenticationEnvironment;
+			secret: keyof AuthenticationEnvironment;
+		}
+	>
+> =
+{
+	github:
+	{
+		id: "GITHUB_CLIENT_ID",
+		secret: "GITHUB_CLIENT_SECRET",
+	},
+	google:
+	{
+		id: "GOOGLE_CLIENT_ID",
+		secret: "GOOGLE_CLIENT_SECRET",
+	},
 };
 
-export interface AuthenticationMethods {
+export interface AuthenticationMethods
+{
 	emailPassword: boolean;
 	magicLink: boolean;
 	passkey: boolean;
 	social: SocialProvider[];
 }
 
-function configuredSecret(value: unknown): string | null {
-	if (typeof value !== "string") {
+function configuredSecret(value: unknown): string | null
+{
+	if (typeof value !== "string")
+	{
 		return null;
 	}
 	const trimmed = value.trim();
@@ -243,14 +295,21 @@ function configuredSecret(value: unknown): string | null {
 
 function socialProviderCredentials(
 	environment: AuthenticationEnvironment,
-): Partial<Record<SocialProvider, SocialProviderCredentials>> {
+): Partial<Record<SocialProvider, SocialProviderCredentials>>
+{
 	const credentials: Partial<Record<SocialProvider, SocialProviderCredentials>> = {};
-	for (const provider of SOCIAL_PROVIDERS) {
+	for (const provider of SOCIAL_PROVIDERS)
+	{
 		const names = SOCIAL_PROVIDER_CREDENTIAL_NAMES[provider];
 		const clientId = configuredSecret(environment[names.id]);
 		const clientSecret = configuredSecret(environment[names.secret]);
-		if (clientId !== null && clientSecret !== null) {
-			credentials[provider] = {clientId, clientSecret};
+		if (clientId !== null && clientSecret !== null)
+		{
+			credentials[provider] =
+			{
+				clientId,
+				clientSecret,
+			};
 		}
 	}
 	return credentials;
@@ -260,7 +319,8 @@ function socialProviderCredentials(
  * The sign-in methods this deployment can actually complete. The browser reads this so it never
  * renders a provider button that would dead-end on a missing secret.
  */
-export function authenticationMethods(environment: AuthenticationEnvironment): AuthenticationMethods {
+export function authenticationMethods(environment: AuthenticationEnvironment): AuthenticationMethods
+{
 	const credentials = socialProviderCredentials(environment);
 	return {
 		emailPassword: true,
@@ -271,7 +331,8 @@ export function authenticationMethods(environment: AuthenticationEnvironment): A
 }
 type AuthenticationEmail = Parameters<SendEmail["send"]>[0];
 
-interface AuthenticationEmailCopy {
+interface AuthenticationEmailCopy
+{
 	actionLabel: string;
 	expiry: string;
 	introduction: string;
@@ -279,9 +340,11 @@ interface AuthenticationEmailCopy {
 	subject: string;
 }
 
-export interface AuthenticationDependencies {
+export interface AuthenticationDependencies
+{
 	observe: (observation: AuthenticationObservation) => void;
-	publicAuthenticationTiming: {
+	publicAuthenticationTiming:
+	{
 		currentMilliseconds: () => number;
 		wait: (milliseconds: number) => Promise<void>;
 	};
@@ -300,11 +363,13 @@ type AuthenticationMiddleware = (next: AuthenticationHandler) => AuthenticationH
 function composeAuthenticationMiddleware(
 	middleware: readonly AuthenticationMiddleware[],
 	handler: AuthenticationHandler,
-): AuthenticationHandler {
+): AuthenticationHandler
+{
 	return middleware.reduceRight((next, wrap) => wrap(next), handler);
 }
 
-export interface AuthenticationObservation {
+export interface AuthenticationObservation
+{
 	event:
 		| "access_token_rejected"
 		| "authentication_email_delivered"
@@ -324,7 +389,8 @@ export interface AuthenticationObservation {
 // 📮 Why a message did not leave the Worker, drawn from a closed vocabulary. Cloudflare Email
 // Service rejections carry the recipient address and the signed link in `message`, so only the
 // class derived from the documented `code` is ever recorded.
-enum AuthenticationEmailFailure {
+enum AuthenticationEmailFailure
+{
 	// The message itself can never be accepted: malformed fields, oversized body, bad headers.
 	MessageRejected = "message_rejected",
 	// This recipient will keep being refused. Until a sending domain is onboarded to Email Service,
@@ -339,7 +405,8 @@ enum AuthenticationEmailFailure {
 const AUTHENTICATION_EMAIL_DELIVERY_ATTEMPTS = 3;
 
 /** Cloudflare Email Service error codes, triaged by whether another attempt could change anything. */
-const AUTHENTICATION_EMAIL_FAILURE_CODES: Readonly<Record<string, AuthenticationEmailFailure>> = {
+const AUTHENTICATION_EMAIL_FAILURE_CODES: Readonly<Record<string, AuthenticationEmailFailure>> =
+{
 	E_CONTENT_TOO_LARGE: AuthenticationEmailFailure.MessageRejected,
 	E_DAILY_LIMIT_EXCEEDED: AuthenticationEmailFailure.Throttled,
 	E_DELIVERY_FAILED: AuthenticationEmailFailure.Transient,
@@ -362,12 +429,18 @@ const AUTHENTICATION_EMAIL_FAILURE_CODES: Readonly<Record<string, Authentication
 	E_VALIDATION_ERROR: AuthenticationEmailFailure.MessageRejected,
 };
 
-const authenticationEmailErrorSchema = z.object({code: z.string()});
+const authenticationEmailErrorSchema = z.object(
+	{
+		code: z.string(),
+	},
+);
 
 /** Anything without a documented code is treated as a blip worth one more attempt. */
-function classifyAuthenticationEmailFailure(caught: unknown): AuthenticationEmailFailure {
+function classifyAuthenticationEmailFailure(caught: unknown): AuthenticationEmailFailure
+{
 	const parsed = authenticationEmailErrorSchema.safeParse(caught);
-	if (!parsed.success) {
+	if (!parsed.success)
+	{
 		return AuthenticationEmailFailure.Transient;
 	}
 	return AUTHENTICATION_EMAIL_FAILURE_CODES[parsed.data.code] ?? AuthenticationEmailFailure.Transient;
@@ -381,30 +454,40 @@ async function deliverAuthenticationEmail(
 	dependencies: AuthenticationDependencies,
 	message: AuthenticationEmail,
 	reason: PublicAuthenticationOperation,
-): Promise<void> {
-	for (let attempt = 1; attempt <= AUTHENTICATION_EMAIL_DELIVERY_ATTEMPTS; attempt += 1) {
-		try {
+): Promise<void>
+{
+	for (let attempt = 1; attempt <= AUTHENTICATION_EMAIL_DELIVERY_ATTEMPTS; attempt += 1)
+	{
+		try
+		{
 			await dependencies.sendEmail(message);
-			dependencies.observe({
-				event: "authentication_email_delivered",
-				failure: null,
-				level: "info",
-				reason,
-				status: null,
-			});
+			dependencies.observe(
+				{
+					event: "authentication_email_delivered",
+					failure: null,
+					level: "info",
+					reason,
+					status: null,
+				},
+			);
 			return;
-		} catch (caught) {
+		}
+		catch (caught)
+		{
 			const failure = classifyAuthenticationEmailFailure(caught);
 			const retrying =
 				failure === AuthenticationEmailFailure.Transient && attempt < AUTHENTICATION_EMAIL_DELIVERY_ATTEMPTS;
-			dependencies.observe({
-				event: retrying ? "authentication_email_delivery_retried" : "authentication_email_delivery_failed",
-				failure,
-				level: retrying ? "warn" : "error",
-				reason,
-				status: null,
-			});
-			if (!retrying) {
+			dependencies.observe(
+				{
+					event: retrying ? "authentication_email_delivery_retried" : "authentication_email_delivery_failed",
+					failure,
+					level: retrying ? "warn" : "error",
+					reason,
+					status: null,
+				},
+			);
+			if (!retrying)
+			{
 				return;
 			}
 		}
@@ -419,9 +502,11 @@ async function sendAuthenticationEmail(
 	dependencies: AuthenticationDependencies,
 	message: AuthenticationEmail,
 	reason: PublicAuthenticationOperation,
-): Promise<void> {
+): Promise<void>
+{
 	const delivery = deliverAuthenticationEmail(dependencies, message, reason);
-	if (dependencies.runInBackground === undefined) {
+	if (dependencies.runInBackground === undefined)
+	{
 		await delivery;
 		return;
 	}
@@ -443,7 +528,8 @@ const HUMAN_VERIFICATION_ACTIONS: ReadonlyMap<string, readonly string[]> = new M
 
 // One reply for every refusal. The visitor learns that the check has to be redone and nothing else:
 // not whether the address exists, not which of the nine outcomes fired.
-const HUMAN_VERIFICATION_FAILURE_BODY = {
+const HUMAN_VERIFICATION_FAILURE_BODY =
+{
 	code: "HUMAN_VERIFICATION_REQUIRED",
 	message: "Human verification did not complete. Complete the check on the page and try again.",
 } as const;
@@ -458,37 +544,56 @@ const HUMAN_VERIFICATION_FAILURE_BODY = {
 function humanVerificationAuthenticationHandler(
 	verifyHuman: HumanVerificationVerifier,
 	observe: AuthenticationDependencies["observe"],
-): AuthenticationMiddleware {
-	return (next) => async (request) => {
-		if (request.method !== "POST") {
+): AuthenticationMiddleware
+{
+	return (next) => async (request) =>
+	{
+		if (request.method !== "POST")
+		{
 			return next(request);
 		}
 		const actions = HUMAN_VERIFICATION_ACTIONS.get(new URL(request.url).pathname);
-		if (actions === undefined) {
+		if (actions === undefined)
+		{
 			return next(request);
 		}
-		const outcome = await verifyHuman({
-			actions,
-			remoteIp: request.headers.get("CF-Connecting-IP"),
-			token: request.headers.get(HUMAN_VERIFICATION_HEADER),
-		});
-		if (outcome === HumanVerificationOutcome.Accepted) {
+		const outcome = await verifyHuman(
+			{
+				actions,
+				remoteIp: request.headers.get("CF-Connecting-IP"),
+				token: request.headers.get(HUMAN_VERIFICATION_HEADER),
+			},
+		);
+		if (outcome === HumanVerificationOutcome.Accepted)
+		{
 			// Solve volume is already Cloudflare's own analytics to report. The Worker log exists to
 			// explain refusals, so a cleared check leaves no trace beyond the request it allowed.
 			return next(request);
 		}
-		observe({
-			event: "human_verification_evaluated",
-			failure: null,
-			level: outcome === HumanVerificationOutcome.Misconfigured ? "error" : "warn",
-			reason: outcome,
-			status: null,
-		});
-		return Response.json(HUMAN_VERIFICATION_FAILURE_BODY, {headers: {"Cache-Control": "no-store"}, status: 403});
+		observe(
+			{
+				event: "human_verification_evaluated",
+				failure: null,
+				level: outcome === HumanVerificationOutcome.Misconfigured ? "error" : "warn",
+				reason: outcome,
+				status: null,
+			},
+		);
+		return Response.json(
+			HUMAN_VERIFICATION_FAILURE_BODY,
+			{
+				headers:
+				{
+					"Cache-Control": "no-store",
+				},
+				status: 403,
+			},
+		);
 	};
 }
 
-enum PublicAuthenticationOperation {
+enum PublicAuthenticationOperation
+{
 	Register = "register",
 	RequestMagicLink = "request_magic_link",
 	RequestPasswordRecovery = "request_password_recovery",
@@ -496,20 +601,25 @@ enum PublicAuthenticationOperation {
 	SignIn = "sign_in",
 }
 
-const PUBLIC_AUTHENTICATION_ACCEPTED_BODY = {
+const PUBLIC_AUTHENTICATION_ACCEPTED_BODY =
+{
 	message: "If the request can be completed, check your inbox for next steps.",
 	status: true,
 } as const;
-const PUBLIC_SIGN_IN_FAILURE_BODY = {
+const PUBLIC_SIGN_IN_FAILURE_BODY =
+{
 	code: "AUTHENTICATION_FAILED",
 	message: "Sign-in failed. Check your email and password, or recover your account.",
 } as const;
 
-function authenticationLibraryReason(message: string): string {
-	if (message.startsWith("Sign-up attempt for existing email:")) {
+function authenticationLibraryReason(message: string): string
+{
+	if (message.startsWith("Sign-up attempt for existing email:"))
+	{
 		return "existing_registration";
 	}
-	switch (message) {
+	switch (message)
+	{
 		case "Invalid password":
 			return "invalid_password";
 		case "Password not found":
@@ -523,15 +633,18 @@ function authenticationLibraryReason(message: string): string {
 	}
 }
 
-async function publicAuthenticationOperation(request: Request): Promise<PublicAuthenticationOperation | null> {
-	if (request.method !== "POST") {
+async function publicAuthenticationOperation(request: Request): Promise<PublicAuthenticationOperation | null>
+{
+	if (request.method !== "POST")
+	{
 		return null;
 	}
 	const body = await request
 		.clone()
 		.json()
 		.catch(() => null);
-	switch (new URL(request.url).pathname) {
+	switch (new URL(request.url).pathname)
+	{
 		case EMAIL_REGISTRATION_PATH:
 			return emailRegistrationSchema.safeParse(body).success ? PublicAuthenticationOperation.Register : null;
 		case EMAIL_SIGN_IN_PATH:
@@ -556,53 +669,81 @@ async function publicAuthenticationOperation(request: Request): Promise<PublicAu
 async function waitForPublicAuthenticationResponseFloor(
 	startedAt: number,
 	timing: AuthenticationDependencies["publicAuthenticationTiming"],
-): Promise<void> {
+): Promise<void>
+{
 	const remainingMilliseconds =
 		PUBLIC_AUTHENTICATION_RESPONSE_FLOOR_MILLISECONDS - (timing.currentMilliseconds() - startedAt);
-	if (remainingMilliseconds > 0) {
+	if (remainingMilliseconds > 0)
+	{
 		await timing.wait(remainingMilliseconds);
 	}
 }
 
-function publicAuthenticationResponse(operation: PublicAuthenticationOperation): Response {
-	const headers = {"Cache-Control": "no-store"};
+function publicAuthenticationResponse(operation: PublicAuthenticationOperation): Response
+{
+	const headers =
+	{
+		"Cache-Control": "no-store",
+	};
 	return operation === PublicAuthenticationOperation.SignIn
-		? Response.json(PUBLIC_SIGN_IN_FAILURE_BODY, {headers, status: 401})
-		: Response.json(PUBLIC_AUTHENTICATION_ACCEPTED_BODY, {headers});
+		? Response.json(
+				PUBLIC_SIGN_IN_FAILURE_BODY,
+				{
+					headers,
+					status: 401,
+				},
+			)
+		: Response.json(
+				PUBLIC_AUTHENTICATION_ACCEPTED_BODY,
+				{
+					headers,
+				},
+			);
 }
 
-function nonEnumeratingAuthenticationHandler(dependencies: AuthenticationDependencies): AuthenticationMiddleware {
-	return (next) => async (request) => {
+function nonEnumeratingAuthenticationHandler(dependencies: AuthenticationDependencies): AuthenticationMiddleware
+{
+	return (next) => async (request) =>
+	{
 		const operation = await publicAuthenticationOperation(request);
-		if (operation === null) {
+		if (operation === null)
+		{
 			return next(request);
 		}
 		const startedAt = dependencies.publicAuthenticationTiming.currentMilliseconds();
 		let response: Response;
-		try {
+		try
+		{
 			response = await next(request);
-		} catch {
-			dependencies.observe({
-				event: "public_authentication_response_normalized",
-				failure: null,
-				level: "error",
-				reason: operation,
-				status: null,
-			});
+		}
+		catch
+		{
+			dependencies.observe(
+				{
+					event: "public_authentication_response_normalized",
+					failure: null,
+					level: "error",
+					reason: operation,
+					status: null,
+				},
+			);
 			await waitForPublicAuthenticationResponseFloor(startedAt, dependencies.publicAuthenticationTiming);
 			return publicAuthenticationResponse(operation);
 		}
-		if (operation === PublicAuthenticationOperation.SignIn && response.ok) {
+		if (operation === PublicAuthenticationOperation.SignIn && response.ok)
+		{
 			await waitForPublicAuthenticationResponseFloor(startedAt, dependencies.publicAuthenticationTiming);
 			return response;
 		}
-		dependencies.observe({
-			event: "public_authentication_response_normalized",
-			failure: null,
-			level: response.ok ? "info" : "warn",
-			reason: operation,
-			status: response.status,
-		});
+		dependencies.observe(
+			{
+				event: "public_authentication_response_normalized",
+				failure: null,
+				level: response.ok ? "info" : "warn",
+				reason: operation,
+				status: response.status,
+			},
+		);
 		await waitForPublicAuthenticationResponseFloor(startedAt, dependencies.publicAuthenticationTiming);
 		return publicAuthenticationResponse(operation);
 	};
@@ -620,20 +761,25 @@ const COMPLETED_AUTHENTICATION_METHODS: ReadonlyMap<string, string> = new Map([
 	),
 ]);
 
-function methodUsageAuthenticationHandler(observe: AuthenticationDependencies["observe"]): AuthenticationMiddleware {
-	return (next) => async (request) => {
+function methodUsageAuthenticationHandler(observe: AuthenticationDependencies["observe"]): AuthenticationMiddleware
+{
+	return (next) => async (request) =>
+	{
 		const method = COMPLETED_AUTHENTICATION_METHODS.get(new URL(request.url).pathname);
-		if (method === undefined) {
+		if (method === undefined)
+		{
 			return next(request);
 		}
 		const response = await next(request);
-		observe({
-			event: "authentication_method_completed",
-			failure: null,
-			level: response.status >= 400 ? "warn" : "info",
-			reason: method,
-			status: response.status,
-		});
+		observe(
+			{
+				event: "authentication_method_completed",
+				failure: null,
+				level: response.status >= 400 ? "warn" : "info",
+				reason: method,
+				status: response.status,
+			},
+		);
 		return response;
 	};
 }
@@ -642,18 +788,24 @@ function methodUsageAuthenticationHandler(observe: AuthenticationDependencies["o
 // account gets a message, while an already-verified account and an unknown address deliberately get
 // none. The public response cannot say which, so the classification lives here, in diagnostics that
 // name the state without naming the address.
-enum VerificationAccountState {
+enum VerificationAccountState
+{
 	AlreadyVerified = "already_verified",
 	Unknown = "unknown_account",
 	Unverified = "unverified_account",
 }
 
-async function verificationAccountState(database: D1Database, email: string): Promise<VerificationAccountState> {
+async function verificationAccountState(database: D1Database, email: string): Promise<VerificationAccountState>
+{
 	const account = await database
 		.prepare("SELECT email_verified FROM user WHERE email = ?")
 		.bind(email.toLowerCase())
-		.first<{email_verified: number}>();
-	if (account === null) {
+		.first<
+		{
+			email_verified: number;
+		}>();
+	if (account === null)
+	{
 		return VerificationAccountState.Unknown;
 	}
 	return account.email_verified === 1
@@ -664,9 +816,12 @@ async function verificationAccountState(database: D1Database, email: string): Pr
 function verificationStateAuthenticationHandler(
 	database: D1Database,
 	observe: AuthenticationDependencies["observe"],
-): AuthenticationMiddleware {
-	return (next) => async (request) => {
-		if (request.method !== "POST" || new URL(request.url).pathname !== EMAIL_VERIFICATION_REQUEST_PATH) {
+): AuthenticationMiddleware
+{
+	return (next) => async (request) =>
+	{
+		if (request.method !== "POST" || new URL(request.url).pathname !== EMAIL_VERIFICATION_REQUEST_PATH)
+		{
 			return next(request);
 		}
 		const parsed = emailVerificationRequestSchema.safeParse(
@@ -675,46 +830,67 @@ function verificationStateAuthenticationHandler(
 				.json()
 				.catch(() => null),
 		);
-		if (!parsed.success) {
+		if (!parsed.success)
+		{
 			return next(request);
 		}
-		observe({
-			event: "authentication_verification_state_classified",
-			failure: null,
-			level: "info",
-			reason: await verificationAccountState(database, parsed.data.email),
-			status: null,
-		});
+		observe(
+			{
+				event: "authentication_verification_state_classified",
+				failure: null,
+				level: "info",
+				reason: await verificationAccountState(database, parsed.data.email),
+				status: null,
+			},
+		);
 		return next(request);
 	};
 }
 
-function nameFreeAuthenticationHandler(): AuthenticationMiddleware {
-	return (next) => async (request) => {
+function nameFreeAuthenticationHandler(): AuthenticationMiddleware
+{
+	return (next) => async (request) =>
+	{
 		const url = new URL(request.url);
-		if (request.method !== "POST" || url.pathname !== EMAIL_REGISTRATION_PATH) {
+		if (request.method !== "POST" || url.pathname !== EMAIL_REGISTRATION_PATH)
+		{
 			return next(request);
 		}
 		const registration = emailRegistrationSchema.safeParse(await request.json().catch(() => null));
-		if (!registration.success) {
+		if (!registration.success)
+		{
 			return Response.json(
-				{code: "INVALID_REGISTRATION_REQUEST", message: "Registration requires an email and password"},
-				{status: 400},
+				{
+					code: "INVALID_REGISTRATION_REQUEST",
+					message: "Registration requires an email and password",
+				},
+				{
+					status: 400,
+				},
 			);
 		}
 		const headers = new Headers(request.headers);
 		headers.delete("Content-Length");
 		return next(
-			new Request(request.url, {
-				method: request.method,
-				headers,
-				body: JSON.stringify({...registration.data, name: ""}),
-			}),
+			new Request(
+				request.url,
+				{
+					method: request.method,
+					headers,
+					body: JSON.stringify(
+						{
+							...registration.data,
+							name: "",
+						},
+					),
+				},
+			),
 		);
 	};
 }
 
-function isLoopbackRedirectUri(value: string): boolean {
+function isLoopbackRedirectUri(value: string): boolean
+{
 	const url = new URL(value);
 	const ipv4Octets = url.hostname.split(".");
 	const isIpv4Loopback =
@@ -730,8 +906,10 @@ function isLoopbackRedirectUri(value: string): boolean {
 	);
 }
 
-function hasExactOAuthScopes(scope: string | undefined): boolean {
-	if (scope === undefined) {
+function hasExactOAuthScopes(scope: string | undefined): boolean
+{
+	if (scope === undefined)
+	{
 		return true;
 	}
 	const requestedScopes = scope.split(" ");
@@ -741,20 +919,26 @@ function hasExactOAuthScopes(scope: string | undefined): boolean {
 	);
 }
 
-function refusedClientRegistration(reason: string): Response {
+function refusedClientRegistration(reason: string): Response
+{
 	return Response.json(
 		{
 			error: "invalid_client_metadata",
 			error_description: `Client registration metadata is not permitted: ${reason}`,
 		},
-		{status: 400},
+		{
+			status: 400,
+		},
 	);
 }
 
-function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware {
-	return (next) => async (request) => {
+function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware
+{
+	return (next) => async (request) =>
+	{
 		const url = new URL(request.url);
-		if (request.method !== "POST" || url.pathname !== `${AUTHENTICATION_PATH}/oauth2/register`) {
+		if (request.method !== "POST" || url.pathname !== `${AUTHENTICATION_PATH}/oauth2/register`)
+		{
 			return next(request);
 		}
 		const parsed = dynamicClientRegistrationSchema.safeParse(
@@ -763,11 +947,13 @@ function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware 
 				.json()
 				.catch(() => null),
 		);
-		if (!parsed.success) {
+		if (!parsed.success)
+		{
 			return refusedClientRegistration(invalidRegistrationMembers(parsed.error));
 		}
 		const refusal = impermissibleRegistrationMember(parsed.data, `${url.origin}${MCP_RESOURCE_PATH}`);
-		if (refusal !== null) {
+		if (refusal !== null)
+		{
 			return refusedClientRegistration(refusal);
 		}
 		// Better Auth defaults an absent application_type to "web" and then rejects the loopback
@@ -777,30 +963,43 @@ function restrictedDynamicClientRegistrationHandler(): AuthenticationMiddleware 
 		const headers = new Headers(request.headers);
 		headers.delete("Content-Length");
 		return next(
-			new Request(request.url, {
-				method: "POST",
-				headers,
-				body: JSON.stringify({...parsed.data, application_type: "native"}),
-			}),
+			new Request(
+				request.url,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify(
+						{
+							...parsed.data,
+							application_type: "native",
+						},
+					),
+				},
+			),
 		);
 	};
 }
 
-function singleUseEmailVerificationHandler(database: D1Database): AuthenticationMiddleware {
-	return (next) => async (request) => {
+function singleUseEmailVerificationHandler(database: D1Database): AuthenticationMiddleware
+{
+	return (next) => async (request) =>
+	{
 		const url = new URL(request.url);
-		if (request.method !== "GET" || url.pathname !== EMAIL_VERIFICATION_PATH) {
+		if (request.method !== "GET" || url.pathname !== EMAIL_VERIFICATION_PATH)
+		{
 			return next(request);
 		}
 		const token = url.searchParams.get("token");
-		if (token === null) {
+		if (token === null)
+		{
 			return next(request);
 		}
 		const consumed = await database
 			.prepare("DELETE FROM verification WHERE identifier = ? RETURNING id")
 			.bind(`${EMAIL_VERIFICATION_IDENTIFIER_PREFIX}${await hashToken(token)}`)
 			.first();
-		if (consumed !== null) {
+		if (consumed !== null)
+		{
 			return next(request);
 		}
 		url.searchParams.set("token", "consumed");
@@ -808,7 +1007,8 @@ function singleUseEmailVerificationHandler(database: D1Database): Authentication
 	};
 }
 
-function escapeHtml(value: string): string {
+function escapeHtml(value: string): string
+{
 	return value
 		.replaceAll("&", "&amp;")
 		.replaceAll('"', "&quot;")
@@ -822,7 +1022,8 @@ function authenticationEmail(
 	to: string,
 	url: string,
 	copy: AuthenticationEmailCopy,
-): AuthenticationEmail {
+): AuthenticationEmail
+{
 	const safeActionLabel = escapeHtml(copy.actionLabel);
 	const safeExpiry = escapeHtml(`This link expires in ${copy.expiry}.`);
 	const safeIntroduction = escapeHtml(copy.introduction);
@@ -831,7 +1032,11 @@ function authenticationEmail(
 	const safeUrl = escapeHtml(url);
 	return {
 		to,
-		from: {email: environment.AUTH_EMAIL_FROM, name: "YepNope"},
+		from:
+		{
+			email: environment.AUTH_EMAIL_FROM,
+			name: "YepNope",
+		},
 		subject: copy.subject,
 		text: `${copy.introduction}\n\n${copy.actionLabel}: ${url}\n\nThis link expires in ${copy.expiry}. If you did not request this, you can ignore this email.`,
 		html: `<!doctype html>
@@ -884,182 +1089,291 @@ export function createAuthentication(
 	environment: AuthenticationEnvironment,
 	dependencies: AuthenticationDependencies,
 	passkeyPlugin: PasskeyPlugin | null = null,
-) {
-	const database = drizzle(environment.DB, {
-		schema: authenticationSchema,
-	});
-	const resource = `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
-	const authentication = betterAuth({
-		appName: "YepNope",
-		baseURL: environment.BETTER_AUTH_URL,
-		basePath: AUTHENTICATION_PATH,
-		secret: environment.BETTER_AUTH_SECRET,
-		trustedOrigins: [environment.BETTER_AUTH_URL],
-		logger: {
-			level: "debug",
-			log: (level, message) => {
-				dependencies.observe({
-					event: "authentication_library_log",
-					failure: null,
-					level,
-					reason: authenticationLibraryReason(message),
-					status: null,
-				});
-			},
+)
+{
+	const database = drizzle(
+		environment.DB,
+		{
+			schema: authenticationSchema,
 		},
-		database: surfacingDriverMessages(
-			drizzleAdapter(database, {
-				provider: "sqlite",
-				schema: authenticationSchema,
-			}),
-		),
-		plugins: [
-			phonePairing(environment.DB, new URL(environment.BETTER_AUTH_URL).origin),
-			jwt(),
-			magicLink({
-				expiresIn: MAGIC_LINK_EXPIRY_SECONDS,
-				rateLimit: MAGIC_LINK_RATE_LIMIT,
-				// 🔐 A leaked database row must not be a usable sign-in link.
-				storeToken: {type: "custom-hasher", hash: hashToken},
-				sendMagicLink: async ({email, url}) =>
+	);
+	const resource = `${environment.BETTER_AUTH_URL}${MCP_RESOURCE_PATH}`;
+	const authentication = betterAuth(
+		{
+			appName: "YepNope",
+			baseURL: environment.BETTER_AUTH_URL,
+			basePath: AUTHENTICATION_PATH,
+			secret: environment.BETTER_AUTH_SECRET,
+			trustedOrigins: [environment.BETTER_AUTH_URL],
+			logger:
+			{
+				level: "debug",
+				log: (level, message) =>
+				{
+					dependencies.observe(
+						{
+							event: "authentication_library_log",
+							failure: null,
+							level,
+							reason: authenticationLibraryReason(message),
+							status: null,
+						},
+					);
+				},
+			},
+			database: surfacingDriverMessages(
+				drizzleAdapter(
+					database,
+					{
+						provider: "sqlite",
+						schema: authenticationSchema,
+					},
+				),
+			),
+			plugins: [
+				phonePairing(environment.DB, new URL(environment.BETTER_AUTH_URL).origin),
+				jwt(),
+				magicLink(
+					{
+						expiresIn: MAGIC_LINK_EXPIRY_SECONDS,
+						rateLimit: MAGIC_LINK_RATE_LIMIT,
+						// 🔐 A leaked database row must not be a usable sign-in link.
+						storeToken:
+						{
+							type: "custom-hasher",
+							hash: hashToken,
+						},
+						sendMagicLink: async ({email, url}) =>
+							sendAuthenticationEmail(
+								dependencies,
+								authenticationEmail(
+									environment,
+									email,
+									url,
+									{
+										actionLabel: "Sign in",
+										expiry: "15 minutes",
+										introduction: "Use this link to sign in to YepNope. No password needed.",
+										preheader: "Your YepNope sign-in link.",
+										subject: "Sign in to YepNope",
+									},
+								),
+								PublicAuthenticationOperation.RequestMagicLink,
+							),
+					},
+				),
+				// @ts-expect-error Better Auth 1.7 plugin metadata conflicts with exactOptionalPropertyTypes.
+				mcp(
+					{
+						accessTokenExpiresIn: OAUTH_ACCESS_TOKEN_EXPIRY_SECONDS,
+						allowDynamicClientRegistration: true,
+						allowUnauthenticatedClientRegistration: true,
+						clientRegistrationDefaultScopes: [...OAUTH_SCOPES],
+						clientRegistrationRequirePKCE: true,
+						codeExpiresIn: OAUTH_AUTHORIZATION_CODE_EXPIRY_SECONDS,
+						consentPage: OAUTH_CONSENT_PATH,
+						grantTypes: ["authorization_code", "refresh_token"],
+						loginPage: "/sign-in",
+						rateLimit:
+						{
+							authorize:
+							{
+								window: 60,
+								max: 20,
+							},
+							introspect:
+							{
+								window: 60,
+								max: 60,
+							},
+							register:
+							{
+								window: 60,
+								max: 5,
+							},
+							revoke:
+							{
+								window: 60,
+								max: 20,
+							},
+							token:
+							{
+								window: 60,
+								max: 20,
+							},
+							userinfo:
+							{
+								window: 60,
+								max: 30,
+							},
+						},
+						refreshTokenExpiresIn: OAUTH_REFRESH_TOKEN_EXPIRY_SECONDS,
+						refreshTokenReuseInterval: 0,
+						resource,
+						scopes: [...OAUTH_SCOPES],
+					},
+				),
+				// 📟 The device grant issues the same scoped, audience-bound, refreshable token set the
+				// browser flow does. It exists so the Claude Code hook — a local command with no browser
+				// and no callback port — stops needing a second authentication system of its own.
+				oauthDeviceAuthorization(
+					{
+						expiresIn: DEVICE_CODE_EXPIRY,
+						interval: DEVICE_CODE_POLLING_INTERVAL,
+						verificationUri: `${environment.BETTER_AUTH_URL}${DEVICE_AUTHORIZATION_PATH}`,
+					},
+				),
+				...(passkeyPlugin === null ? [] : [passkeyPlugin]),
+			],
+			socialProviders: socialProviderCredentials(environment),
+			account:
+			{
+				accountLinking:
+				{
+					enabled: true,
+					// 🛡️ Duplicate-email protection. Linking needs the provider's own verified-email claim
+					// (no provider is blanket-trusted), the addresses must match exactly, and Better Auth's
+					// default requireLocalEmailVerified gate keeps a pre-registered unverified local row
+					// from absorbing a victim's social identity.
+					allowDifferentEmails: false,
+					disableImplicitLinking: false,
+					trustedProviders: [],
+				},
+			},
+			emailVerification:
+			{
+				sendOnSignUp: false,
+				sendOnSignIn: true,
+				autoSignInAfterVerification: true,
+				expiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
+				sendVerificationEmail: async ({user, url, token}) =>
+				{
+					await database.insert(verifications).values(
+						{
+							id: crypto.randomUUID(),
+							identifier: `${EMAIL_VERIFICATION_IDENTIFIER_PREFIX}${await hashToken(token)}`,
+							value: user.id,
+							expiresAt: new Date(Date.now() + AUTHENTICATION_TOKEN_EXPIRY_SECONDS * 1_000),
+						},
+					);
+					await sendAuthenticationEmail(
+						dependencies,
+						authenticationEmail(
+							environment,
+							user.email,
+							url,
+							{
+								actionLabel: "Verify email",
+								expiry: "one hour",
+								introduction: "Verify your email address to finish creating your YepNope account.",
+								preheader: "Verify your email to finish setting up YepNope.",
+								subject: "Verify your YepNope email",
+							},
+						),
+						PublicAuthenticationOperation.RequestVerification,
+					);
+				},
+			},
+			emailAndPassword:
+			{
+				enabled: true,
+				autoSignIn: false,
+				requireEmailVerification: true,
+				revokeSessionsOnPasswordReset: true,
+				resetPasswordTokenExpiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
+				sendResetPassword: async ({user, url}) =>
 					sendAuthenticationEmail(
 						dependencies,
-						authenticationEmail(environment, email, url, {
-							actionLabel: "Sign in",
-							expiry: "15 minutes",
-							introduction: "Use this link to sign in to YepNope. No password needed.",
-							preheader: "Your YepNope sign-in link.",
-							subject: "Sign in to YepNope",
-						}),
-						PublicAuthenticationOperation.RequestMagicLink,
+						authenticationEmail(
+							environment,
+							user.email,
+							url,
+							{
+								actionLabel: "Reset password",
+								expiry: "one hour",
+								introduction: "Choose a new password for your YepNope account.",
+								preheader: "Reset your YepNope password securely.",
+								subject: "Reset your YepNope password",
+							},
+						),
+						PublicAuthenticationOperation.RequestPasswordRecovery,
 					),
-			}),
-			// @ts-expect-error Better Auth 1.7 plugin metadata conflicts with exactOptionalPropertyTypes.
-			mcp({
-				accessTokenExpiresIn: OAUTH_ACCESS_TOKEN_EXPIRY_SECONDS,
-				allowDynamicClientRegistration: true,
-				allowUnauthenticatedClientRegistration: true,
-				clientRegistrationDefaultScopes: [...OAUTH_SCOPES],
-				clientRegistrationRequirePKCE: true,
-				codeExpiresIn: OAUTH_AUTHORIZATION_CODE_EXPIRY_SECONDS,
-				consentPage: OAUTH_CONSENT_PATH,
-				grantTypes: ["authorization_code", "refresh_token"],
-				loginPage: "/sign-in",
-				rateLimit: {
-					authorize: {window: 60, max: 20},
-					introspect: {window: 60, max: 60},
-					register: {window: 60, max: 5},
-					revoke: {window: 60, max: 20},
-					token: {window: 60, max: 20},
-					userinfo: {window: 60, max: 30},
-				},
-				refreshTokenExpiresIn: OAUTH_REFRESH_TOKEN_EXPIRY_SECONDS,
-				refreshTokenReuseInterval: 0,
-				resource,
-				scopes: [...OAUTH_SCOPES],
-			}),
-			// 📟 The device grant issues the same scoped, audience-bound, refreshable token set the
-			// browser flow does. It exists so the Claude Code hook — a local command with no browser
-			// and no callback port — stops needing a second authentication system of its own.
-			oauthDeviceAuthorization({
-				expiresIn: DEVICE_CODE_EXPIRY,
-				interval: DEVICE_CODE_POLLING_INTERVAL,
-				verificationUri: `${environment.BETTER_AUTH_URL}${DEVICE_AUTHORIZATION_PATH}`,
-			}),
-			...(passkeyPlugin === null ? [] : [passkeyPlugin]),
-		],
-		socialProviders: socialProviderCredentials(environment),
-		account: {
-			accountLinking: {
-				enabled: true,
-				// 🛡️ Duplicate-email protection. Linking needs the provider's own verified-email claim
-				// (no provider is blanket-trusted), the addresses must match exactly, and Better Auth's
-				// default requireLocalEmailVerified gate keeps a pre-registered unverified local row
-				// from absorbing a victim's social identity.
-				allowDifferentEmails: false,
-				disableImplicitLinking: false,
-				trustedProviders: [],
 			},
-		},
-		emailVerification: {
-			sendOnSignUp: false,
-			sendOnSignIn: true,
-			autoSignInAfterVerification: true,
-			expiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
-			sendVerificationEmail: async ({user, url, token}) => {
-				await database.insert(verifications).values({
-					id: crypto.randomUUID(),
-					identifier: `${EMAIL_VERIFICATION_IDENTIFIER_PREFIX}${await hashToken(token)}`,
-					value: user.id,
-					expiresAt: new Date(Date.now() + AUTHENTICATION_TOKEN_EXPIRY_SECONDS * 1_000),
-				});
-				await sendAuthenticationEmail(
-					dependencies,
-					authenticationEmail(environment, user.email, url, {
-						actionLabel: "Verify email",
-						expiry: "one hour",
-						introduction: "Verify your email address to finish creating your YepNope account.",
-						preheader: "Verify your email to finish setting up YepNope.",
-						subject: "Verify your YepNope email",
-					}),
-					PublicAuthenticationOperation.RequestVerification,
-				);
-			},
-		},
-		emailAndPassword: {
-			enabled: true,
-			autoSignIn: false,
-			requireEmailVerification: true,
-			revokeSessionsOnPasswordReset: true,
-			resetPasswordTokenExpiresIn: AUTHENTICATION_TOKEN_EXPIRY_SECONDS,
-			sendResetPassword: async ({user, url}) =>
-				sendAuthenticationEmail(
-					dependencies,
-					authenticationEmail(environment, user.email, url, {
-						actionLabel: "Reset password",
-						expiry: "one hour",
-						introduction: "Choose a new password for your YepNope account.",
-						preheader: "Reset your YepNope password securely.",
-						subject: "Reset your YepNope password",
-					}),
-					PublicAuthenticationOperation.RequestPasswordRecovery,
-				),
-		},
-		user: {
-			additionalFields: {
-				name: {type: "string", required: false, input: false, returned: false},
-			},
-			deleteUser: {
-				enabled: true,
-				beforeDelete: async (user) => {
-					await deleteOAuthAuthorizationData(environment.DB, user.id);
-					await markAccountDeletionRequested(environment.DB, user.id, Date.now());
-				},
-				afterDelete: async (user) => {
-					await deleteAccountDurableObject(environment.DB, environment.USER_DO, user.id, Date.now());
-				},
-			},
-		},
-		databaseHooks: {
-			user: {
-				create: {
-					before: async () => Promise.resolve({data: {name: undefined}}),
-					after: async (user) => {
-						await recordAccountIdentity(environment.DB, user.id, user.createdAt.getTime());
+			user:
+			{
+				additionalFields:
+				{
+					name:
+					{
+						type: "string",
+						required: false,
+						input: false,
+						returned: false,
 					},
 				},
-				update: {
-					before: async () => Promise.resolve({data: {name: undefined}}),
+				deleteUser:
+				{
+					enabled: true,
+					beforeDelete: async (user) =>
+					{
+						await deleteOAuthAuthorizationData(environment.DB, user.id);
+						await markAccountDeletionRequested(environment.DB, user.id, Date.now());
+					},
+					afterDelete: async (user) =>
+					{
+						await deleteAccountDurableObject(environment.DB, environment.USER_DO, user.id, Date.now());
+					},
 				},
 			},
+			databaseHooks:
+			{
+				user:
+				{
+					create:
+					{
+						before: async () =>
+							Promise.resolve(
+								{
+									data:
+									{
+										name: undefined,
+									},
+								},
+							),
+						after: async (user) =>
+						{
+							await recordAccountIdentity(environment.DB, user.id, user.createdAt.getTime());
+						},
+					},
+					update:
+					{
+						before: async () =>
+							Promise.resolve(
+								{
+									data:
+									{
+										name: undefined,
+									},
+								},
+							),
+					},
+				},
+			},
+			advanced:
+			{
+				useSecureCookies: true,
+				...(dependencies.runInBackground === undefined
+					? {}
+					:
+						{
+							backgroundTasks:
+							{
+								handler: dependencies.runInBackground,
+							},
+						}),
+			},
 		},
-		advanced: {
-			useSecureCookies: true,
-			...(dependencies.runInBackground === undefined
-				? {}
-				: {backgroundTasks: {handler: dependencies.runInBackground}}),
-		},
-	});
+	);
 	return {
 		...authentication,
 		// Outermost first. Human verification comes before everything so a refused request costs the
@@ -1082,7 +1396,8 @@ export function createAuthentication(
 	};
 }
 
-async function deleteOAuthAuthorizationData(database: D1Database, userId: string): Promise<void> {
+async function deleteOAuthAuthorizationData(database: D1Database, userId: string): Promise<void>
+{
 	await database.batch([
 		database.prepare("DELETE FROM mcp_client_use WHERE user_id = ?").bind(userId),
 		database.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(userId),
@@ -1115,23 +1430,31 @@ let passkeyStackLoadedInThisIsolate = false;
 export async function createPasskeyAuthentication(
 	environment: AuthenticationEnvironment,
 	dependencies: AuthenticationDependencies,
-): Promise<ReturnType<typeof createAuthentication>> {
+): Promise<ReturnType<typeof createAuthentication>>
+{
 	const {passkey} = await import("@better-auth/passkey");
 	passkeyStackLoadedInThisIsolate = true;
 	return createAuthentication(
 		environment,
 		dependencies,
-		passkey({
-			rpID: new URL(environment.BETTER_AUTH_URL).hostname,
-			rpName: "YepNope",
-			origin: environment.BETTER_AUTH_URL,
-			authenticatorSelection: {residentKey: "preferred", userVerification: "preferred"},
-		}),
+		passkey(
+			{
+				rpID: new URL(environment.BETTER_AUTH_URL).hostname,
+				rpName: "YepNope",
+				origin: environment.BETTER_AUTH_URL,
+				authenticatorSelection:
+				{
+					residentKey: "preferred",
+					userVerification: "preferred",
+				},
+			},
+		),
 	);
 }
 
 /** Whether this isolate has paid for the WebAuthn stack yet. The cold-start budget is a claim worth testing. */
-export function passkeyStackLoaded(): boolean {
+export function passkeyStackLoaded(): boolean
+{
 	return passkeyStackLoadedInThisIsolate;
 }
 
@@ -1141,7 +1464,8 @@ export function passkeyStackLoaded(): boolean {
 // request that asked for it rather than to whichever request happened to arrive last.
 const requestExecutionContexts = new AsyncLocalStorage<ExecutionContext>();
 
-export function withRequestBackgroundTasks<T>(executionContext: ExecutionContext, work: () => T): T {
+export function withRequestBackgroundTasks<T>(executionContext: ExecutionContext, work: () => T): T
+{
 	return requestExecutionContexts.run(executionContext, work);
 }
 
@@ -1149,23 +1473,29 @@ export function withRequestBackgroundTasks<T>(executionContext: ExecutionContext
  * 📝 The Worker's one observation sink. Bearer verification lives outside Better Auth but refuses
  * callers for the same reasons, so it records through here rather than inventing a second log shape.
  */
-export function observeWorkerAuthentication(observation: AuthenticationObservation): void {
+export function observeWorkerAuthentication(observation: AuthenticationObservation): void
+{
 	console.warn(JSON.stringify(observation));
 }
 
-function workerDependencies(environment: Env): AuthenticationDependencies {
+function workerDependencies(environment: Env): AuthenticationDependencies
+{
 	return {
 		observe: observeWorkerAuthentication,
-		publicAuthenticationTiming: {
+		publicAuthenticationTiming:
+		{
 			currentMilliseconds: () => performance.now(),
 			wait: async (milliseconds) =>
-				new Promise<void>((resolve) => {
+				new Promise<void>((resolve) =>
+				{
 					setTimeout(resolve, milliseconds);
 				}),
 		},
-		runInBackground: (promise) => {
+		runInBackground: (promise) =>
+		{
 			const executionContext = requestExecutionContexts.getStore();
-			if (executionContext === undefined) {
+			if (executionContext === undefined)
+			{
 				// No request lifetime to extend. Letting the work run unsupervised still beats
 				// dropping it, and it keeps delivery off the response path either way.
 				void promise.catch(() => undefined);
@@ -1173,7 +1503,8 @@ function workerDependencies(environment: Env): AuthenticationDependencies {
 			}
 			executionContext.waitUntil(promise);
 		},
-		sendEmail: async (message) => {
+		sendEmail: async (message) =>
+		{
 			await environment.EMAIL.send(message);
 		},
 		verifyHuman: createTurnstileVerifier(environment),
@@ -1184,7 +1515,8 @@ function workerDependencies(environment: Env): AuthenticationDependencies {
 // re-seeds its resource row into D1 from `init`, so building one per request charged every
 // authenticated call for both. An isolate builds each instance once and hands out the same one
 // afterwards.
-interface IsolateAuthentication {
+interface IsolateAuthentication
+{
 	environment: Env;
 	shared: ReturnType<typeof createAuthentication>;
 	withPasskeys: Promise<ReturnType<typeof createAuthentication>> | null;
@@ -1206,11 +1538,13 @@ function retainUntilInitialized(
 	dependencies: AuthenticationDependencies,
 	initialization: Promise<unknown>,
 	discard: () => void,
-): void {
+): void
+{
 	dependencies.runInBackground?.(
 		initialization.then(
 			() => undefined,
-			(caught: unknown) => {
+			(caught: unknown) =>
+			{
 				discard();
 				throw caught;
 			},
@@ -1218,16 +1552,21 @@ function retainUntilInitialized(
 	);
 }
 
-function isolateAuthenticationFor(environment: Env): IsolateAuthentication {
-	if (isolateAuthentication === null || isolateAuthentication.environment !== environment) {
+function isolateAuthenticationFor(environment: Env): IsolateAuthentication
+{
+	if (isolateAuthentication === null || isolateAuthentication.environment !== environment)
+	{
 		const dependencies = workerDependencies(environment);
-		const cached: IsolateAuthentication = {
+		const cached: IsolateAuthentication =
+		{
 			environment,
 			shared: createAuthentication(environment, dependencies),
 			withPasskeys: null,
 		};
-		retainUntilInitialized(dependencies, cached.shared.$context, () => {
-			if (isolateAuthentication === cached) {
+		retainUntilInitialized(dependencies, cached.shared.$context, () =>
+		{
+			if (isolateAuthentication === cached)
+			{
 				isolateAuthentication = null;
 			}
 		});
@@ -1237,7 +1576,8 @@ function isolateAuthenticationFor(environment: Env): IsolateAuthentication {
 }
 
 /** The instance every route but a passkey ceremony shares. */
-export function workerAuthentication(environment: Env): ReturnType<typeof createAuthentication> {
+export function workerAuthentication(environment: Env): ReturnType<typeof createAuthentication>
+{
 	return isolateAuthenticationFor(environment).shared;
 }
 
@@ -1245,22 +1585,27 @@ export function workerAuthentication(environment: Env): ReturnType<typeof create
 export async function workerAuthenticationFor(
 	environment: Env,
 	pathname: string,
-): Promise<ReturnType<typeof createAuthentication>> {
+): Promise<ReturnType<typeof createAuthentication>>
+{
 	const cached = isolateAuthenticationFor(environment);
-	if (!pathname.startsWith(PASSKEY_PATH_PREFIX)) {
+	if (!pathname.startsWith(PASSKEY_PATH_PREFIX))
+	{
 		return cached.shared;
 	}
 	// Caching the promise rather than its result means two simultaneous ceremonies on a cold
 	// isolate load the WebAuthn stack once between them.
-	if (cached.withPasskeys === null) {
+	if (cached.withPasskeys === null)
+	{
 		const dependencies = workerDependencies(environment);
 		const withPasskeys = createPasskeyAuthentication(environment, dependencies);
 		cached.withPasskeys = withPasskeys;
 		retainUntilInitialized(
 			dependencies,
 			withPasskeys.then(async (authentication) => authentication.$context),
-			() => {
-				if (cached.withPasskeys === withPasskeys) {
+			() =>
+			{
+				if (cached.withPasskeys === withPasskeys)
+				{
 					cached.withPasskeys = null;
 				}
 			},
@@ -1273,11 +1618,13 @@ export async function authenticateBrowserSession(
 	request: Request,
 	environment: Env,
 	executionContext: ExecutionContext,
-): Promise<string | null> {
+): Promise<string | null>
+{
 	return (await authenticateBrowserAccount(request, environment, executionContext))?.userId ?? null;
 }
 
-export interface AuthenticatedBrowserAccount {
+export interface AuthenticatedBrowserAccount
+{
 	sessionId: string;
 	userId: string;
 }
@@ -1286,9 +1633,20 @@ export async function authenticateBrowserAccount(
 	request: Request,
 	environment: Env,
 	executionContext: ExecutionContext,
-): Promise<AuthenticatedBrowserAccount | null> {
+): Promise<AuthenticatedBrowserAccount | null>
+{
 	const session = await withRequestBackgroundTasks(executionContext, async () =>
-		workerAuthentication(environment).api.getSession({headers: request.headers}),
+		workerAuthentication(environment).api.getSession(
+			{
+				headers: request.headers,
+			},
+		),
 	);
-	return session?.user.emailVerified === true ? {sessionId: session.session.id, userId: session.user.id} : null;
+	return session?.user.emailVerified === true
+		?
+			{
+				sessionId: session.session.id,
+				userId: session.user.id,
+			}
+		: null;
 }

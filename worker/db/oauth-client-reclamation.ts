@@ -61,7 +61,8 @@ export const ORPHANED_OAUTH_CLIENT_RESOURCE_DELETE_SQL =
 	"(SELECT 1 FROM oauth_client WHERE oauth_client.client_id = oauth_client_resource.client_id)";
 
 /** The `[cutoff, now]` pair every parameterized statement above expects, in order. */
-export function abandonedOAuthClientBindings(now: number): [number, number] {
+export function abandonedOAuthClientBindings(now: number): [number, number]
+{
 	return [now - ABANDONED_OAUTH_CLIENT_GRACE_MILLISECONDS, now];
 }
 
@@ -70,18 +71,22 @@ export function abandonedOAuthClientBindings(now: number): [number, number] {
  * which offers no way to bind a parameter. Both values are computed here from a clock reading, so
  * nothing user-supplied is ever spliced into SQL.
  */
-export function withInlineTimestamps(sql: string, now: number): string {
+export function withInlineTimestamps(sql: string, now: number): string
+{
 	const bindings = abandonedOAuthClientBindings(now);
 	let consumed = 0;
-	const inlined = sql.replaceAll("?", () => {
+	const inlined = sql.replaceAll("?", () =>
+	{
 		const binding = bindings[consumed];
-		if (binding === undefined) {
+		if (binding === undefined)
+		{
 			throw new Error(`${sql} takes more than ${bindings.length} bindings`);
 		}
 		consumed += 1;
 		return String(binding);
 	});
-	if (consumed !== bindings.length) {
+	if (consumed !== bindings.length)
+	{
 		throw new Error(`${sql} takes ${consumed} bindings, not ${bindings.length}`);
 	}
 	return inlined;

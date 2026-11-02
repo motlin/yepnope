@@ -1,9 +1,17 @@
 // 🧾 Hand-written types for the drizzle-kit generated migrations.js bundle.
-interface MigrationJournal {
-	entries: Array<{idx: number; when: number; tag: string; breakpoints: boolean}>;
+interface MigrationJournal
+{
+	entries: Array<
+	{
+		idx: number;
+		when: number;
+		tag: string;
+		breakpoints: boolean;
+	}>;
 }
 
-declare const migrationBundle: {
+declare const migrationBundle:
+{
 	hashes: Record<string, string>;
 	journal: MigrationJournal;
 	migrations: Record<string, string>;

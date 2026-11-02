@@ -48,17 +48,20 @@ export const MIGRATION_APPLY: readonly string[] = [
 	"--remote",
 ];
 
-export interface CommandResult {
+export interface CommandResult
+{
 	code: number;
 	output: string;
 }
 
-export interface PreflightDependencies {
+export interface PreflightDependencies
+{
 	readTextFile: (path: string) => Promise<string>;
 	run: (command: string, commandArguments: readonly string[]) => Promise<CommandResult>;
 }
 
-export interface PreflightReport {
+export interface PreflightReport
+{
 	bindings: readonly string[];
 	/** Migration files production D1 has not applied yet, which the release applies before deploying. */
 	pending_migrations: readonly string[];
@@ -68,7 +71,8 @@ export interface PreflightReport {
 }
 
 /** A name the Worker reads at runtime, what it is for, and what the operator does when it is absent. */
-interface Requirement {
+interface Requirement
+{
 	name: string;
 	remedy: string;
 	role: string;
@@ -76,7 +80,8 @@ interface Requirement {
 
 const DECLARE_IN_CONFIGURATION = "Declare it in wrangler.jsonc.";
 
-function secretRemedy(name: string): string {
+function secretRemedy(name: string): string
+{
 	return `Set it with \`vp exec wrangler secret put ${name}\`.`;
 }
 
@@ -93,14 +98,26 @@ const REQUIRED_BINDINGS: readonly Requirement[] = [
 		remedy: DECLARE_IN_CONFIGURATION,
 		role: "the Send Email binding that delivers verification and password-reset mail",
 	},
-	{name: "DB", remedy: DECLARE_IN_CONFIGURATION, role: "the D1 database accounts and OAuth clients live in"},
-	{name: "AUTH_EMAIL_FROM", remedy: DECLARE_IN_CONFIGURATION, role: "the address authentication mail is sent from"},
+	{
+		name: "DB",
+		remedy: DECLARE_IN_CONFIGURATION,
+		role: "the D1 database accounts and OAuth clients live in",
+	},
+	{
+		name: "AUTH_EMAIL_FROM",
+		remedy: DECLARE_IN_CONFIGURATION,
+		role: "the address authentication mail is sent from",
+	},
 	{
 		name: "BETTER_AUTH_URL",
 		remedy: `Set it to https://${PRODUCTION_HOSTNAME} in wrangler.jsonc.`,
 		role: "the deployment's own origin, which is also the hostname every Turnstile token is checked against",
 	},
-	{name: "VAPID_SUBJECT", remedy: DECLARE_IN_CONFIGURATION, role: "the contact address web push requires"},
+	{
+		name: "VAPID_SUBJECT",
+		remedy: DECLARE_IN_CONFIGURATION,
+		role: "the contact address web push requires",
+	},
 ];
 
 // 🔑 Wrangler secrets, which live only in Cloudflare. A public value may legitimately be carried as
@@ -121,8 +138,16 @@ const REQUIRED_SECRETS: readonly Requirement[] = [
 		remedy: secretRemedy("VAPID_PRIVATE_JWK"),
 		role: "the key web-push notifications are signed with",
 	},
-	{name: "TURNSTILE_SITE_KEY", remedy: secretRemedy("TURNSTILE_SITE_KEY"), role: TURNSTILE_ROLE},
-	{name: "TURNSTILE_SECRET_KEY", remedy: secretRemedy("TURNSTILE_SECRET_KEY"), role: TURNSTILE_ROLE},
+	{
+		name: "TURNSTILE_SITE_KEY",
+		remedy: secretRemedy("TURNSTILE_SITE_KEY"),
+		role: TURNSTILE_ROLE,
+	},
+	{
+		name: "TURNSTILE_SECRET_KEY",
+		remedy: secretRemedy("TURNSTILE_SECRET_KEY"),
+		role: TURNSTILE_ROLE,
+	},
 ];
 
 // Deliberately not required: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GOOGLE_CLIENT_ID, and
@@ -131,10 +156,12 @@ const REQUIRED_SECRETS: readonly Requirement[] = [
 // only the browser end-to-end Worker binds one, and production falls back to the global `fetch`.
 
 /** Refuses the release and names every requirement the deployment does not meet, not just the first. */
-export class DeploymentNotConfiguredError extends Error {
+export class DeploymentNotConfiguredError extends Error
+{
 	readonly missing: readonly string[];
 
-	constructor(problems: readonly string[], missing: readonly string[]) {
+	constructor(problems: readonly string[], missing: readonly string[])
+	{
 		super(
 			`refusing to release: the ${PRODUCTION_HOSTNAME} Worker is missing configuration it reads at runtime\n` +
 				problems.map((problem) => `  - ${problem}`).join("\n"),
@@ -144,11 +171,19 @@ export class DeploymentNotConfiguredError extends Error {
 	}
 }
 
-const secretListSchema = z.array(z.object({name: z.string()}));
+const secretListSchema = z.array(
+	z.object(
+		{
+			name: z.string(),
+		},
+	),
+);
 
-async function deployedSecretNames(dependencies: PreflightDependencies): Promise<ReadonlySet<string>> {
+async function deployedSecretNames(dependencies: PreflightDependencies): Promise<ReadonlySet<string>>
+{
 	const result = await dependencies.run("vp", SECRET_LIST);
-	if (result.code !== 0) {
+	if (result.code !== 0)
+	{
 		throw new Error(
 			`\`wrangler secret list\` failed with exit code ${result.code}, ` +
 				`so this release cannot tell whether ${PRODUCTION_HOSTNAME} is configured`,
@@ -159,16 +194,21 @@ async function deployedSecretNames(dependencies: PreflightDependencies): Promise
 	const start = result.output.indexOf("[");
 	const end = result.output.lastIndexOf("]");
 	const names = start === -1 || end < start ? null : parseSecretNames(result.output.slice(start, end + 1));
-	if (names === null) {
+	if (names === null)
+	{
 		throw new Error("`wrangler secret list` did not print the documented JSON array of secret names");
 	}
 	return names;
 }
 
-function parseSecretNames(json: string): ReadonlySet<string> | null {
-	try {
+function parseSecretNames(json: string): ReadonlySet<string> | null
+{
+	try
+	{
 		return new Set(secretListSchema.parse(JSON.parse(json) as unknown).map((secret) => secret.name));
-	} catch {
+	}
+	catch
+	{
 		return null;
 	}
 }
@@ -177,11 +217,14 @@ function parseSecretNames(json: string): ReadonlySet<string> | null {
  * The `env.NAME (value)` rows of the dry run's binding table, keyed by name. A var carries its
  * quoted value; a binding carries a description of the resource, which nothing here reads.
  */
-function parseBindings(output: string): ReadonlyMap<string, string | null> {
+function parseBindings(output: string): ReadonlyMap<string, string | null>
+{
 	const bindings = new Map<string, string | null>();
-	for (const line of output.split("\n")) {
+	for (const line of output.split("\n"))
+	{
 		const name = /^env\.(\w+)/.exec(line)?.[1];
-		if (name === undefined) {
+		if (name === undefined)
+		{
 			continue;
 		}
 		const open = line.indexOf("(");
@@ -191,14 +234,17 @@ function parseBindings(output: string): ReadonlyMap<string, string | null> {
 	return bindings;
 }
 
-async function declaredBindings(dependencies: PreflightDependencies): Promise<ReadonlyMap<string, string | null>> {
+async function declaredBindings(dependencies: PreflightDependencies): Promise<ReadonlyMap<string, string | null>>
+{
 	const result = await dependencies.run("vp", BINDING_LIST);
 	const cannotTell = `so this release cannot tell what ${PRODUCTION_HOSTNAME} would be deployed with`;
-	if (result.code !== 0) {
+	if (result.code !== 0)
+	{
 		throw new Error(`\`wrangler deploy --dry-run\` failed with exit code ${result.code}, ${cannotTell}`);
 	}
 	const bindings = parseBindings(result.output);
-	if (bindings.size === 0) {
+	if (bindings.size === 0)
+	{
 		throw new Error(`\`wrangler deploy --dry-run\` listed no bindings, ${cannotTell}`);
 	}
 	return bindings;
@@ -208,19 +254,23 @@ async function declaredBindings(dependencies: PreflightDependencies): Promise<Re
  * The migration files production D1 has not applied. Wrangler exits 0 even after an API error here,
  * so only one of its two documented outcomes counts as an answer.
  */
-export async function pendingMigrations(dependencies: PreflightDependencies): Promise<readonly string[]> {
+export async function pendingMigrations(dependencies: PreflightDependencies): Promise<readonly string[]>
+{
 	const result = await dependencies.run("vp", MIGRATION_LIST);
 	const command = `\`wrangler d1 migrations list ${PRODUCTION_DATABASE} --remote\``;
 	const cannotTell = `so this release cannot tell whether the ${PRODUCTION_HOSTNAME} database is current`;
-	if (result.code !== 0) {
+	if (result.code !== 0)
+	{
 		throw new Error(`${command} failed with exit code ${result.code}, ${cannotTell}`);
 	}
-	if (result.output.includes("No migrations to apply!")) {
+	if (result.output.includes("No migrations to apply!"))
+	{
 		return [];
 	}
 	const heading = "Migrations to be applied:";
 	const start = result.output.indexOf(heading);
-	if (start === -1) {
+	if (start === -1)
+	{
 		throw new Error(`${command} reported neither pending migrations nor none, ${cannotTell}`);
 	}
 	return result.output
@@ -231,25 +281,33 @@ export async function pendingMigrations(dependencies: PreflightDependencies): Pr
 }
 
 /** A var's value as Wrangler prints it, quotes stripped; null for a binding, which has no value. */
-function variableValue(printed: string | null | undefined): string | null {
+function variableValue(printed: string | null | undefined): string | null
+{
 	const quoted = printed === null || printed === undefined ? null : /^"(.*)"$/s.exec(printed)?.[1];
 	return quoted ?? null;
 }
 
-function originHostname(printed: string | null): string | null {
-	if (printed === null) {
+function originHostname(printed: string | null): string | null
+{
+	if (printed === null)
+	{
 		return null;
 	}
-	try {
+	try
+	{
 		return new URL(printed).hostname;
-	} catch {
+	}
+	catch
+	{
 		return null;
 	}
 }
 
-function originProblem(bindings: ReadonlyMap<string, string | null>): string | null {
+function originProblem(bindings: ReadonlyMap<string, string | null>): string | null
+{
 	const printed = variableValue(bindings.get("BETTER_AUTH_URL"));
-	if (originHostname(printed) === PRODUCTION_HOSTNAME) {
+	if (originHostname(printed) === PRODUCTION_HOSTNAME)
+	{
 		return null;
 	}
 	// 🎯 The origin decides which tokens the Worker will redeem, so a wrong one refuses every token
@@ -269,10 +327,12 @@ function originProblem(bindings: ReadonlyMap<string, string | null>): string | n
  * placeholder here has to stop the release rather than produce a staging deployment that fails
  * every sign-in.
  */
-async function stagingDeploymentOrigin(dependencies: PreflightDependencies): Promise<string> {
+async function stagingDeploymentOrigin(dependencies: PreflightDependencies): Promise<string>
+{
 	const result = await dependencies.run("vp", STAGING_BINDING_LIST);
 	const cannotTell = "so this release cannot tell where to prove the core loop before deploying production";
-	if (result.code !== 0) {
+	if (result.code !== 0)
+	{
 		throw new Error(
 			`\`wrangler deploy --dry-run --config ${STAGING_CONFIG}\` failed with exit code ${result.code}, ` +
 				cannotTell,
@@ -286,16 +346,19 @@ async function stagingDeploymentOrigin(dependencies: PreflightDependencies): Pro
 	const declarations = [...source.matchAll(/^\s*"BETTER_AUTH_URL"\s*:\s*"([^"\n]+)"\s*,?\s*$/gmu)];
 	const printed = declarations.length === 1 ? (declarations[0]?.[1] ?? null) : null;
 	const hostname = originHostname(printed);
-	if (hostname === null) {
+	if (hostname === null)
+	{
 		throw new Error(`${STAGING_CONFIG} declares no BETTER_AUTH_URL origin, ${cannotTell}`);
 	}
-	if (hostname.toUpperCase() === STAGING_PLACEHOLDER_HOSTNAME) {
+	if (hostname.toUpperCase() === STAGING_PLACEHOLDER_HOSTNAME)
+	{
 		throw new Error(
 			`${STAGING_CONFIG} still carries its placeholder origin. Deploy staging once with ` +
 				"`just deploy-staging`, then set BETTER_AUTH_URL to the origin Wrangler printed.",
 		);
 	}
-	if (hostname === PRODUCTION_HOSTNAME) {
+	if (hostname === PRODUCTION_HOSTNAME)
+	{
 		throw new Error(
 			`${STAGING_CONFIG} points at ${PRODUCTION_HOSTNAME}, so the release would rehearse on production. ` +
 				"Staging has to be its own deployment, with its own database.",
@@ -308,31 +371,38 @@ async function stagingDeploymentOrigin(dependencies: PreflightDependencies): Pro
  * Checks one deployment against every name the Worker reads and returns what it found, or refuses
  * the release with all of the unmet requirements at once.
  */
-export async function preflightDeployment(dependencies: PreflightDependencies): Promise<PreflightReport> {
+export async function preflightDeployment(dependencies: PreflightDependencies): Promise<PreflightReport>
+{
 	const secrets = await deployedSecretNames(dependencies);
 	const bindings = await declaredBindings(dependencies);
 
 	const problems: string[] = [];
 	const missing: string[] = [];
-	for (const requirement of REQUIRED_BINDINGS) {
-		if (!bindings.has(requirement.name)) {
+	for (const requirement of REQUIRED_BINDINGS)
+	{
+		if (!bindings.has(requirement.name))
+		{
 			problems.push(`${requirement.name} is not bound: ${requirement.role}. ${requirement.remedy}`);
 			missing.push(requirement.name);
 			continue;
 		}
 		const origin = requirement.name === "BETTER_AUTH_URL" ? originProblem(bindings) : null;
-		if (origin !== null) {
+		if (origin !== null)
+		{
 			problems.push(origin);
 			missing.push(requirement.name);
 		}
 	}
-	for (const requirement of REQUIRED_SECRETS) {
-		if (!secrets.has(requirement.name) && !bindings.has(requirement.name)) {
+	for (const requirement of REQUIRED_SECRETS)
+	{
+		if (!secrets.has(requirement.name) && !bindings.has(requirement.name))
+		{
 			problems.push(`${requirement.name} is not set: ${requirement.role}. ${requirement.remedy}`);
 			missing.push(requirement.name);
 		}
 	}
-	if (problems.length > 0) {
+	if (problems.length > 0)
+	{
 		throw new DeploymentNotConfiguredError(problems, missing);
 	}
 

@@ -6,7 +6,8 @@ import {createTestSiteverify, TURNSTILE_TEST_KEYS} from "./worker/turnstile-test
 const TEST_VAPID_PRIVATE_JWK =
 	'{"kty":"EC","crv":"P-256","x":"P2UcKzI-O7pCxMgZn7O1nuxR0PhhT6mT6tOykdMFguU","y":"l-fC1-ic-sn3gMPXjJdSkP_PS55_eSOZ6WNobUL0gto","d":"Ns5xclmJIPX3nl-JGchKKjUTJsrYm-TTrhG0UKSjjXc"}';
 
-export default defineConfig(async () => {
+export default defineConfig(async () =>
+{
 	const migrations = await readD1Migrations("./worker/migrations/d1");
 	const authenticationSecret = randomBytes(32).toString("base64url");
 	// 🤖 The suite runs against a production-shaped origin, where human verification is mandatory.
@@ -15,41 +16,59 @@ export default defineConfig(async () => {
 	const siteverify = createTestSiteverify();
 	return {
 		plugins: [
-			cloudflareTest({
-				// 🔇 Verbose mode runs workerd at INFO, where it warns on every `.text()` read of a form body.
-				// @better-auth/oauth-provider reads each token request that way to catch repeated fields, so
-				// the suite printed hundreds of copies. Worker console output and errors still come through.
-				verbose: false,
-				wrangler: {configPath: "./wrangler.jsonc"},
-				miniflare: {
-					bindings: {
-						BETTER_AUTH_SECRET: authenticationSecret,
-						TEST_MIGRATIONS: migrations,
-						TURNSTILE_SECRET_KEY: TURNSTILE_TEST_KEYS.alwaysPassesSecretKey,
-						TURNSTILE_SITE_KEY: TURNSTILE_TEST_KEYS.alwaysPassesSiteKey,
-						VAPID_PRIVATE_JWK: TEST_VAPID_PRIVATE_JWK,
+			cloudflareTest(
+				{
+					// 🔇 Verbose mode runs workerd at INFO, where it warns on every `.text()` read of a form body.
+					// @better-auth/oauth-provider reads each token request that way to catch repeated fields, so
+					// the suite printed hundreds of copies. Worker console output and errors still come through.
+					verbose: false,
+					wrangler:
+					{
+						configPath: "./wrangler.jsonc",
 					},
-					serviceBindings: {
-						// Miniflare hands its handler its own Request class, so the form body is
-						// repackaged into the one the Worker's binding would have delivered.
-						TURNSTILE_SITEVERIFY: async (request) =>
-							siteverify.fetch(
-								new Request("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-									body: await request.text(),
-									headers: {"Content-Type": "application/x-www-form-urlencoded"},
-									method: "POST",
-								}),
-							),
+					miniflare:
+					{
+						bindings:
+						{
+							BETTER_AUTH_SECRET: authenticationSecret,
+							TEST_MIGRATIONS: migrations,
+							TURNSTILE_SECRET_KEY: TURNSTILE_TEST_KEYS.alwaysPassesSecretKey,
+							TURNSTILE_SITE_KEY: TURNSTILE_TEST_KEYS.alwaysPassesSiteKey,
+							VAPID_PRIVATE_JWK: TEST_VAPID_PRIVATE_JWK,
+						},
+						serviceBindings:
+						{
+							// Miniflare hands its handler its own Request class, so the form body is
+							// repackaged into the one the Worker's binding would have delivered.
+							TURNSTILE_SITEVERIFY: async (request) =>
+								siteverify.fetch(
+									new Request(
+										"https://challenges.cloudflare.com/turnstile/v0/siteverify",
+										{
+											body: await request.text(),
+											headers:
+											{
+												"Content-Type": "application/x-www-form-urlencoded",
+											},
+											method: "POST",
+										},
+									),
+								),
+						},
 					},
 				},
-			}),
+			),
 		],
-		test: {
+		test:
+		{
 			// ⚡ One pre-bundle of the Worker's dependencies, so each test file's runtime loads them as a few
 			// chunks instead of hundreds of modules.
-			deps: {
-				optimizer: {
-					ssr: {
+			deps:
+			{
+				optimizer:
+				{
+					ssr:
+					{
 						enabled: true,
 						include: [
 							"@better-auth/drizzle-adapter",
@@ -69,7 +88,11 @@ export default defineConfig(async () => {
 							"jose",
 							"zod",
 						],
-						rolldownOptions: {external: [/^node:/u], platform: "node" as const},
+						rolldownOptions:
+						{
+							external: [/^node:/u],
+							platform: "node" as const,
+						},
 					},
 				},
 			},

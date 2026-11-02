@@ -5,7 +5,8 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>YepNope card mockups — 402×874 (iPhone 17 Pro)</title>
 		<style>
-			:root {
+			:root
+			{
 				--bg: #0e0f12;
 				--phone-bg: #17181c;
 				--card-bg: #ffffff;
@@ -15,72 +16,87 @@
 				--nope: #e5484d;
 				--skip: #8b8f98;
 			}
-			* {
+			*
+			{
 				box-sizing: border-box;
 			}
-			body {
+			body
+			{
 				margin: 0;
 				background: var(--bg);
 				color: #d7dae0;
 				font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 			}
-			header.page {
+			header.page
+			{
 				padding: 20px 24px 8px;
 			}
-			header.page h1 {
+			header.page h1
+			{
 				margin: 0 0 4px;
 				font-size: 18px;
 				font-weight: 600;
 			}
-			header.page p {
+			header.page p
+			{
 				margin: 0;
 				font-size: 13px;
 				color: var(--muted);
 			}
-			#capacity {
+			#capacity
+			{
 				margin: 12px 24px 16px;
 				font-size: 13px;
 				border-collapse: collapse;
 			}
 			#capacity td,
-			#capacity th {
+			#capacity th
+			{
 				border: 1px solid #2a2d33;
 				padding: 4px 10px;
 				text-align: left;
 			}
-			#capacity th {
+			#capacity th
+			{
 				color: var(--muted);
 				font-weight: 500;
 			}
-			.row {
+			.row
+			{
 				display: flex;
 				gap: 32px;
 				padding: 8px 24px 48px;
 				overflow-x: auto;
 				align-items: flex-start;
 			}
-			.mock {
+			.mock
+			{
 				flex: 0 0 auto;
 			}
-			.mock > .label {
+			.mock > .label
+			{
 				font-size: 13px;
 				margin: 0 0 8px 2px;
 				color: var(--muted);
 			}
-			.mock > .label b {
+			.mock > .label b
+			{
 				color: #d7dae0;
 				font-weight: 600;
 			}
-			.mock.active > .label b {
+			.mock.active > .label b
+			{
 				color: #fff;
 			}
-			.mock.active > .label::after {
+			.mock.active > .label::after
+			{
 				content: " · keyboard active";
 				color: var(--yep);
 			}
 
 			/* ---- phone frame: exact CSS-pixel dimensions ---- */
-			.phone {
+			.phone
+			{
 				width: 402px;
 				height: 874px;
 				background: var(--phone-bg);
@@ -92,12 +108,14 @@
 				flex-direction: column;
 				user-select: none;
 			}
-			.inset-top {
+			.inset-top
+			{
 				height: 59px;
 				flex: 0 0 auto;
 				position: relative;
 			}
-			.island {
+			.island
+			{
 				position: absolute;
 				top: 12px;
 				left: 50%;
@@ -107,53 +125,62 @@
 				background: #000;
 				border-radius: 17px;
 			}
-			.inset-bottom {
+			.inset-bottom
+			{
 				height: 34px;
 				flex: 0 0 auto;
 				display: flex;
 				align-items: center;
 				justify-content: center;
 			}
-			.home-indicator {
+			.home-indicator
+			{
 				width: 140px;
 				height: 5px;
 				border-radius: 3px;
 				background: #3a3d44;
 			}
-			.app {
+			.app
+			{
 				flex: 1 1 auto;
 				display: flex;
 				flex-direction: column;
 				padding: 6px 16px 0;
 				min-height: 0;
 			}
-			.app-header {
+			.app-header
+			{
 				flex: 0 0 auto;
 				display: flex;
 				align-items: baseline;
 				justify-content: space-between;
 				padding: 4px 2px 6px;
 			}
-			.app-header .project {
+			.app-header .project
+			{
 				font-size: 15px;
 				font-weight: 600;
 				color: #eceef2;
 			}
-			.app-header .count {
+			.app-header .count
+			{
 				font-size: 13px;
 				color: var(--muted);
 			}
-			.app-header .meta {
+			.app-header .meta
+			{
 				display: flex;
 				align-items: center;
 				gap: 8px;
 			}
-			.app-header .harness svg {
+			.app-header .harness svg
+			{
 				width: 14px;
 				height: 14px;
 				display: block;
 			}
-			.ctx-line {
+			.ctx-line
+			{
 				display: none;
 				flex: 0 0 auto;
 				font-size: 12px;
@@ -163,29 +190,34 @@
 				overflow: hidden;
 				text-overflow: ellipsis;
 			}
-			.ctx-line .sep {
+			.ctx-line .sep
+			{
 				margin: 0 5px;
 				opacity: 0.5;
 			}
-			.ctx-line code {
+			.ctx-line code
+			{
 				font-family: ui-monospace, "SF Mono", Menlo, monospace;
 				font-size: 11px;
 				color: #9aa0aa;
 			}
-			.deck {
+			.deck
+			{
 				flex: 1 1 auto;
 				position: relative;
 				min-height: 0;
 				margin-top: 4px;
 			}
-			.card-behind {
+			.card-behind
+			{
 				position: absolute;
 				inset: 8px 10px auto;
 				height: 24px;
 				background: #22242a;
 				border-radius: 20px 20px 0 0;
 			}
-			.card {
+			.card
+			{
 				position: absolute;
 				inset: 20px 0 0;
 				background: var(--card-bg);
@@ -199,29 +231,35 @@
 				cursor: grab;
 				will-change: transform;
 			}
-			.card.dragging {
+			.card.dragging
+			{
 				cursor: grabbing;
 			}
-			.card.springing {
+			.card.springing
+			{
 				transition: transform 0.25s ease;
 			}
-			.card.flying {
+			.card.flying
+			{
 				transition:
 					transform 0.3s ease-in,
 					opacity 0.3s ease-in;
 				opacity: 0;
 			}
-			.card.overflowing {
+			.card.overflowing
+			{
 				outline: 3px solid var(--nope);
 			}
-			.chip-row {
+			.chip-row
+			{
 				display: none;
 				flex: 0 0 auto;
 				flex-wrap: wrap;
 				gap: 6px;
 				margin: 0 0 10px;
 			}
-			.chip {
+			.chip
+			{
 				font-family: ui-monospace, "SF Mono", Menlo, monospace;
 				font-size: 11px;
 				color: #4b5058;
@@ -233,38 +271,45 @@
 				overflow: hidden;
 				text-overflow: ellipsis;
 			}
-			.card .title {
+			.card .title
+			{
 				font-size: 19px;
 				line-height: 1.25;
 				font-weight: 700;
 				margin: 0 0 10px;
 				flex: 0 0 auto;
 			}
-			.card .body {
+			.card .body
+			{
 				font-size: 15px;
 				line-height: 1.4;
 				flex: 1 1 auto;
 				min-height: 0;
 				overflow: hidden;
 			}
-			.card .body p {
+			.card .body p
+			{
 				margin: 0 0 9px;
 			}
-			.card .body ul {
+			.card .body ul
+			{
 				margin: 0 0 9px;
 				padding-left: 20px;
 			}
-			.card .body li {
+			.card .body li
+			{
 				margin: 0 0 3px;
 			}
-			.card .body code {
+			.card .body code
+			{
 				font-family: ui-monospace, "SF Mono", Menlo, monospace;
 				font-size: 0.88em;
 				background: #f0f1f4;
 				border-radius: 4px;
 				padding: 1px 5px;
 			}
-			.card .charcount {
+			.card .charcount
+			{
 				flex: 0 0 auto;
 				font-size: 11px;
 				color: #a0a5ae;
@@ -272,11 +317,13 @@
 				padding-top: 5px;
 				font-variant-numeric: tabular-nums;
 			}
-			.card .charcount .over {
+			.card .charcount .over
+			{
 				color: var(--nope);
 				font-weight: 600;
 			}
-			.stamp {
+			.stamp
+			{
 				position: absolute;
 				top: 50%;
 				left: 50%;
@@ -290,22 +337,26 @@
 				pointer-events: none;
 				background: rgba(255, 255, 255, 0.85);
 			}
-			.stamp.yep {
+			.stamp.yep
+			{
 				color: var(--yep);
 				border-color: var(--yep);
 				transform: translate(-50%, -50%) rotate(-12deg);
 			}
-			.stamp.nope {
+			.stamp.nope
+			{
 				color: var(--nope);
 				border-color: var(--nope);
 				transform: translate(-50%, -50%) rotate(12deg);
 			}
-			.stamp.skip {
+			.stamp.skip
+			{
 				color: var(--skip);
 				border-color: var(--skip);
 				transform: translate(-50%, -50%) rotate(-4deg);
 			}
-			.resolved {
+			.resolved
+			{
 				position: absolute;
 				inset: 20px 0 0;
 				background: #1d1f24;
@@ -316,37 +367,45 @@
 				flex-direction: column;
 				gap: 10px;
 			}
-			.resolved h3 {
+			.resolved h3
+			{
 				margin: 0 0 6px;
 				font-size: 17px;
 				color: #eceef2;
 			}
-			.resolved .item {
+			.resolved .item
+			{
 				font-size: 14px;
 				display: flex;
 				justify-content: space-between;
 				gap: 12px;
 			}
-			.resolved .item .q {
+			.resolved .item .q
+			{
 				color: #b9bec7;
 				overflow: hidden;
 				text-overflow: ellipsis;
 				white-space: nowrap;
 			}
-			.resolved .verdict {
+			.resolved .verdict
+			{
 				font-weight: 700;
 				flex: 0 0 auto;
 			}
-			.resolved .verdict.yep {
+			.resolved .verdict.yep
+			{
 				color: var(--yep);
 			}
-			.resolved .verdict.nope {
+			.resolved .verdict.nope
+			{
 				color: var(--nope);
 			}
-			.resolved .verdict.skip {
+			.resolved .verdict.skip
+			{
 				color: var(--skip);
 			}
-			.resolved button {
+			.resolved button
+			{
 				margin-top: auto;
 				background: #2a2d33;
 				color: #d7dae0;
@@ -356,7 +415,8 @@
 				font-size: 14px;
 				cursor: pointer;
 			}
-			.actions {
+			.actions
+			{
 				flex: 0 0 auto;
 				display: flex;
 				justify-content: space-between;
@@ -364,7 +424,8 @@
 				padding: 10px 6px 6px;
 				font-size: 13px;
 			}
-			.actions button {
+			.actions button
+			{
 				background: none;
 				border: 1.5px solid;
 				border-radius: 18px;
@@ -373,33 +434,41 @@
 				font-weight: 600;
 				cursor: pointer;
 			}
-			.actions .btn-nope {
+			.actions .btn-nope
+			{
 				color: var(--nope);
 				border-color: var(--nope);
 			}
-			.actions .btn-skip {
+			.actions .btn-skip
+			{
 				color: var(--skip);
 				border-color: var(--skip);
 			}
-			.actions .btn-yep {
+			.actions .btn-yep
+			{
 				color: var(--yep);
 				border-color: var(--yep);
 			}
-			.actions button:hover {
+			.actions button:hover
+			{
 				background: rgba(255, 255, 255, 0.06);
 			}
 
 			/* ---- context variants (all dense typography) ---- */
-			.v1 .ctx-line.line1 {
+			.v1 .ctx-line.line1
+			{
 				display: block;
 			}
-			.v2 .chip-row {
+			.v2 .chip-row
+			{
 				display: flex;
 			}
-			.v3 .ctx-line.line1 {
+			.v3 .ctx-line.line1
+			{
 				display: block;
 			}
-			.v3 .ctx-line.line2 {
+			.v3 .ctx-line.line2
+			{
 				display: block;
 			}
 		</style>
@@ -431,7 +500,8 @@
 		<script>
 			"use strict";
 
-			const CONTEXT = {
+			const CONTEXT =
+			{
 				project: "platform-upgrades",
 				repo: "twosigma/fabric",
 				branch: "craig/guava-33",
@@ -470,7 +540,8 @@
 			];
 
 			// ---- minimal GFM subset: bold, code, lists, paragraphs (MVP scope) ----
-			function renderMarkdown(src) {
+			function renderMarkdown(src)
+			{
 				const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 				const inline = (s) =>
 					esc(s)
@@ -478,9 +549,11 @@
 						.replace(/`([^`]+)`/g, "<code>$1</code>");
 				const blocks = src.split(/\n\n+/);
 				return blocks
-					.map((block) => {
+					.map((block) =>
+					{
 						const lines = block.split("\n");
-						if (lines.every((l) => /^[-*] /.test(l))) {
+						if (lines.every((l) => /^[-*] /.test(l)))
+						{
 							return "<ul>" + lines.map((l) => "<li>" + inline(l.slice(2)) + "</li>").join("") + "</ul>";
 						}
 						return "<p>" + lines.map(inline).join("<br>") + "</p>";
@@ -507,7 +580,8 @@
 				},
 			];
 
-			function phoneTemplate(layout) {
+			function phoneTemplate(layout)
+			{
 				return `
 	<p class="label"><b>${layout.label}</b> — ${layout.note}</p>
 	<div class="phone">
@@ -546,14 +620,16 @@
 			}
 
 			const mocksEl = document.getElementById("mocks");
-			for (const layout of LAYOUTS) {
+			for (const layout of LAYOUTS)
+			{
 				const div = document.createElement("div");
 				div.className = "mock " + layout.id;
 				div.innerHTML = phoneTemplate(layout);
 				mocksEl.appendChild(div);
 			}
 
-			function isOverflowing(mock) {
+			function isOverflowing(mock)
+			{
 				const body = mock.querySelector(".body");
 				return body.scrollHeight > body.clientHeight + 1;
 			}
@@ -567,9 +643,11 @@
 				"The **billing service** retry lock changes:\n\n- `PaymentRetry` gains a lease\n- webhook retries serialize\n- deploys drain first\n\n";
 			const TITLE_FILLER = "Bump the shared platform dependency across every module now? ".repeat(4);
 
-			function largestFitting(hi, render, overflows) {
+			function largestFitting(hi, render, overflows)
+			{
 				let lo = 0;
-				while (lo < hi) {
+				while (lo < hi)
+				{
 					const mid = Math.ceil((lo + hi + 1) / 2);
 					render(mid);
 					if (overflows()) hi = mid - 1;
@@ -579,9 +657,11 @@
 				return lo;
 			}
 
-			function measure() {
+			function measure()
+			{
 				const tbody = document.querySelector("#capacity tbody");
-				for (const layout of LAYOUTS) {
+				for (const layout of LAYOUTS)
+				{
 					const mock = document.querySelector(".mock." + layout.id);
 					const bodyEl = mock.querySelector(".body");
 					const titleEl = mock.querySelector(".title");
@@ -590,7 +670,8 @@
 					const titleFits = (lines) =>
 						largestFitting(
 							TITLE_FILLER.length,
-							(n) => {
+							(n) =>
+							{
 								titleEl.textContent = TITLE_FILLER.slice(0, n);
 							},
 							() => titleEl.scrollHeight > lineHeight() * lines + 2,
@@ -603,14 +684,16 @@
 					titleEl.textContent = SAMPLES[0].title;
 					const plain = largestFitting(
 						4000,
-						(n) => {
+						(n) =>
+						{
 							bodyEl.innerHTML = renderMarkdown(FILLER.slice(0, n));
 						},
 						() => isOverflowing(mock),
 					);
 					const rich = largestFitting(
 						4000,
-						(n) => {
+						(n) =>
+						{
 							const src =
 								n <= FILLER_RICH_PREFIX.length
 									? FILLER_RICH_PREFIX.slice(0, n)
@@ -631,35 +714,45 @@
 			const COMMIT_Y = 110;
 			let activeMock = null;
 
-			function setActiveMock(mock) {
+			function setActiveMock(mock)
+			{
 				if (activeMock === mock) return;
 				document.querySelectorAll(".mock").forEach((m) => m.classList.remove("active"));
 				mock.classList.add("active");
 				activeMock = mock;
 			}
 
-			function wordCount(s) {
+			function wordCount(s)
+			{
 				return s.trim().split(/\s+/).length;
 			}
 
-			function initDeck(mock) {
+			function initDeck(mock)
+			{
 				const card = mock.querySelector(".card");
 				const deck = mock.querySelector(".deck");
-				const state = {i: 0, answers: []};
+				const state =
+				{
+					i: 0,
+					answers: [],
+				};
 
-				const stamps = {
+				const stamps =
+				{
 					yep: card.querySelector(".stamp.yep"),
 					nope: card.querySelector(".stamp.nope"),
 					skip: card.querySelector(".stamp.skip"),
 				};
 
-				function setStamps(yep, nope, skip) {
+				function setStamps(yep, nope, skip)
+				{
 					stamps.yep.style.opacity = yep;
 					stamps.nope.style.opacity = nope;
 					stamps.skip.style.opacity = skip;
 				}
 
-				function render() {
+				function render()
+				{
 					const q = SAMPLES[state.i];
 					card.style.transform = "";
 					card.classList.remove("flying", "springing", "dragging");
@@ -676,7 +769,8 @@
 						`<span class="${over ? "over" : ""}">${q.body.length} ch${over ? " — clipped" : ""}</span>`;
 				}
 
-				function showResolved() {
+				function showResolved()
+				{
 					card.style.display = "none";
 					mock.querySelector(".card-behind").style.visibility = "hidden";
 					const panel = document.createElement("div");
@@ -691,7 +785,8 @@
 							)
 							.join("") +
 						`<button>Reset deck</button>`;
-					panel.querySelector("button").addEventListener("click", () => {
+					panel.querySelector("button").addEventListener("click", () =>
+					{
 						panel.remove();
 						state.i = 0;
 						state.answers = [];
@@ -701,10 +796,12 @@
 					deck.appendChild(panel);
 				}
 
-				function commit(answer) {
+				function commit(answer)
+				{
 					if (card.style.display === "none" || card.classList.contains("flying")) return;
 					state.answers.push(answer);
-					const fly = {
+					const fly =
+					{
 						yep: "translate(600px, -40px) rotate(20deg)",
 						nope: "translate(-600px, -40px) rotate(-20deg)",
 						skip: "translate(0, 700px) rotate(4deg)",
@@ -713,9 +810,11 @@
 					card.classList.remove("dragging", "springing");
 					card.classList.add("flying");
 					card.style.transform = fly;
-					setTimeout(() => {
+					setTimeout(() =>
+					{
 						card.style.opacity = "";
-						if (state.i + 1 >= SAMPLES.length) {
+						if (state.i + 1 >= SAMPLES.length)
+						{
 							showResolved();
 							return;
 						}
@@ -726,15 +825,21 @@
 
 				// drag
 				let drag = null;
-				card.addEventListener("pointerdown", (e) => {
+				card.addEventListener("pointerdown", (e) =>
+				{
 					if (card.classList.contains("flying")) return;
 					setActiveMock(mock);
-					drag = {x: e.clientX, y: e.clientY};
+					drag =
+					{
+						x: e.clientX,
+						y: e.clientY,
+					};
 					card.classList.add("dragging");
 					card.classList.remove("springing");
 					card.setPointerCapture(e.pointerId);
 				});
-				card.addEventListener("pointermove", (e) => {
+				card.addEventListener("pointermove", (e) =>
+				{
 					if (!drag) return;
 					const dx = e.clientX - drag.x;
 					const dy = e.clientY - drag.y;
@@ -746,7 +851,8 @@
 						vertical ? Math.min(1, dy / 90) : 0,
 					);
 				});
-				card.addEventListener("pointerup", (e) => {
+				card.addEventListener("pointerup", (e) =>
+				{
 					if (!drag) return;
 					const dx = e.clientX - drag.x;
 					const dy = e.clientY - drag.y;
@@ -756,22 +862,26 @@
 					if (!vertical && dx > COMMIT_X) commit("yep");
 					else if (!vertical && dx < -COMMIT_X) commit("nope");
 					else if (vertical && dy > COMMIT_Y) commit("skip");
-					else {
+					else
+					{
 						card.classList.add("springing");
 						card.style.transform = "";
 						setStamps(0, 0, 0);
 					}
 				});
 
-				mock.querySelector(".btn-yep").addEventListener("click", () => {
+				mock.querySelector(".btn-yep").addEventListener("click", () =>
+				{
 					setActiveMock(mock);
 					commit("yep");
 				});
-				mock.querySelector(".btn-nope").addEventListener("click", () => {
+				mock.querySelector(".btn-nope").addEventListener("click", () =>
+				{
 					setActiveMock(mock);
 					commit("nope");
 				});
-				mock.querySelector(".btn-skip").addEventListener("click", () => {
+				mock.querySelector(".btn-skip").addEventListener("click", () =>
+				{
 					setActiveMock(mock);
 					commit("skip");
 				});
@@ -784,9 +894,15 @@
 			document.querySelectorAll(".mock").forEach(initDeck);
 			setActiveMock(document.querySelector(".mock"));
 
-			document.addEventListener("keydown", (e) => {
+			document.addEventListener("keydown", (e) =>
+			{
 				if (!activeMock) return;
-				const key = {ArrowRight: "yep", ArrowLeft: "nope", ArrowDown: "skip"}[e.key];
+				const key =
+				{
+					ArrowRight: "yep",
+					ArrowLeft: "nope",
+					ArrowDown: "skip",
+				}[e.key];
 				if (!key) return;
 				e.preventDefault();
 				activeMock._commit(key);

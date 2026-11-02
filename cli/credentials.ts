@@ -6,34 +6,42 @@ import {refreshTokens, type TokenSet} from "./oauth";
 // overwrite each other. The access token rides along with the refresh token because it is worth ten
 // minutes: a burst of permission prompts should cost one refresh, not one per prompt.
 
-const storedCredentialSchema = z.object({
-	accessToken: z.string().min(1),
-	clientId: z.string().min(1),
-	expiresAt: z.number(),
-	refreshToken: z.string().min(1),
-});
+const storedCredentialSchema = z.object(
+	{
+		accessToken: z.string().min(1),
+		clientId: z.string().min(1),
+		expiresAt: z.number(),
+		refreshToken: z.string().min(1),
+	},
+);
 
 export type StoredCredential = z.infer<typeof storedCredentialSchema>;
 
-export class NotSignedInError extends Error {
-	constructor(baseUrl: string) {
+export class NotSignedInError extends Error
+{
+	constructor(baseUrl: string)
+	{
 		super(`no YepNope credential for ${baseUrl}. Run \`yepnope login\` to authorize this machine.`);
 	}
 }
 
-export interface CredentialStore {
+export interface CredentialStore
+{
 	clear: () => Promise<void>;
 	load: () => Promise<StoredCredential | null>;
 	save: (credential: StoredCredential) => Promise<void>;
 }
 
-export function credentialStore(baseUrl: string, keychain: Keychain = systemKeychain()): CredentialStore {
+export function credentialStore(baseUrl: string, keychain: Keychain = systemKeychain()): CredentialStore
+{
 	const account = new URL(baseUrl).origin;
 	return {
 		clear: async () => keychain.delete(account),
-		load: async () => {
+		load: async () =>
+		{
 			const stored = await keychain.read(account);
-			if (stored === null) {
+			if (stored === null)
+			{
 				return null;
 			}
 			const parsed = storedCredentialSchema.safeParse(JSON.parse(stored) as unknown);
@@ -43,7 +51,8 @@ export function credentialStore(baseUrl: string, keychain: Keychain = systemKeyc
 	};
 }
 
-export function storedCredential(clientId: string, tokens: TokenSet): StoredCredential {
+export function storedCredential(clientId: string, tokens: TokenSet): StoredCredential
+{
 	return {
 		accessToken: tokens.accessToken,
 		clientId,
@@ -61,20 +70,27 @@ export function storedCredential(clientId: string, tokens: TokenSet): StoredCred
  * dead credential, only a lost race, so a refusal re-reads the keychain once — by then the winner
  * has usually written the token both of them wanted.
  */
-export async function accessToken(baseUrl: string, store: CredentialStore, now = Date.now()): Promise<string> {
+export async function accessToken(baseUrl: string, store: CredentialStore, now = Date.now()): Promise<string>
+{
 	const credential = await store.load();
-	if (credential === null) {
+	if (credential === null)
+	{
 		throw new NotSignedInError(baseUrl);
 	}
-	if (credential.expiresAt > now) {
+	if (credential.expiresAt > now)
+	{
 		return credential.accessToken;
 	}
 	let refreshed;
-	try {
+	try
+	{
 		refreshed = await refreshTokens(baseUrl, credential.clientId, credential.refreshToken);
-	} catch (error) {
+	}
+	catch (error)
+	{
 		const reloaded = await store.load();
-		if (reloaded !== null && reloaded.expiresAt > now && reloaded.refreshToken !== credential.refreshToken) {
+		if (reloaded !== null && reloaded.expiresAt > now && reloaded.refreshToken !== credential.refreshToken)
+		{
 			return reloaded.accessToken;
 		}
 		throw error;

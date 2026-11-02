@@ -1,7 +1,8 @@
 import {and, eq, isNull, lte} from "drizzle-orm";
 import {drizzle} from "drizzle-orm/d1";
 import {deviceCodes, durableObjectCleanupJobs, identityLifecycles} from "./db/d1-schema";
-import {
+import
+{
 	ABANDONED_OAUTH_CLIENT_COUNT_SQL,
 	ABANDONED_OAUTH_CLIENT_DELETE_SQL,
 	ABANDONED_OAUTH_CLIENT_RESOURCE_DELETE_SQL,
@@ -17,21 +18,31 @@ export const REVOKED_TOKEN_RETENTION_MILLISECONDS = 30 * DAY_MILLISECONDS;
 
 type CleanupReason = "account_deleted";
 
-export interface OAuthClientReclamationResult {
+export interface OAuthClientReclamationResult
+{
 	abandonedOAuthClients: number;
 	reclaimedOAuthClientResources: number;
 }
 
-export interface IdentityCleanupResult extends OAuthClientReclamationResult {
+export interface IdentityCleanupResult extends OAuthClientReclamationResult
+{
 	expiredDeviceCodes: number;
 	inactiveOAuthAccessTokens: number;
 	inactiveOAuthRefreshTokens: number;
 }
 
-export async function recordAccountIdentity(database: D1Database, userId: string, createdAt: number): Promise<void> {
+export async function recordAccountIdentity(database: D1Database, userId: string, createdAt: number): Promise<void>
+{
 	await drizzle(database)
 		.insert(identityLifecycles)
-		.values({identityId: userId, identityType: "account", ownerUserId: userId, createdAt})
+		.values(
+			{
+				identityId: userId,
+				identityType: "account",
+				ownerUserId: userId,
+				createdAt,
+			},
+		)
 		.onConflictDoNothing();
 }
 
@@ -39,11 +50,16 @@ export async function markAccountDeletionRequested(
 	database: D1Database,
 	userId: string,
 	requestedAt: number,
-): Promise<void> {
+): Promise<void>
+{
 	const connection = drizzle(database);
 	await connection
 		.update(identityLifecycles)
-		.set({deletionRequestedAt: requestedAt})
+		.set(
+			{
+				deletionRequestedAt: requestedAt,
+			},
+		)
 		.where(and(eq(identityLifecycles.identityId, userId), eq(identityLifecycles.identityType, "account")));
 	await requestDurableObjectCleanup(database, userId, userId, "account_deleted", requestedAt);
 }
@@ -53,25 +69,39 @@ export async function deleteAccountDurableObject(
 	namespace: DurableObjectNamespace<UserDurableObject>,
 	userId: string,
 	deletedAt: number,
-): Promise<void> {
+): Promise<void>
+{
 	await namespace.getByName(userId).deleteAll();
 	const connection = drizzle(database);
 	await connection
 		.update(identityLifecycles)
-		.set({deletedAt})
+		.set(
+			{
+				deletedAt,
+			},
+		)
 		.where(and(eq(identityLifecycles.identityId, userId), eq(identityLifecycles.identityType, "account")));
 	await connection
 		.update(durableObjectCleanupJobs)
-		.set({completedAt: deletedAt})
+		.set(
+			{
+				completedAt: deletedAt,
+			},
+		)
 		.where(eq(durableObjectCleanupJobs.objectName, userId));
 }
 
-async function countedRows(database: D1Database, sql: string, bindings: readonly number[]): Promise<number> {
+async function countedRows(database: D1Database, sql: string, bindings: readonly number[]): Promise<number>
+{
 	const row = await database
 		.prepare(sql)
 		.bind(...bindings)
-		.first<{value: number}>();
-	if (row === null) {
+		.first<
+		{
+			value: number;
+		}>();
+	if (row === null)
+	{
 		throw new Error("a counting query returned no row");
 	}
 	return row.value;
@@ -85,7 +115,8 @@ async function countedRows(database: D1Database, sql: string, bindings: readonly
 export async function planAbandonedOAuthClientReclamation(
 	database: D1Database,
 	now: number,
-): Promise<OAuthClientReclamationResult> {
+): Promise<OAuthClientReclamationResult>
+{
 	const bindings = abandonedOAuthClientBindings(now);
 	return {
 		abandonedOAuthClients: await countedRows(database, ABANDONED_OAUTH_CLIENT_COUNT_SQL, bindings),
@@ -108,14 +139,16 @@ export async function planAbandonedOAuthClientReclamation(
 export async function reclaimAbandonedOAuthClients(
 	database: D1Database,
 	now: number,
-): Promise<OAuthClientReclamationResult> {
+): Promise<OAuthClientReclamationResult>
+{
 	const bindings = abandonedOAuthClientBindings(now);
 	const [dependents, clients, orphans] = await database.batch([
 		database.prepare(ABANDONED_OAUTH_CLIENT_RESOURCE_DELETE_SQL).bind(...bindings),
 		database.prepare(ABANDONED_OAUTH_CLIENT_DELETE_SQL).bind(...bindings),
 		database.prepare(ORPHANED_OAUTH_CLIENT_RESOURCE_DELETE_SQL),
 	]);
-	if (dependents === undefined || clients === undefined || orphans === undefined) {
+	if (dependents === undefined || clients === undefined || orphans === undefined)
+	{
 		throw new Error("OAuth client reclamation batch returned an incomplete result");
 	}
 	return {
@@ -128,7 +161,8 @@ export async function cleanupExpiredIdentityRecords(
 	database: D1Database,
 	namespace: DurableObjectNamespace<UserDurableObject>,
 	now: number,
-): Promise<IdentityCleanupResult> {
+): Promise<IdentityCleanupResult>
+{
 	const connection = drizzle(database);
 	// 📟 A device code is a ten-minute artefact whether it was approved, denied, or ignored. The
 	// grant it produced lives in the OAuth tables; the code itself has nothing left to say.
@@ -141,7 +175,8 @@ export async function cleanupExpiredIdentityRecords(
 			.prepare("DELETE FROM oauth_refresh_token WHERE expires_at <= ? OR (revoked IS NOT NULL AND revoked <= ?)")
 			.bind(now - REVOKED_TOKEN_RETENTION_MILLISECONDS, now - REVOKED_TOKEN_RETENTION_MILLISECONDS),
 	]);
-	if (inactiveOAuthAccessTokens === undefined || inactiveOAuthRefreshTokens === undefined) {
+	if (inactiveOAuthAccessTokens === undefined || inactiveOAuthRefreshTokens === undefined)
+	{
 		throw new Error("OAuth credential cleanup batch returned an incomplete result");
 	}
 
@@ -162,16 +197,23 @@ async function processPendingDurableObjectCleanups(
 	database: D1Database,
 	namespace: DurableObjectNamespace<UserDurableObject>,
 	completedAt: number,
-): Promise<number> {
+): Promise<number>
+{
 	const pending = await drizzle(database)
-		.select({objectName: durableObjectCleanupJobs.objectName})
+		.select(
+			{
+				objectName: durableObjectCleanupJobs.objectName,
+			},
+		)
 		.from(durableObjectCleanupJobs)
 		.where(isNull(durableObjectCleanupJobs.completedAt));
 	let completed = 0;
-	for (const job of pending) {
+	for (const job of pending)
+	{
 		// A deletion that the account cancelled by still existing is not a deletion.
 		const liveOwner = await database.prepare("SELECT id FROM user WHERE id = ?").bind(job.objectName).first();
-		if (liveOwner !== null) {
+		if (liveOwner !== null)
+		{
 			continue;
 		}
 		await namespace.getByName(job.objectName).deleteAll();
@@ -194,12 +236,28 @@ async function requestDurableObjectCleanup(
 	ownerUserId: string | null,
 	reason: CleanupReason,
 	requestedAt: number,
-): Promise<void> {
+): Promise<void>
+{
 	await drizzle(database)
 		.insert(durableObjectCleanupJobs)
-		.values({objectName, ownerUserId, reason, requestedAt})
-		.onConflictDoUpdate({
-			target: durableObjectCleanupJobs.objectName,
-			set: {ownerUserId, reason, requestedAt, completedAt: null},
-		});
+		.values(
+			{
+				objectName,
+				ownerUserId,
+				reason,
+				requestedAt,
+			},
+		)
+		.onConflictDoUpdate(
+			{
+				target: durableObjectCleanupJobs.objectName,
+				set:
+				{
+					ownerUserId,
+					reason,
+					requestedAt,
+					completedAt: null,
+				},
+			},
+		);
 }

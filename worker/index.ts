@@ -1,4 +1,5 @@
-import {
+import
+{
 	authenticateBrowserAccount,
 	authenticateBrowserSession,
 	authenticationMethods,
@@ -6,12 +7,14 @@ import {
 	withRequestBackgroundTasks,
 	workerAuthenticationFor,
 } from "./auth";
-import {
+import
+{
 	getConnectedMcpClientAuthorizationState,
 	listConnectedMcpClients,
 	revokeConnectedMcpClient,
 } from "./connected-mcp-clients";
-import {
+import
+{
 	decideDeviceAuthorization,
 	lookupDeviceAuthorization,
 	type DeviceAuthorizationLookup,
@@ -23,7 +26,8 @@ import {handleRemoteMcpRequest} from "./mcp";
 import {authenticateRequest, mcpResource} from "./oauth-token";
 import {turnstileSiteKey} from "./turnstile";
 import type {UserDurableObject} from "./user-do";
-import {
+import
+{
 	afkRequestSchema,
 	createBatchRequestSchema,
 	deviceAuthorizationRequestSchema,
@@ -45,33 +49,44 @@ const ROOT_AUTHENTICATION_METADATA_PATHS = new Set([
 	"/.well-known/oauth-protected-resource",
 	"/.well-known/oauth-protected-resource/mcp",
 ]);
-export default {
-	async fetch(request, environment, executionContext): Promise<Response> {
+export default
+{
+	async fetch(request, environment, executionContext): Promise<Response>
+	{
 		const url = new URL(request.url);
 		// 🛡️ Rude by design: reject on Content-Length before reading the body (spec §7.2).
 		// The hook route carries whole tool_inputs and gets a higher ceiling (spec §10).
 		const byteCeiling = url.pathname === "/api/v1/hook" ? MAX_HOOK_REQUEST_BYTES : MAX_REQUEST_BYTES;
 		const contentLength = Number(request.headers.get("Content-Length") ?? "0");
-		if (contentLength > byteCeiling) {
-			return new Response(null, {status: 413});
+		if (contentLength > byteCeiling)
+		{
+			return new Response(
+				null,
+				{
+					status: 413,
+				},
+			);
 		}
 
 		const env = environment;
-		if (url.pathname === "/mcp") {
+		if (url.pathname === "/mcp")
+		{
 			return handleRemoteMcpRequest(request, environment, executionContext);
 		}
 		if (
 			url.pathname === "/api/auth" ||
 			url.pathname.startsWith("/api/auth/") ||
 			ROOT_AUTHENTICATION_METADATA_PATHS.has(url.pathname)
-		) {
+		)
+		{
 			return withRequestBackgroundTasks(executionContext, async () =>
 				(await workerAuthenticationFor(env, url.pathname)).handler(request),
 			);
 		}
 
 		// 🚪 The sign-in screen renders from this before anyone has a session, so it stays public.
-		if (url.pathname === "/api/v1/auth-methods" && request.method === "GET") {
+		if (url.pathname === "/api/v1/auth-methods" && request.method === "GET")
+		{
 			const methods = authenticationMethods(env);
 			return Response.json(
 				{
@@ -85,21 +100,35 @@ export default {
 					turnstile_site_key: turnstileSiteKey(env),
 				},
 				// Deploy-constant and identical for every visitor, so it is safe to cache publicly.
-				{headers: {"Cache-Control": "public, max-age=300"}},
+				{
+					headers:
+					{
+						"Cache-Control": "public, max-age=300",
+					},
+				},
 			);
 		}
-		if (url.pathname === "/api/v1/push/public-key" && request.method === "GET") {
-			return Response.json({public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK))});
+		if (url.pathname === "/api/v1/push/public-key" && request.method === "GET")
+		{
+			return Response.json(
+				{
+					public_key: vapidPublicKeyFromJwk(parseVapidJwk(env.VAPID_PRIVATE_JWK)),
+				},
+			);
 		}
 		// 📟 The browser half of the device grant. It is the only place a code printed by a local
 		// command becomes an authorization, so it demands the account's own session, never a token.
-		if (
-			url.pathname === "/api/v1/device-authorization" &&
-			(request.method === "GET" || request.method === "POST")
-		) {
+		if (url.pathname === "/api/v1/device-authorization" && (request.method === "GET" || request.method === "POST"))
+		{
 			const accountUserId = await authenticateBrowserSession(request, env, executionContext);
-			if (accountUserId === null) {
-				return new Response(null, {status: 401});
+			if (accountUserId === null)
+			{
+				return new Response(
+					null,
+					{
+						status: 401,
+					},
+				);
 			}
 			return request.method === "GET"
 				? describeDeviceAuthorization(url, env, accountUserId)
@@ -111,14 +140,22 @@ export default {
 			(url.pathname === "/api/v1/account/devices" && request.method === "GET") ||
 			(connectedMcpClientManagementMatch !== null && request.method === "DELETE") ||
 			(pushDeviceManagementMatch !== null && (request.method === "PUT" || request.method === "DELETE"))
-		) {
+		)
+		{
 			const browserAccount = await authenticateBrowserAccount(request, env, executionContext);
-			if (browserAccount === null) {
-				return new Response(null, {status: 401});
+			if (browserAccount === null)
+			{
+				return new Response(
+					null,
+					{
+						status: 401,
+					},
+				);
 			}
 			const accountUserId = browserAccount.userId;
 			const accountStub = env.USER_DO.getByName(accountUserId);
-			if (url.pathname === "/api/v1/account/devices") {
+			if (url.pathname === "/api/v1/account/devices")
+			{
 				return listAccountDevices(
 					env.DB,
 					accountStub,
@@ -127,53 +164,79 @@ export default {
 					mcpResource(env),
 				);
 			}
-			if (connectedMcpClientManagementMatch !== null) {
+			if (connectedMcpClientManagementMatch !== null)
+			{
 				return manageConnectedMcpClient(env, accountUserId, connectedMcpClientManagementMatch[1]);
 			}
 			return managePushDevice(request, accountStub, pushDeviceManagementMatch?.[1]);
 		}
 
 		const userId = await authenticateRequest(request, env, executionContext);
-		if (userId === null) {
-			return new Response(null, {status: 401});
+		if (userId === null)
+		{
+			return new Response(
+				null,
+				{
+					status: 401,
+				},
+			);
 		}
 		const stub = env.USER_DO.getByName(userId);
 
-		if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST") {
+		if (url.pathname === "/api/v1/push/subscribe" && request.method === "POST")
+		{
 			return subscribePush(request, stub);
 		}
-		if (request.method === "GET" && (url.pathname === CURRENT_DECK_STREAM_PATH || STREAM_PATH.test(url.pathname))) {
-			if (url.pathname === CURRENT_DECK_STREAM_PATH) {
+		if (request.method === "GET" && (url.pathname === CURRENT_DECK_STREAM_PATH || STREAM_PATH.test(url.pathname)))
+		{
+			if (url.pathname === CURRENT_DECK_STREAM_PATH)
+			{
 				const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
 				return stub.fetch(withConnectedMcpClientAuthorizationState(request, authorizationState));
 			}
 			return stub.fetch(request);
 		}
-		if (url.pathname === "/api/v1/hook" && request.method === "POST") {
+		if (url.pathname === "/api/v1/hook" && request.method === "POST")
+		{
 			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
 			return handleHookEvent(request, stub, authorizationState.activeClientCount > 0, executionContext);
 		}
-		if (url.pathname === "/api/v1/afk" && request.method === "GET") {
+		if (url.pathname === "/api/v1/afk" && request.method === "GET")
+		{
 			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
-			return Response.json({afk: await stub.getAfk(authorizationState.activeClientCount > 0)});
+			return Response.json(
+				{
+					afk: await stub.getAfk(authorizationState.activeClientCount > 0),
+				},
+			);
 		}
-		if (url.pathname === "/api/v1/afk" && request.method === "PUT") {
+		if (url.pathname === "/api/v1/afk" && request.method === "PUT")
+		{
 			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
 			return setAfk(request, stub, authorizationState.activeClientCount > 0);
 		}
-		if (url.pathname === "/api/v1/questions" && request.method === "POST") {
+		if (url.pathname === "/api/v1/questions" && request.method === "POST")
+		{
 			const authorizationState = await connectedMcpClientAuthorizationState(env, userId);
 			return createQuestions(request, stub, authorizationState.activeClientCount > 0, executionContext);
 		}
-		if (url.pathname === "/api/v1/current-deck" && request.method === "GET") {
+		if (url.pathname === "/api/v1/current-deck" && request.method === "GET")
+		{
 			return currentDeck(stub);
 		}
-		if (url.pathname === "/api/v1/answers" && request.method === "POST") {
+		if (url.pathname === "/api/v1/answers" && request.method === "POST")
+		{
 			return submitAnswers(request, stub);
 		}
-		return new Response(null, {status: 404});
+		return new Response(
+			null,
+			{
+				status: 404,
+			},
+		);
 	},
-	scheduled(controller, environment, executionContext): void {
+	scheduled(controller, environment, executionContext): void
+	{
 		executionContext.waitUntil(runScheduledCleanup(environment, controller.scheduledTime));
 	},
 } satisfies ExportedHandler<Env>;
@@ -182,9 +245,17 @@ export default {
  * 🔭 The nightly sweep leaves exactly one line behind, and that line is counts. No client id,
  * redirect URI, secret, or user identifier is ever in a position to reach it.
  */
-async function runScheduledCleanup(environment: Env, scheduledTime: number): Promise<void> {
+async function runScheduledCleanup(environment: Env, scheduledTime: number): Promise<void>
+{
 	const cleanup = await cleanupExpiredIdentityRecords(environment.DB, environment.USER_DO, scheduledTime);
-	console.warn(JSON.stringify({event: "scheduled_cleanup_completed", ...cleanup}));
+	console.warn(
+		JSON.stringify(
+			{
+				event: "scheduled_cleanup_completed",
+				...cleanup,
+			},
+		),
+	);
 }
 
 type UnavailableDeviceAuthorization = Exclude<
@@ -193,17 +264,25 @@ type UnavailableDeviceAuthorization = Exclude<
 >;
 
 // 📟 Gone, spent, and already answered are three different things to the command that is polling.
-const DEVICE_AUTHORIZATION_STATUS_CODES: Readonly<Record<UnavailableDeviceAuthorization, number>> = {
+const DEVICE_AUTHORIZATION_STATUS_CODES: Readonly<Record<UnavailableDeviceAuthorization, number>> =
+{
 	decided: 409,
 	expired: 410,
 	not_found: 404,
 	taken: 409,
 };
 
-async function describeDeviceAuthorization(url: URL, environment: Env, userId: string): Promise<Response> {
+async function describeDeviceAuthorization(url: URL, environment: Env, userId: string): Promise<Response>
+{
 	const userCode = url.searchParams.get("user_code");
-	if (userCode === null) {
-		return new Response(null, {status: 400});
+	if (userCode === null)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const lookup = await lookupDeviceAuthorization(
 		environment.DB,
@@ -212,26 +291,49 @@ async function describeDeviceAuthorization(url: URL, environment: Env, userId: s
 		mcpResource(environment),
 		Date.now(),
 	);
-	if (lookup.status !== "pending") {
-		return Response.json({status: lookup.status}, {status: DEVICE_AUTHORIZATION_STATUS_CODES[lookup.status]});
+	if (lookup.status !== "pending")
+	{
+		return Response.json(
+			{
+				status: lookup.status,
+			},
+			{
+				status: DEVICE_AUTHORIZATION_STATUS_CODES[lookup.status],
+			},
+		);
 	}
-	return Response.json({
-		client_name: lookup.authorization.clientName,
-		scopes: lookup.authorization.scopes,
-		status: "pending",
-		user_code: lookup.authorization.userCode,
-	});
+	return Response.json(
+		{
+			client_name: lookup.authorization.clientName,
+			scopes: lookup.authorization.scopes,
+			status: "pending",
+			user_code: lookup.authorization.userCode,
+		},
+	);
 }
 
-async function decideBrowserDeviceAuthorization(request: Request, environment: Env, userId: string): Promise<Response> {
+async function decideBrowserDeviceAuthorization(request: Request, environment: Env, userId: string): Promise<Response>
+{
 	const url = new URL(request.url);
 	const decision = url.searchParams.get("decision");
-	if (decision !== "approved" && decision !== "denied") {
-		return new Response(null, {status: 400});
+	if (decision !== "approved" && decision !== "denied")
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const parsed = deviceAuthorizationRequestSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const result = await decideDeviceAuthorization(
 		environment.DB,
@@ -241,26 +343,52 @@ async function decideBrowserDeviceAuthorization(request: Request, environment: E
 		mcpResource(environment),
 		Date.now(),
 	);
-	if (result.status !== "decided" || result.decision !== decision) {
-		return Response.json({status: result.status}, {status: DEVICE_AUTHORIZATION_STATUS_CODES[result.status]});
+	if (result.status !== "decided" || result.decision !== decision)
+	{
+		return Response.json(
+			{
+				status: result.status,
+			},
+			{
+				status: DEVICE_AUTHORIZATION_STATUS_CODES[result.status],
+			},
+		);
 	}
-	return Response.json({status: "decided", decision});
+	return Response.json(
+		{
+			status: "decided",
+			decision,
+		},
+	);
 }
 
 async function connectedMcpClientAuthorizationState(
 	environment: Env,
 	userId: string,
-): Promise<{activeClientCount: number}> {
+): Promise<
+{
+	activeClientCount: number;
+}>
+{
 	return getConnectedMcpClientAuthorizationState(environment.DB, userId, mcpResource(environment));
 }
 
 function withConnectedMcpClientAuthorizationState(
 	request: Request,
-	authorizationState: {activeClientCount: number},
-): Request {
+	authorizationState:
+	{
+		activeClientCount: number;
+	},
+): Request
+{
 	const headers = new Headers(request.headers);
 	headers.set("X-YepNope-Connected-Mcp-Client-Authorization", JSON.stringify(authorizationState));
-	return new Request(request, {headers});
+	return new Request(
+		request,
+		{
+			headers,
+		},
+	);
 }
 
 // 🧍 An active OAuth grant — browser-authorized MCP client or device-authorized hook — gates AFK.
@@ -268,29 +396,61 @@ async function setAfk(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
 	hasActiveConnectedMcpClient: boolean,
-): Promise<Response> {
+): Promise<Response>
+{
 	const parsed = afkRequestSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const result = await stub.setAfk(parsed.data.afk, hasActiveConnectedMcpClient);
-	if (result.status === "connected_mcp_client_required") {
-		return Response.json({error: result.status, message: result.message}, {status: 409});
+	if (result.status === "connected_mcp_client_required")
+	{
+		return Response.json(
+			{
+				error: result.status,
+				message: result.message,
+			},
+			{
+				status: 409,
+			},
+		);
 	}
-	return Response.json({afk: result.afk});
+	return Response.json(
+		{
+			afk: result.afk,
+		},
+	);
 }
 
-async function subscribePush(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
+async function subscribePush(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response>
+{
 	const parsed = pushSubscriptionSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const {replaces, ...subscription} = parsed.data;
 	await stub.registerDevice(subscription, defaultPushDeviceLabel(request.headers.get("User-Agent")), replaces);
-	return Response.json({status: "ok"});
+	return Response.json(
+		{
+			status: "ok",
+		},
+	);
 }
 
-interface BrowserSessionRow {
+interface BrowserSessionRow
+{
 	id: string;
 	created_at: number;
 	updated_at: number;
@@ -298,8 +458,10 @@ interface BrowserSessionRow {
 	user_agent: string | null;
 }
 
-function browserSessionDisplayName(userAgent: string | null): string {
-	if (userAgent === null) {
+function browserSessionDisplayName(userAgent: string | null): string
+{
+	if (userAgent === null)
+	{
 		return "Browser session";
 	}
 	const browser = userAgent.includes("Edg/")
@@ -332,7 +494,8 @@ async function listBrowserSessions(
 	userId: string,
 	currentSessionId: string,
 ): Promise<
-	Array<{
+	Array<
+	{
 		id: string;
 		display_name: string;
 		created_at: number;
@@ -340,7 +503,8 @@ async function listBrowserSessions(
 		expires_at: number;
 		current: boolean;
 	}>
-> {
+>
+{
 	const sessions = await database
 		.prepare(
 			"SELECT id, created_at, updated_at, expires_at, user_agent FROM session " +
@@ -349,7 +513,8 @@ async function listBrowserSessions(
 		.bind(userId, Date.now())
 		.all<BrowserSessionRow>();
 	return Promise.all(
-		sessions.results.map(async (session) => ({
+		sessions.results.map(async (session) => (
+		{
 			id: await hashToken(`browser-session\0${userId}\0${session.id}`),
 			display_name: browserSessionDisplayName(session.user_agent),
 			created_at: session.created_at,
@@ -366,38 +531,50 @@ async function listAccountDevices(
 	userId: string,
 	currentSessionId: string,
 	resource: string,
-): Promise<Response> {
+): Promise<Response>
+{
 	const [browserSessions, connectedMcpClients, pushDevices] = await Promise.all([
 		listBrowserSessions(database, userId, currentSessionId),
 		listConnectedMcpClients(database, userId, resource),
 		stub.listPushDevices(),
 	]);
-	return Response.json({
-		browser_sessions: browserSessions,
-		connected_mcp_clients: connectedMcpClients.map((client) => ({
-			id: client.id,
-			display_name: client.displayName,
-			authorized_at: client.authorizedAt,
-			last_used_at: client.lastUsedAt,
-			granted_scopes: client.grantedScopes,
-			status: client.status,
-			revoked_at: client.revokedAt,
-		})),
-		push_devices: pushDevices.map((device) => ({
-			id: device.id,
-			label: device.label,
-			created_at: device.createdAt,
-		})),
-	});
+	return Response.json(
+		{
+			browser_sessions: browserSessions,
+			connected_mcp_clients: connectedMcpClients.map((client) => (
+			{
+				id: client.id,
+				display_name: client.displayName,
+				authorized_at: client.authorizedAt,
+				last_used_at: client.lastUsedAt,
+				granted_scopes: client.grantedScopes,
+				status: client.status,
+				revoked_at: client.revokedAt,
+			})),
+			push_devices: pushDevices.map((device) => (
+			{
+				id: device.id,
+				label: device.label,
+				created_at: device.createdAt,
+			})),
+		},
+	);
 }
 
 async function manageConnectedMcpClient(
 	environment: Env,
 	userId: string,
 	connectedMcpClientId: string | undefined,
-): Promise<Response> {
-	if (connectedMcpClientId === undefined) {
-		return new Response(null, {status: 404});
+): Promise<Response>
+{
+	if (connectedMcpClientId === undefined)
+	{
+		return new Response(
+			null,
+			{
+				status: 404,
+			},
+		);
 	}
 	const revoked = await revokeConnectedMcpClient(
 		environment.DB,
@@ -407,31 +584,76 @@ async function manageConnectedMcpClient(
 		connectedMcpClientId,
 		Date.now(),
 	);
-	if (!revoked) {
-		return new Response(null, {status: 404});
+	if (!revoked)
+	{
+		return new Response(
+			null,
+			{
+				status: 404,
+			},
+		);
 	}
 	const authorizationState = await connectedMcpClientAuthorizationState(environment, userId);
-	return Response.json({status: "ok", connected_mcp_client_count: authorizationState.activeClientCount});
+	return Response.json(
+		{
+			status: "ok",
+			connected_mcp_client_count: authorizationState.activeClientCount,
+		},
+	);
 }
 
 async function managePushDevice(
 	request: Request,
 	stub: DurableObjectStub<UserDurableObject>,
 	deviceId: string | undefined,
-): Promise<Response> {
-	if (deviceId === undefined) {
-		return new Response(null, {status: 404});
+): Promise<Response>
+{
+	if (deviceId === undefined)
+	{
+		return new Response(
+			null,
+			{
+				status: 404,
+			},
+		);
 	}
-	if (request.method === "PUT") {
+	if (request.method === "PUT")
+	{
 		const parsed = deviceLabelRequestSchema.safeParse(await request.json().catch(() => null));
-		if (!parsed.success) {
-			return new Response(null, {status: 400});
+		if (!parsed.success)
+		{
+			return new Response(
+				null,
+				{
+					status: 400,
+				},
+			);
 		}
 		return (await stub.renamePushDevice(deviceId, parsed.data.label))
-			? Response.json({status: "ok"})
-			: new Response(null, {status: 404});
+			? Response.json(
+					{
+						status: "ok",
+					},
+				)
+			: new Response(
+					null,
+					{
+						status: 404,
+					},
+				);
 	}
-	return (await stub.revokePushDevice(deviceId)) ? Response.json({status: "ok"}) : new Response(null, {status: 404});
+	return (await stub.revokePushDevice(deviceId))
+		? Response.json(
+				{
+					status: "ok",
+				},
+			)
+		: new Response(
+				null,
+				{
+					status: 404,
+				},
+			);
 }
 
 async function createQuestions(
@@ -439,13 +661,21 @@ async function createQuestions(
 	stub: DurableObjectStub<UserDurableObject>,
 	hasActiveConnectedMcpClient: boolean,
 	executionContext: ExecutionContext,
-): Promise<Response> {
+): Promise<Response>
+{
 	const parsed = createBatchRequestSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	// 🧍 Interception point 3 (spec §11.3): with AFK off, ask_yep_nope gets a teaching error instead of a batch.
-	if (!(await stub.getAfk(hasActiveConnectedMcpClient))) {
+	if (!(await stub.getAfk(hasActiveConnectedMcpClient)))
+	{
 		return Response.json(
 			{
 				error: "afk_off",
@@ -453,40 +683,92 @@ async function createQuestions(
 					"The user is at their keyboard, so questions are not being routed to their phone. " +
 					"Use the AskUserQuestion tool instead of ask_yep_nope for this question.",
 			},
-			{status: 409},
+			{
+				status: 409,
+			},
 		);
 	}
 	const created = await stub.createBatch(parsed.data);
 	// 📣 One push per batch, sent outside the response path (spec §6.1/§6.2).
 	executionContext.waitUntil(stub.sendBatchPush(created.batchId));
-	return Response.json({batch_id: created.batchId, question_ids: created.questionIds}, {status: 201});
+	return Response.json(
+		{
+			batch_id: created.batchId,
+			question_ids: created.questionIds,
+		},
+		{
+			status: 201,
+		},
+	);
 }
 
-async function currentDeck(stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
-	const state = await stub.getCurrentDeckState({activeClientCount: 0});
-	return Response.json({current_deck: state.current_deck});
+async function currentDeck(stub: DurableObjectStub<UserDurableObject>): Promise<Response>
+{
+	const state = await stub.getCurrentDeckState(
+		{
+			activeClientCount: 0,
+		},
+	);
+	return Response.json(
+		{
+			current_deck: state.current_deck,
+		},
+	);
 }
 
-async function submitAnswers(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response> {
+async function submitAnswers(request: Request, stub: DurableObjectStub<UserDurableObject>): Promise<Response>
+{
 	const parsed = submitAnswersRequestSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
-	try {
+	try
+	{
 		await stub.submitAnswers(parsed.data.answers);
-	} catch (error) {
-		if (error instanceof Error) {
-			if (error.message.startsWith("unknown_question")) {
-				return new Response(null, {status: 404});
+	}
+	catch (error)
+	{
+		if (error instanceof Error)
+		{
+			if (error.message.startsWith("unknown_question"))
+			{
+				return new Response(
+					null,
+					{
+						status: 404,
+					},
+				);
 			}
-			if (error.message.startsWith("already_answered")) {
-				return new Response(null, {status: 409});
+			if (error.message.startsWith("already_answered"))
+			{
+				return new Response(
+					null,
+					{
+						status: 409,
+					},
+				);
 			}
-			if (error.message.startsWith("duplicate_question")) {
-				return new Response(null, {status: 400});
+			if (error.message.startsWith("duplicate_question"))
+			{
+				return new Response(
+					null,
+					{
+						status: 400,
+					},
+				);
 			}
 		}
 		throw error;
 	}
-	return Response.json({status: "ok"});
+	return Response.json(
+		{
+			status: "ok",
+		},
+	);
 }

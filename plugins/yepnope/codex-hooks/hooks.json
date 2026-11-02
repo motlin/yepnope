@@ -1,6 +1,7 @@
 {
 	"description": "Try YepNope before Codex asks the user a question.",
-	"hooks": {
+	"hooks":
+	{
 		"UserPromptSubmit": [
 			{
 				"hooks": [

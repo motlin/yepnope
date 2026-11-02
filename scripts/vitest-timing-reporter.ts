@@ -3,10 +3,13 @@ import type {Reporter} from "vitest/reporters";
 
 type TestModules = Parameters<NonNullable<Reporter["onTestRunEnd"]>>[0];
 
-export default class VitestTimingReporter implements Reporter {
-	onTestRunEnd(testModules: TestModules): void {
+export default class VitestTimingReporter implements Reporter
+{
+	onTestRunEnd(testModules: TestModules): void
+	{
 		const timings = testModules
-			.map((testModule) => {
+			.map((testModule) =>
+			{
 				const diagnostic = testModule.diagnostic();
 				return {
 					collectMilliseconds: diagnostic.collectDuration,

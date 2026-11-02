@@ -8,10 +8,12 @@
 		<!-- 🌗 Applies the stored theme before the first paint, so an explicit choice never flashes the
 		     other palette while the module bundle loads. Everything after this is src/theme.ts. -->
 		<script>
-			(() => {
+			(() =>
+			{
 				const stored = window.localStorage.getItem("yepnope.theme");
 				const explicit = stored === "light" || stored === "dark" ? stored : null;
-				if (explicit !== null) {
+				if (explicit !== null)
+				{
 					document.documentElement.setAttribute("data-theme", explicit);
 				}
 				const dark =

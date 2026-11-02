@@ -245,7 +245,8 @@ the process arguments, or in a shell history:
 
 ```json
 {
-	"hooks": {
+	"hooks":
+	{
 		"PermissionRequest": [
 			{
 				"hooks": [
@@ -329,7 +330,8 @@ repository does that without defining `statusLine`:
 
 ```json
 {
-	"env": {
+	"env":
+	{
 		"YEPNOPE_STATUSLINE_COMMAND": "node \"$CLAUDE_PROJECT_DIR/cli/dist/yepnope.cjs\" afk statusline"
 	}
 }

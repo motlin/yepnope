@@ -6,24 +6,29 @@ import {hashToken} from "./webcrypto";
 const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTWXYZ";
 const EXPIRY_MILLISECONDS = 10 * 60 * 1_000;
 
-export function generatePairingCode(): string {
+export function generatePairingCode(): string
+{
 	let code = "";
 	const maximum = 256 - (256 % CODE_ALPHABET.length);
-	while (code.length < 8) {
+	while (code.length < 8)
+	{
 		const bytes = crypto.getRandomValues(new Uint8Array(16));
-		for (const byte of bytes) {
+		for (const byte of bytes)
+		{
 			if (byte < maximum && code.length < 8) code += CODE_ALPHABET[byte % CODE_ALPHABET.length];
 		}
 	}
 	return code;
 }
 
-export function normalizePairingCode(code: string): string | null {
+export function normalizePairingCode(code: string): string | null
+{
 	const normalized = code.replaceAll(/[\s-]/g, "").toUpperCase();
 	return /^[23456789ABCDEFGHJKMNPQRSTWXYZ]{8}$/.test(normalized) ? normalized : null;
 }
 
-export async function createPhonePairing(database: D1Database, sessionId: string, now: number) {
+export async function createPhonePairing(database: D1Database, sessionId: string, now: number)
+{
 	const id = crypto.randomUUID();
 	const code = generatePairingCode();
 	const expiresAt = now + EXPIRY_MILLISECONDS;
@@ -33,7 +38,11 @@ export async function createPhonePairing(database: D1Database, sessionId: string
 			.prepare("INSERT INTO phone_pairing (id, session_id, code_hash, expires_at) VALUES (?, ?, ?, ?)")
 			.bind(id, sessionId, await hashToken(code), expiresAt),
 	]);
-	return {id, code, expiresAt};
+	return {
+		id,
+		code,
+		expiresAt,
+	};
 }
 
 /** Atomic consumption keeps concurrent scanners from creating two browser sessions. */
@@ -42,7 +51,8 @@ export async function consumePhonePairing(
 	id: string,
 	code: string,
 	now: number,
-): Promise<string | null> {
+): Promise<string | null>
+{
 	const codeHash = await hashToken(normalizePairingCode(code) ?? "invalid");
 	const results = await database.batch([
 		database
@@ -58,24 +68,50 @@ export async function consumePhonePairing(
 			.bind(id, codeHash, now, now),
 	]);
 	const consumed = results[2]?.results[0];
-	return consumed === undefined ? null : z.object({user_id: z.string()}).parse(consumed).user_id;
+	return consumed === undefined
+		? null
+		: z
+				.object(
+					{
+						user_id: z.string(),
+					},
+				)
+				.parse(consumed).user_id;
 }
 
 /** RFC 8628 grants agent scopes; it must never be exchangeable for an account's browser session. */
-export function phonePairing(database: D1Database, origin: string) {
+export function phonePairing(database: D1Database, origin: string)
+{
 	return {
 		id: "phone-pairing",
-		rateLimit: [{pathMatcher: (path: string) => path.startsWith("/phone-pairing/"), window: 60, max: 10}],
-		endpoints: {
+		rateLimit: [
+			{
+				pathMatcher: (path: string) => path.startsWith("/phone-pairing/"),
+				window: 60,
+				max: 10,
+			},
+		],
+		endpoints:
+		{
 			createPhonePairing: createAuthEndpoint(
 				"/phone-pairing/create",
-				{method: "POST", use: [sessionMiddleware]},
-				async (context) => {
+				{
+					method: "POST",
+					use: [sessionMiddleware],
+				},
+				async (context) =>
+				{
 					if (
 						context.request?.headers.get("Origin") !== origin ||
 						!context.context.session.user.emailVerified
-					) {
-						throw context.error("FORBIDDEN", {message: "A verified desktop session is required."});
+					)
+					{
+						throw context.error(
+							"FORBIDDEN",
+							{
+								message: "A verified desktop session is required.",
+							},
+						);
 					}
 					context.setHeader("Cache-Control", "no-store");
 					return context.json(
@@ -87,24 +123,56 @@ export function phonePairing(database: D1Database, origin: string) {
 				"/phone-pairing/claim",
 				{
 					method: "POST",
-					body: z.object({id: z.uuid(), code: z.string().max(64)}).strict(),
+					body: z
+						.object(
+							{
+								id: z.uuid(),
+								code: z.string().max(64),
+							},
+						)
+						.strict(),
 				},
-				async (context) => {
-					if (context.request?.headers.get("Origin") !== origin) {
-						throw context.error("FORBIDDEN", {message: "Open YepNope to pair this phone."});
+				async (context) =>
+				{
+					if (context.request?.headers.get("Origin") !== origin)
+					{
+						throw context.error(
+							"FORBIDDEN",
+							{
+								message: "Open YepNope to pair this phone.",
+							},
+						);
 					}
 					context.setHeader("Cache-Control", "no-store");
 					const userId = await consumePhonePairing(database, context.body.id, context.body.code, Date.now());
 					if (userId === null)
-						throw context.error("BAD_REQUEST", {
-							message: "This code is invalid or expired. Create a new QR code on your desktop.",
-						});
+						throw context.error(
+							"BAD_REQUEST",
+							{
+								message: "This code is invalid or expired. Create a new QR code on your desktop.",
+							},
+						);
 					const user = await context.context.internalAdapter.findUserById(userId);
 					if (user === null || !user.emailVerified)
-						throw context.error("FORBIDDEN", {message: "A verified account is required."});
+						throw context.error(
+							"FORBIDDEN",
+							{
+								message: "A verified account is required.",
+							},
+						);
 					const session = await context.context.internalAdapter.createSession(userId);
-					await setSessionCookie(context, {session, user});
-					return context.json({status: "ok"});
+					await setSessionCookie(
+						context,
+						{
+							session,
+							user,
+						},
+					);
+					return context.json(
+						{
+							status: "ok",
+						},
+					);
 				},
 			),
 		},

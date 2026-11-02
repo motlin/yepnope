@@ -7,7 +7,8 @@ import {z} from "zod";
 
 export {UserDurableObject};
 
-interface CapturedEmail {
+interface CapturedEmail
+{
 	subject: string;
 	url: string;
 }
@@ -23,48 +24,74 @@ const mailbox = new Map<string, CapturedEmail[]>();
 // this value until it holds still before handing the server on.
 let instanceId: string | null = null;
 
-function instanceResponse(): Response {
+function instanceResponse(): Response
+{
 	// Lazily, because workerd refuses to hand out random values while modules are still evaluating.
 	instanceId ??= crypto.randomUUID();
-	return Response.json({instance_id: instanceId});
+	return Response.json(
+		{
+			instance_id: instanceId,
+		},
+	);
 }
 
 // 📮 Recipients Cloudflare Email Service would refuse. Any address in this shape stands in for the
 // production failure the browser cannot see: the request is accepted, the message never leaves.
 const UNDELIVERABLE_RECIPIENT_PREFIX = "undeliverable-";
 
-async function captureAuthenticationEmail(message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult> {
-	if (!("text" in message)) {
+async function captureAuthenticationEmail(message: EmailMessage | EmailMessageBuilder): Promise<EmailSendResult>
+{
+	if (!("text" in message))
+	{
 		throw new Error("browser test authentication email is missing its text body");
 	}
-	if (!("to" in message) || typeof message.to !== "string") {
+	if (!("to" in message) || typeof message.to !== "string")
+	{
 		throw new Error("browser test authentication email must have one string recipient");
 	}
-	if (message.to.startsWith(UNDELIVERABLE_RECIPIENT_PREFIX)) {
+	if (message.to.startsWith(UNDELIVERABLE_RECIPIENT_PREFIX))
+	{
 		return Promise.reject(
-			Object.assign(new Error(`${message.to} is not a verified destination address`), {
-				code: "E_RECIPIENT_NOT_ALLOWED",
-			}),
+			Object.assign(
+				new Error(`${message.to} is not a verified destination address`),
+				{
+					code: "E_RECIPIENT_NOT_ALLOWED",
+				},
+			),
 		);
 	}
 	const url = /https:\/\/\S+/.exec(message.text)?.[0];
-	if (url === undefined) {
+	if (url === undefined)
+	{
 		throw new Error("browser test authentication email is missing its link");
 	}
 	const deliveries = mailbox.get(message.to) ?? [];
-	deliveries.push({subject: message.subject, url});
+	deliveries.push(
+		{
+			subject: message.subject,
+			url,
+		},
+	);
 	mailbox.set(message.to, deliveries);
-	return Promise.resolve({messageId: crypto.randomUUID()});
+	return Promise.resolve(
+		{
+			messageId: crypto.randomUUID(),
+		},
+	);
 }
 
-const email: SendEmail = {send: captureAuthenticationEmail};
+const email: SendEmail =
+{
+	send: captureAuthenticationEmail,
+};
 
 // 🤖 The origin here is loopback, where a deployment without Turnstile keys runs unchallenged. The
 // suite that does want the gate turns it on for itself through `/api/__e2e__/turnstile`, so every
 // other browser test keeps meeting the pages it always met. Siteverify is answered in process by
 // the same stand-in the Worker suite uses: the documented test keys, the real single-use ledger,
 // and no call out to Cloudflare.
-interface HumanVerificationConfiguration {
+interface HumanVerificationConfiguration
+{
 	secretKey: string;
 	siteKey: string;
 	siteverify: TurnstileSiteverify;
@@ -73,29 +100,55 @@ interface HumanVerificationConfiguration {
 let humanVerification: HumanVerificationConfiguration | null = null;
 
 const humanVerificationRequestSchema = z.union([
-	z.object({enabled: z.literal(false)}).strict(),
-	z.object({secret_key: z.string().min(1), site_key: z.string().min(1)}).strict(),
+	z
+		.object(
+			{
+				enabled: z.literal(false),
+			},
+		)
+		.strict(),
+	z
+		.object(
+			{
+				secret_key: z.string().min(1),
+				site_key: z.string().min(1),
+			},
+		)
+		.strict(),
 ]);
 
-async function configureHumanVerificationResponse(request: Request): Promise<Response> {
+async function configureHumanVerificationResponse(request: Request): Promise<Response>
+{
 	const parsed = humanVerificationRequestSchema.safeParse(await request.json());
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	humanVerification =
 		"enabled" in parsed.data
 			? null
-			: {
+			:
+				{
 					secretKey: parsed.data.secret_key,
 					siteKey: parsed.data.site_key,
 					// A fresh ledger per configuration, so one test's spent tokens never explain
 					// another test's refusal.
 					siteverify: createTestSiteverify(),
 				};
-	return Response.json({human_verification: humanVerification === null ? "waived" : "enforced"});
+	return Response.json(
+		{
+			human_verification: humanVerification === null ? "waived" : "enforced",
+		},
+	);
 }
 
-function withCapturedEmail(environment: ApplicationEnvironment): ApplicationEnvironment {
+function withCapturedEmail(environment: ApplicationEnvironment): ApplicationEnvironment
+{
 	return {
 		AUTH_EMAIL_FROM: environment.AUTH_EMAIL_FROM,
 		BETTER_AUTH_SECRET: environment.BETTER_AUTH_SECRET,
@@ -113,23 +166,42 @@ function withCapturedEmail(environment: ApplicationEnvironment): ApplicationEnvi
 	};
 }
 
-function mailboxResponse(url: URL): Response {
+function mailboxResponse(url: URL): Response
+{
 	const recipient = url.searchParams.get("email");
 	const subject = url.searchParams.get("subject");
-	if (recipient === null || subject === null) {
-		return new Response(null, {status: 400});
+	if (recipient === null || subject === null)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const delivery = mailbox
 		.get(recipient)
 		?.filter((candidate) => candidate.subject === subject)
 		.at(-1);
-	return delivery === undefined ? new Response(null, {status: 404}) : Response.json({url: delivery.url});
+	return delivery === undefined
+		? new Response(
+				null,
+				{
+					status: 404,
+				},
+			)
+		: Response.json(
+				{
+					url: delivery.url,
+				},
+			);
 }
 
 // 🔬 Counts belong to one account, named by `email`, so a spec can assert what it has created
 // without reading rows another spec is creating at the same time. Called without an `email` the
 // endpoint still answers for the whole database.
-async function countResponse(request: Request, environment: ApplicationEnvironment): Promise<Response> {
+async function countResponse(request: Request, environment: ApplicationEnvironment): Promise<Response>
+{
 	const email = new URL(request.url).searchParams.get("email");
 	const scope = email === null ? "" : " WHERE user_id IN (SELECT id FROM user WHERE email = ?)";
 	const counts = await environment.DB.prepare(
@@ -139,13 +211,31 @@ async function countResponse(request: Request, environment: ApplicationEnvironme
 	)
 		.bind(...(email === null ? [] : [email, email, email]))
 		.first();
-	return Response.json({authentication_url: environment.BETTER_AUTH_URL, ...counts});
+	return Response.json(
+		{
+			authentication_url: environment.BETTER_AUTH_URL,
+			...counts,
+		},
+	);
 }
 
-async function deletedAccountResponse(request: Request, environment: ApplicationEnvironment): Promise<Response> {
-	const parsed = z.object({user_id: z.string()}).safeParse(await request.json());
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+async function deletedAccountResponse(request: Request, environment: ApplicationEnvironment): Promise<Response>
+{
+	const parsed = z
+		.object(
+			{
+				user_id: z.string(),
+			},
+		)
+		.safeParse(await request.json());
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const state = await environment.DB.prepare(
 		"SELECT " +
@@ -160,10 +250,23 @@ async function deletedAccountResponse(request: Request, environment: Application
 	return Response.json(state);
 }
 
-async function authorizeMcpClientResponse(request: Request, environment: ApplicationEnvironment): Promise<Response> {
-	const parsed = z.object({user_id: z.string()}).safeParse(await request.json());
-	if (!parsed.success) {
-		return new Response(null, {status: 400});
+async function authorizeMcpClientResponse(request: Request, environment: ApplicationEnvironment): Promise<Response>
+{
+	const parsed = z
+		.object(
+			{
+				user_id: z.string(),
+			},
+		)
+		.safeParse(await request.json());
+	if (!parsed.success)
+	{
+		return new Response(
+			null,
+			{
+				status: 400,
+			},
+		);
 	}
 	const createdAt = Date.now();
 	const installationId = crypto.randomUUID();
@@ -217,28 +320,40 @@ async function authorizeMcpClientResponse(request: Request, environment: Applica
 	await environment.USER_DO.getByName(parsed.data.user_id).synchronizeConnectedMcpClientAuthorizationState(
 		authorizationState,
 	);
-	return Response.json({status: "authorized"});
+	return Response.json(
+		{
+			status: "authorized",
+		},
+	);
 }
 
-export default {
-	async fetch(request, environment, executionContext): Promise<Response> {
+export default
+{
+	async fetch(request, environment, executionContext): Promise<Response>
+	{
 		const url = new URL(request.url);
-		if (url.pathname === "/api/__e2e__/instance" && request.method === "GET") {
+		if (url.pathname === "/api/__e2e__/instance" && request.method === "GET")
+		{
 			return instanceResponse();
 		}
-		if (url.pathname === "/api/__e2e__/mailbox" && request.method === "GET") {
+		if (url.pathname === "/api/__e2e__/mailbox" && request.method === "GET")
+		{
 			return mailboxResponse(url);
 		}
-		if (url.pathname === "/api/__e2e__/counts" && request.method === "GET") {
+		if (url.pathname === "/api/__e2e__/counts" && request.method === "GET")
+		{
 			return countResponse(request, environment);
 		}
-		if (url.pathname === "/api/__e2e__/deleted-account" && request.method === "POST") {
+		if (url.pathname === "/api/__e2e__/deleted-account" && request.method === "POST")
+		{
 			return deletedAccountResponse(request, environment);
 		}
-		if (url.pathname === "/api/__e2e__/authorize-mcp-client" && request.method === "POST") {
+		if (url.pathname === "/api/__e2e__/authorize-mcp-client" && request.method === "POST")
+		{
 			return authorizeMcpClientResponse(request, environment);
 		}
-		if (url.pathname === "/api/__e2e__/turnstile" && request.method === "POST") {
+		if (url.pathname === "/api/__e2e__/turnstile" && request.method === "POST")
+		{
 			return configureHumanVerificationResponse(request);
 		}
 		return application.fetch(request, withCapturedEmail(environment), executionContext);

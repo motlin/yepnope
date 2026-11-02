@@ -16,62 +16,87 @@ const USAGE = `usage: yepnope <command>
 YEPNOPE_URL overrides the service origin for development.
 `;
 
-async function readStdin(): Promise<string> {
+async function readStdin(): Promise<string>
+{
 	process.stdin.setEncoding("utf8");
 	let payload = "";
-	for await (const chunk of process.stdin) {
+	for await (const chunk of process.stdin)
+	{
 		payload += String(chunk);
 	}
 	return payload;
 }
 
-async function sleep(milliseconds: number): Promise<void> {
-	await new Promise<void>((resolve) => {
+async function sleep(milliseconds: number): Promise<void>
+{
+	await new Promise<void>((resolve) =>
+	{
 		setTimeout(resolve, milliseconds);
 	});
 }
 
-async function main(): Promise<void> {
+async function main(): Promise<void>
+{
 	const [command, ...rest] = process.argv.slice(2);
 	const baseUrl = process.env["YEPNOPE_URL"] ?? DEFAULT_BASE_URL;
 	const store = credentialStore(baseUrl);
-	switch (command ?? "help") {
-		case "login": {
-			await runLoginCommand({
-				baseUrl,
-				clientName: `YepNope hook on ${hostname()}`,
-				sleep,
-				store,
-				write: (text) => process.stdout.write(text),
-			});
-			return;
-		}
-		case "logout": {
-			process.stdout.write(await runLogoutCommand(baseUrl, store));
-			return;
-		}
-		case "hook": {
-			process.stdout.write(
-				await runHookCommand(await readStdin(), {
+	switch (command ?? "help")
+	{
+		case "login":
+		{
+			await runLoginCommand(
+				{
 					baseUrl,
+					clientName: `YepNope hook on ${hostname()}`,
+					sleep,
 					store,
-					writeError: (text) => process.stderr.write(text),
-				}),
+					write: (text) => process.stdout.write(text),
+				},
 			);
 			return;
 		}
-		case "afk": {
-			process.stdout.write(await runAfkCommand(rest, {baseUrl, store}));
+		case "logout":
+		{
+			process.stdout.write(await runLogoutCommand(baseUrl, store));
 			return;
 		}
-		default: {
+		case "hook":
+		{
+			process.stdout.write(
+				await runHookCommand(
+					await readStdin(),
+					{
+						baseUrl,
+						store,
+						writeError: (text) => process.stderr.write(text),
+					},
+				),
+			);
+			return;
+		}
+		case "afk":
+		{
+			process.stdout.write(
+				await runAfkCommand(
+					rest,
+					{
+						baseUrl,
+						store,
+					},
+				),
+			);
+			return;
+		}
+		default:
+		{
 			process.stderr.write(USAGE);
 			process.exit(command === undefined || command === "help" ? 0 : 1);
 		}
 	}
 }
 
-main().catch((error: unknown) => {
+main().catch((error: unknown) =>
+{
 	process.stderr.write(`yepnope: ${error instanceof Error ? error.message : String(error)}\n`);
 	process.exit(1);
 });

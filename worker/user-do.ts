@@ -8,7 +8,8 @@ import {answers, batches, devices, questionActivity, questions, state} from "./d
 import migrationBundle from "./migrations/do/migrations.js";
 import {hashToken} from "./auth";
 import {errorFrame, isComplete, resolvedFrame, stateFrame, type DispositionMap} from "./protocol";
-import {
+import
+{
 	dispositionSchema,
 	HEARTBEAT_GRACE_MILLISECONDS,
 	pushSubscriptionSchema,
@@ -18,12 +19,14 @@ import {
 } from "./validation";
 import {buildPushRequest, parseVapidJwk, PUSH_TOPIC, type PushSubscription} from "./webpush";
 
-export interface CreatedBatch {
+export interface CreatedBatch
+{
 	batchId: string;
 	questionIds: string[];
 }
 
-export interface CurrentQuestion {
+export interface CurrentQuestion
+{
 	batchId: string;
 	project: string;
 	repo: string | null;
@@ -37,7 +40,8 @@ export interface CurrentQuestion {
 	createdAt: number;
 }
 
-export interface CurrentQuestionPayload {
+export interface CurrentQuestionPayload
+{
 	batch_id: string;
 	project: string;
 	repo: string | null;
@@ -51,59 +55,84 @@ export interface CurrentQuestionPayload {
 	created_at: number;
 }
 
-export interface CurrentDeckState {
+export interface CurrentDeckState
+{
 	type: "current_deck";
 	afk: boolean;
 	connected_mcp_client_count: number;
 	current_deck: CurrentQuestionPayload[];
 }
 
-interface ConnectedMcpClientAuthorizationState {
+interface ConnectedMcpClientAuthorizationState
+{
 	activeClientCount: number;
 }
 
 export type AfkUpdateResult =
-	| {status: "updated"; afk: boolean}
-	| {status: "connected_mcp_client_required"; message: string};
+	|
+	  {
+			status: "updated";
+			afk: boolean;
+	  }
+	|
+	  {
+			status: "connected_mcp_client_required";
+			message: string;
+	  };
 
-export interface SubmittedAnswer {
+export interface SubmittedAnswer
+{
 	question_id: string;
 	disposition: Disposition;
 }
 
-export interface PushDevice {
+export interface PushDevice
+{
 	id: string;
 	label: string;
 	createdAt: number;
 }
 
-export interface RedactedStorageDiagnostics {
+export interface RedactedStorageDiagnostics
+{
 	alarm_set: boolean;
-	table_counts: Array<{name: string; rows: number}>;
+	table_counts: Array<
+	{
+		name: string;
+		rows: number;
+	}>;
 }
 
 const STATE_ROW_ID = 1;
 const CURRENT_DECK_SOCKET_TAG = "current-deck";
 const MCP_REQUEST_STORAGE_PREFIX = "mcp-request:";
 
-enum TerminalActivityOutcome {
+enum TerminalActivityOutcome
+{
 	Retracted = "retracted",
 	Expired = "expired",
 }
 
-interface CurrentDeckSocketAttachment {
+interface CurrentDeckSocketAttachment
+{
 	connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState;
 }
 
-const connectedMcpClientAuthorizationStateSchema = z.object({
-	activeClientCount: z.number().int().nonnegative(),
-});
-const currentDeckSocketAttachmentSchema = z.object({
-	connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationStateSchema,
-});
+const connectedMcpClientAuthorizationStateSchema = z.object(
+	{
+		activeClientCount: z.number().int().nonnegative(),
+	},
+);
+const currentDeckSocketAttachmentSchema = z.object(
+	{
+		connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationStateSchema,
+	},
+);
 
-async function readPushFailureBody(response: Response): Promise<string> {
-	if (response.body === null) {
+async function readPushFailureBody(response: Response): Promise<string>
+{
+	if (response.body === null)
+	{
 		return "";
 	}
 	const reader: ReadableStreamDefaultReader<unknown> = response.body.getReader();
@@ -111,43 +140,55 @@ async function readPushFailureBody(response: Response): Promise<string> {
 	let body = "";
 	// Bound diagnostic reads even when a service returns a large error page.
 	let remainingBytes = 8192;
-	try {
-		while (remainingBytes > 0) {
+	try
+	{
+		while (remainingBytes > 0)
+		{
 			const {done, value} = await reader.read();
-			if (done) {
+			if (done)
+			{
 				break;
 			}
-			if (!(value instanceof Uint8Array)) {
+			if (!(value instanceof Uint8Array))
+			{
 				throw new Error("Push response body must contain bytes");
 			}
 			const chunk = value.subarray(0, remainingBytes);
 			remainingBytes -= chunk.byteLength;
-			body += decoder.decode(chunk, {stream: true});
+			body += decoder.decode(
+				chunk,
+				{
+					stream: true,
+				},
+			);
 		}
 		return body + decoder.decode();
-	} finally {
+	}
+	finally
+	{
 		await reader.cancel();
 	}
 }
 
-export class UserDurableObject extends DurableObject<Env> {
+export class UserDurableObject extends DurableObject<Env>
+{
 	private readonly database: DrizzleSqliteDODatabase;
 	private initialization: Promise<void> | undefined;
 
-	constructor(ctx: DurableObjectState<Record<never, never>>, env: Env) {
+	constructor(ctx: DurableObjectState<Record<never, never>>, env: Env)
+	{
 		super(ctx, env);
 		this.database = drizzle(this.ctx.storage);
 	}
 
-	private async initialize(): Promise<void> {
-		this.initialization ??= (async () => {
+	private async initialize(): Promise<void>
+	{
+		this.initialization ??= (async () =>
+		{
 			const migration = migrationBundle.journal.entries[0];
 			const migrationHash = migrationBundle.hashes["m0000"];
-			if (
-				migrationBundle.journal.entries.length !== 1 ||
-				migration === undefined ||
-				migrationHash === undefined
-			) {
+			if (migrationBundle.journal.entries.length !== 1 || migration === undefined || migrationHash === undefined)
+			{
 				throw new Error("Durable Object migration bundle must contain exactly one hashed baseline");
 			}
 			await migrate(this.database, migrationBundle);
@@ -157,9 +198,11 @@ export class UserDurableObject extends DurableObject<Env> {
 				migration.when,
 			);
 			const migrationRecords = this.ctx.storage.sql
-				.exec<{hash: string; createdAt: number}>(
-					"SELECT hash, created_at AS createdAt FROM __drizzle_migrations ORDER BY created_at",
-				)
+				.exec<
+				{
+					hash: string;
+					createdAt: number;
+				}>("SELECT hash, created_at AS createdAt FROM __drizzle_migrations ORDER BY created_at")
 				.toArray();
 			const migrationRecord = migrationRecords[0];
 			if (
@@ -167,46 +210,60 @@ export class UserDurableObject extends DurableObject<Env> {
 				migrationRecord === undefined ||
 				migrationRecord.hash !== migrationHash ||
 				migrationRecord.createdAt !== migration.when
-			) {
+			)
+			{
 				throw new Error("Durable Object migration ledger does not match the canonical baseline");
 			}
-			await this.database.insert(state).values({id: STATE_ROW_ID}).onConflictDoNothing();
+			await this.database
+				.insert(state)
+				.values(
+					{
+						id: STATE_ROW_ID,
+					},
+				)
+				.onConflictDoNothing();
 		})();
 		return this.initialization;
 	}
 
-	async createBatch(request: CreateBatchRequest): Promise<CreatedBatch> {
+	async createBatch(request: CreateBatchRequest): Promise<CreatedBatch>
+	{
 		await this.initialize();
 		const now = Date.now();
 		const batchId = crypto.randomUUID();
 		// 🆔 Derived, not minted (spec appendix A.1): there is no reason for an id to be random.
-		const questionRows = request.questions.map((question, position) => ({
+		const questionRows = request.questions.map((question, position) => (
+		{
 			id: `${batchId}:${position}`,
 			batchId,
 			position,
 			title: question.title,
 			body: question.body,
 		}));
-		const activityRows: Array<typeof questionActivity.$inferInsert> = questionRows.map((question) => ({
+		const activityRows: Array<typeof questionActivity.$inferInsert> = questionRows.map((question) => (
+		{
 			questionId: question.id,
 			batchId,
 			outcome: "outstanding",
 			createdAt: now,
 			outcomeAt: null,
 		}));
-		this.database.transaction((transaction) => {
+		this.database.transaction((transaction) =>
+		{
 			transaction
 				.insert(batches)
-				.values({
-					id: batchId,
-					project: request.project,
-					repo: request.repo ?? null,
-					branch: request.branch ?? null,
-					worktree: request.worktree ?? null,
-					directory: request.directory ?? null,
-					createdAt: now,
-					lastHeartbeatAt: now,
-				})
+				.values(
+					{
+						id: batchId,
+						project: request.project,
+						repo: request.repo ?? null,
+						branch: request.branch ?? null,
+						worktree: request.worktree ?? null,
+						directory: request.directory ?? null,
+						createdAt: now,
+						lastHeartbeatAt: now,
+					},
+				)
 				.run();
 			transaction.insert(questions).values(questionRows).run();
 			transaction.insert(questionActivity).values(activityRows).run();
@@ -214,7 +271,10 @@ export class UserDurableObject extends DurableObject<Env> {
 		// 💓 The heartbeat grace deadline always precedes retention; the alarm handler re-arms for both.
 		await this.armAlarm(now + HEARTBEAT_GRACE_MILLISECONDS);
 		await this.broadcastCurrentDeckState();
-		return {batchId, questionIds: questionRows.map((row) => row.id)};
+		return {
+			batchId,
+			questionIds: questionRows.map((row) => row.id),
+		};
 	}
 
 	/**
@@ -225,7 +285,8 @@ export class UserDurableObject extends DurableObject<Env> {
 	async findReattachableBatch(
 		request: CreateBatchRequest,
 		answeredWithinMilliseconds: number,
-	): Promise<CreatedBatch | null> {
+	): Promise<CreatedBatch | null>
+	{
 		await this.initialize();
 		const now = Date.now();
 		const candidates = (await this.database.select().from(batches).where(eq(batches.project, request.project)))
@@ -237,7 +298,8 @@ export class UserDurableObject extends DurableObject<Env> {
 					batch.directory === (request.directory ?? null),
 			)
 			.sort((left, right) => right.createdAt - left.createdAt);
-		for (const batch of candidates) {
+		for (const batch of candidates)
+		{
 			const rows = await this.database
 				.select()
 				.from(questions)
@@ -245,15 +307,21 @@ export class UserDurableObject extends DurableObject<Env> {
 				.orderBy(asc(questions.position));
 			const sameQuestions =
 				rows.length === request.questions.length &&
-				rows.every((row, position) => {
+				rows.every((row, position) =>
+				{
 					const asked = request.questions[position];
 					return asked !== undefined && row.title === asked.title && row.body === asked.body;
 				});
-			if (!sameQuestions) {
+			if (!sameQuestions)
+			{
 				continue;
 			}
 			const answered = await this.database
-				.select({answeredAt: answers.answeredAt})
+				.select(
+					{
+						answeredAt: answers.answeredAt,
+					},
+				)
 				.from(answers)
 				.where(
 					inArray(
@@ -262,30 +330,46 @@ export class UserDurableObject extends DurableObject<Env> {
 					),
 				);
 			const lastAnsweredAt = Math.max(0, ...answered.map((row) => row.answeredAt));
-			if (answered.length === rows.length && lastAnsweredAt <= now - answeredWithinMilliseconds) {
+			if (answered.length === rows.length && lastAnsweredAt <= now - answeredWithinMilliseconds)
+			{
 				continue;
 			}
-			await this.database.update(batches).set({lastHeartbeatAt: now}).where(eq(batches.id, batch.id));
-			return {batchId: batch.id, questionIds: rows.map((row) => row.id)};
+			await this.database
+				.update(batches)
+				.set(
+					{
+						lastHeartbeatAt: now,
+					},
+				)
+				.where(eq(batches.id, batch.id));
+			return {
+				batchId: batch.id,
+				questionIds: rows.map((row) => row.id),
+			};
 		}
 		return null;
 	}
 
 	/** The batch's answers as they stand, or null once the batch no longer exists. */
-	async getBatchDispositions(batchId: string): Promise<DispositionMap | null> {
+	async getBatchDispositions(batchId: string): Promise<DispositionMap | null>
+	{
 		await this.initialize();
-		if (!(await this.batchExists(batchId))) {
+		if (!(await this.batchExists(batchId)))
+		{
 			return null;
 		}
 		return this.batchDispositions(batchId);
 	}
 
-	async retractBatch(batchId: string): Promise<boolean> {
+	async retractBatch(batchId: string): Promise<boolean>
+	{
 		await this.initialize();
-		if (!(await this.batchExists(batchId))) {
+		if (!(await this.batchExists(batchId)))
+		{
 			return false;
 		}
-		if (isComplete(await this.batchDispositions(batchId))) {
+		if (isComplete(await this.batchDispositions(batchId)))
+		{
 			return false;
 		}
 		await this.deleteBatches(
@@ -299,19 +383,23 @@ export class UserDurableObject extends DurableObject<Env> {
 		return true;
 	}
 
-	async registerMcpRequest(requestKey: string, batchId: string): Promise<void> {
+	async registerMcpRequest(requestKey: string, batchId: string): Promise<void>
+	{
 		await this.initialize();
-		if (!(await this.batchExists(batchId))) {
+		if (!(await this.batchExists(batchId)))
+		{
 			throw new Error("cannot register an MCP request for an unknown batch");
 		}
 		await this.ctx.storage.put(`${MCP_REQUEST_STORAGE_PREFIX}${requestKey}`, batchId);
 	}
 
-	async cancelMcpRequest(requestKey: string): Promise<boolean> {
+	async cancelMcpRequest(requestKey: string): Promise<boolean>
+	{
 		await this.initialize();
 		const storageKey = `${MCP_REQUEST_STORAGE_PREFIX}${requestKey}`;
 		const batchId = await this.ctx.storage.get<string>(storageKey);
-		if (batchId === undefined) {
+		if (batchId === undefined)
+		{
 			return false;
 		}
 		const retracted = await this.retractBatch(batchId);
@@ -319,67 +407,105 @@ export class UserDurableObject extends DurableObject<Env> {
 		return retracted;
 	}
 
-	async unregisterMcpRequest(requestKey: string, batchId: string): Promise<void> {
+	async unregisterMcpRequest(requestKey: string, batchId: string): Promise<void>
+	{
 		const storageKey = `${MCP_REQUEST_STORAGE_PREFIX}${requestKey}`;
-		if ((await this.ctx.storage.get<string>(storageKey)) === batchId) {
+		if ((await this.ctx.storage.get<string>(storageKey)) === batchId)
+		{
 			await this.ctx.storage.delete(storageKey);
 		}
 	}
 
-	async getAfk(hasActiveConnectedMcpClient: boolean): Promise<boolean> {
+	async getAfk(hasActiveConnectedMcpClient: boolean): Promise<boolean>
+	{
 		await this.initialize();
-		if (!hasActiveConnectedMcpClient) {
+		if (!hasActiveConnectedMcpClient)
+		{
 			return false;
 		}
-		const rows = await this.database.select({afk: state.afk}).from(state).where(eq(state.id, STATE_ROW_ID));
+		const rows = await this.database
+			.select(
+				{
+					afk: state.afk,
+				},
+			)
+			.from(state)
+			.where(eq(state.id, STATE_ROW_ID));
 		return rows[0]?.afk ?? false;
 	}
 
-	async setAfk(afk: boolean, hasActiveConnectedMcpClient: boolean): Promise<AfkUpdateResult> {
+	async setAfk(afk: boolean, hasActiveConnectedMcpClient: boolean): Promise<AfkUpdateResult>
+	{
 		await this.initialize();
-		if (afk && !hasActiveConnectedMcpClient) {
+		if (afk && !hasActiveConnectedMcpClient)
+		{
 			return {
 				status: "connected_mcp_client_required",
 				message: "Authorize an MCP host or OAuth CLI client before turning AFK on.",
 			};
 		}
-		await this.database.update(state).set({afk}).where(eq(state.id, STATE_ROW_ID));
+		await this.database
+			.update(state)
+			.set(
+				{
+					afk,
+				},
+			)
+			.where(eq(state.id, STATE_ROW_ID));
 		await this.broadcastCurrentDeckState();
-		return {status: "updated", afk};
+		return {
+			status: "updated",
+			afk,
+		};
 	}
 
 	async synchronizeConnectedMcpClientAuthorizationState(
 		connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState,
-	): Promise<void> {
+	): Promise<void>
+	{
 		await this.initialize();
-		if (connectedMcpClientAuthorizationState.activeClientCount === 0) {
-			await this.database.update(state).set({afk: false}).where(eq(state.id, STATE_ROW_ID));
+		if (connectedMcpClientAuthorizationState.activeClientCount === 0)
+		{
+			await this.database
+				.update(state)
+				.set(
+					{
+						afk: false,
+					},
+				)
+				.where(eq(state.id, STATE_ROW_ID));
 		}
-		for (const socket of this.ctx.getWebSockets(CURRENT_DECK_SOCKET_TAG)) {
-			socket.serializeAttachment({
-				connectedMcpClientAuthorizationState,
-			} satisfies CurrentDeckSocketAttachment);
+		for (const socket of this.ctx.getWebSockets(CURRENT_DECK_SOCKET_TAG))
+		{
+			socket.serializeAttachment(
+				{
+					connectedMcpClientAuthorizationState,
+				} satisfies CurrentDeckSocketAttachment,
+			);
 		}
 		await this.broadcastCurrentDeckState();
 	}
 
-	async getCurrentQuestions(): Promise<CurrentQuestion[]> {
+	async getCurrentQuestions(): Promise<CurrentQuestion[]>
+	{
 		await this.initialize();
 		const oldestLiveCreation = Date.now() - RETENTION_MILLISECONDS;
 		const rows = await this.database
-			.select({
-				batchId: batches.id,
-				project: batches.project,
-				repo: batches.repo,
-				branch: batches.branch,
-				worktree: batches.worktree,
-				directory: batches.directory,
-				questionId: questions.id,
-				position: questions.position,
-				title: questions.title,
-				body: questions.body,
-				createdAt: batches.createdAt,
-			})
+			.select(
+				{
+					batchId: batches.id,
+					project: batches.project,
+					repo: batches.repo,
+					branch: batches.branch,
+					worktree: batches.worktree,
+					directory: batches.directory,
+					questionId: questions.id,
+					position: questions.position,
+					title: questions.title,
+					body: questions.body,
+					createdAt: batches.createdAt,
+				},
+			)
 			.from(questions)
 			.innerJoin(batches, eq(questions.batchId, batches.id))
 			.leftJoin(answers, eq(answers.questionId, questions.id))
@@ -390,14 +516,16 @@ export class UserDurableObject extends DurableObject<Env> {
 
 	async getCurrentDeckState(
 		connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState,
-	): Promise<CurrentDeckState> {
+	): Promise<CurrentDeckState>
+	{
 		await this.initialize();
 		const outstanding = await this.getCurrentQuestions();
 		return {
 			type: "current_deck",
 			afk: await this.getAfk(connectedMcpClientAuthorizationState.activeClientCount > 0),
 			connected_mcp_client_count: connectedMcpClientAuthorizationState.activeClientCount,
-			current_deck: outstanding.map((question) => ({
+			current_deck: outstanding.map((question) => (
+			{
 				batch_id: question.batchId,
 				project: question.project,
 				repo: question.repo,
@@ -413,30 +541,45 @@ export class UserDurableObject extends DurableObject<Env> {
 		};
 	}
 
-	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void> {
+	async submitAnswers(submitted: SubmittedAnswer[]): Promise<void>
+	{
 		await this.initialize();
-		const affectedBatchIds = this.database.transaction((transaction) => {
+		const affectedBatchIds = this.database.transaction((transaction) =>
+		{
 			const questionIds = submitted.map((answer) => answer.question_id);
-			if (new Set(questionIds).size !== questionIds.length) {
+			if (new Set(questionIds).size !== questionIds.length)
+			{
 				throw new Error("duplicate_question: the same question_id appears twice in one request");
 			}
 			const found = transaction
-				.select({id: questions.id, batchId: questions.batchId})
+				.select(
+					{
+						id: questions.id,
+						batchId: questions.batchId,
+					},
+				)
 				.from(questions)
 				.where(inArray(questions.id, questionIds))
 				.all();
 			const foundById = new Map(found.map((row) => [row.id, row]));
-			for (const questionId of questionIds) {
-				if (!foundById.has(questionId)) {
+			for (const questionId of questionIds)
+			{
+				if (!foundById.has(questionId))
+				{
 					throw new Error(`unknown_question: ${questionId}`);
 				}
 			}
 			const alreadyAnswered = transaction
-				.select({questionId: answers.questionId})
+				.select(
+					{
+						questionId: answers.questionId,
+					},
+				)
 				.from(answers)
 				.where(inArray(answers.questionId, questionIds))
 				.all();
-			if (alreadyAnswered.length > 0) {
+			if (alreadyAnswered.length > 0)
+			{
 				throw new Error(`already_answered: ${alreadyAnswered[0]?.questionId}`);
 			}
 
@@ -444,29 +587,39 @@ export class UserDurableObject extends DurableObject<Env> {
 			transaction
 				.insert(answers)
 				.values(
-					submitted.map((answer) => ({
+					submitted.map((answer) => (
+					{
 						questionId: answer.question_id,
 						disposition: answer.disposition,
 						answeredAt: now,
 					})),
 				)
 				.run();
-			for (const submittedAnswer of submitted) {
+			for (const submittedAnswer of submitted)
+			{
 				transaction
 					.update(questionActivity)
-					.set({outcome: submittedAnswer.disposition, outcomeAt: now})
+					.set(
+						{
+							outcome: submittedAnswer.disposition,
+							outcomeAt: now,
+						},
+					)
 					.where(eq(questionActivity.questionId, submittedAnswer.question_id))
 					.run();
 			}
 			return new Set(found.map((row) => row.batchId));
 		});
 
-		for (const batchId of affectedBatchIds) {
+		for (const batchId of affectedBatchIds)
+		{
 			await this.broadcastBatchState(batchId);
 		}
 		await this.broadcastCurrentDeckState();
-		for (const batchId of affectedBatchIds) {
-			if (isComplete(await this.batchDispositions(batchId))) {
+		for (const batchId of affectedBatchIds)
+		{
+			if (isComplete(await this.batchDispositions(batchId)))
+			{
 				await this.sendBatchClearPush(batchId);
 			}
 		}
@@ -475,194 +628,327 @@ export class UserDurableObject extends DurableObject<Env> {
 	// 🧪 Delivery seam: tests replace this to observe pushes without a live push service.
 	pushTransport: (
 		endpoint: string,
-		request: {headers: Record<string, string>; body: Uint8Array},
+		request:
+		{
+			headers: Record<string, string>;
+			body: Uint8Array;
+		},
 	) => Promise<Response> = async (endpoint, request) =>
-		fetch(endpoint, {method: "POST", headers: request.headers, body: request.body});
+		fetch(
+			endpoint,
+			{
+				method: "POST",
+				headers: request.headers,
+				body: request.body,
+			},
+		);
 
-	async registerDevice(subscription: PushSubscription, label: string, replaces?: string): Promise<void> {
+	async registerDevice(subscription: PushSubscription, label: string, replaces?: string): Promise<void>
+	{
 		await this.initialize();
 		const serialized = JSON.stringify(subscription);
 		const deviceId = await hashToken(subscription.endpoint);
 		const replacedDeviceId =
 			replaces !== undefined && replaces !== subscription.endpoint ? await hashToken(replaces) : null;
-		this.database.transaction((transaction) => {
-			if (replacedDeviceId !== null) {
+		this.database.transaction((transaction) =>
+		{
+			if (replacedDeviceId !== null)
+			{
 				transaction.delete(devices).where(eq(devices.id, replacedDeviceId)).run();
 			}
 			transaction
 				.insert(devices)
-				.values({
-					id: deviceId,
-					label,
-					pushSubscription: serialized,
-					createdAt: Date.now(),
-				})
-				.onConflictDoUpdate({target: devices.id, set: {pushSubscription: serialized}})
+				.values(
+					{
+						id: deviceId,
+						label,
+						pushSubscription: serialized,
+						createdAt: Date.now(),
+					},
+				)
+				.onConflictDoUpdate(
+					{
+						target: devices.id,
+						set:
+						{
+							pushSubscription: serialized,
+						},
+					},
+				)
 				.run();
 		});
 	}
 
-	async listPushDevices(): Promise<PushDevice[]> {
+	async listPushDevices(): Promise<PushDevice[]>
+	{
 		await this.initialize();
 		return this.database
-			.select({id: devices.id, label: devices.label, createdAt: devices.createdAt})
+			.select(
+				{
+					id: devices.id,
+					label: devices.label,
+					createdAt: devices.createdAt,
+				},
+			)
 			.from(devices)
 			.orderBy(asc(devices.createdAt), asc(devices.id));
 	}
 
-	async renamePushDevice(deviceId: string, label: string): Promise<boolean> {
+	async renamePushDevice(deviceId: string, label: string): Promise<boolean>
+	{
 		await this.initialize();
 		const renamed = await this.database
 			.update(devices)
-			.set({label})
+			.set(
+				{
+					label,
+				},
+			)
 			.where(eq(devices.id, deviceId))
-			.returning({id: devices.id});
+			.returning(
+				{
+					id: devices.id,
+				},
+			);
 		return renamed.length === 1;
 	}
 
-	async revokePushDevice(deviceId: string): Promise<boolean> {
+	async revokePushDevice(deviceId: string): Promise<boolean>
+	{
 		await this.initialize();
-		const revoked = await this.database.delete(devices).where(eq(devices.id, deviceId)).returning({id: devices.id});
+		const revoked = await this.database.delete(devices).where(eq(devices.id, deviceId)).returning(
+			{
+				id: devices.id,
+			},
+		);
 		return revoked.length === 1;
 	}
 
 	// 📣 One push per batch (spec §6.2). The service worker fetches question content after receipt,
 	// so the encrypted push payload contains metadata only.
-	async sendBatchPush(batchId: string): Promise<number> {
+	async sendBatchPush(batchId: string): Promise<number>
+	{
 		await this.initialize();
 		const batchRows = await this.database
-			.select({project: batches.project})
+			.select(
+				{
+					project: batches.project,
+				},
+			)
 			.from(batches)
 			.where(eq(batches.id, batchId));
 		const batch = batchRows[0];
-		if (batch === undefined) {
+		if (batch === undefined)
+		{
 			return 0;
 		}
 		const batchQuestions = await this.database
-			.select({id: questions.id})
+			.select(
+				{
+					id: questions.id,
+				},
+			)
 			.from(questions)
 			.where(eq(questions.batchId, batchId))
 			.orderBy(asc(questions.position));
 		const outstanding = (await this.getCurrentQuestions()).length;
-		const payload = JSON.stringify({
-			batch_id: batchId,
-			project: batch.project,
-			count: batchQuestions.length,
-			outstanding,
-		});
+		const payload = JSON.stringify(
+			{
+				batch_id: batchId,
+				project: batch.project,
+				count: batchQuestions.length,
+				outstanding,
+			},
+		);
 		return this.sendPush(payload, PUSH_TOPIC);
 	}
 
-	private async sendBatchClearPush(batchId: string): Promise<number> {
+	private async sendBatchClearPush(batchId: string): Promise<number>
+	{
 		const outstanding = (await this.getCurrentQuestions()).length;
 		// Each batch has its own clear topic so queued retractions cannot replace one another.
 		const topic = `clear-${(await hashToken(batchId)).slice(0, 26)}`;
-		return this.sendPush(JSON.stringify({type: "clear", batch_id: batchId, outstanding}), topic);
+		return this.sendPush(
+			JSON.stringify(
+				{
+					type: "clear",
+					batch_id: batchId,
+					outstanding,
+				},
+			),
+			topic,
+		);
 	}
 
-	private async sendPush(payload: string, topic: string): Promise<number> {
+	private async sendPush(payload: string, topic: string): Promise<number>
+	{
 		const deviceRows = await this.database.select().from(devices);
-		if (deviceRows.length === 0) {
+		if (deviceRows.length === 0)
+		{
 			return 0;
 		}
 		const vapidPrivateJwk = parseVapidJwk(this.env.VAPID_PRIVATE_JWK);
 		let delivered = 0;
-		for (const device of deviceRows) {
+		for (const device of deviceRows)
+		{
 			const stored: unknown = JSON.parse(device.pushSubscription);
 			const subscription = pushSubscriptionSchema.safeParse(stored);
-			if (!subscription.success) {
+			if (!subscription.success)
+			{
 				await this.database.delete(devices).where(eq(devices.id, device.id));
 				continue;
 			}
-			const request = await buildPushRequest({
-				subscription: subscription.data,
-				payload,
-				topic,
-				vapidPrivateJwk,
-				vapidSubject: this.env.VAPID_SUBJECT,
-			});
+			const request = await buildPushRequest(
+				{
+					subscription: subscription.data,
+					payload,
+					topic,
+					vapidPrivateJwk,
+					vapidSubject: this.env.VAPID_SUBJECT,
+				},
+			);
 			// 🚧 An unreachable push service must not fail the whole loop or the waitUntil.
 			let status = 0;
 			let detail = "";
 			let detailKind = "body";
-			try {
-				const response = await this.pushTransport(request.endpoint, {
-					headers: request.headers,
-					body: request.body,
-				});
+			try
+			{
+				const response = await this.pushTransport(
+					request.endpoint,
+					{
+						headers: request.headers,
+						body: request.body,
+					},
+				);
 				status = response.status;
-				if (status < 200 || status >= 300) {
+				if (status < 200 || status >= 300)
+				{
 					detail = await readPushFailureBody(response);
 				}
-			} catch (error) {
+			}
+			catch (error)
+			{
 				detailKind = "error";
 				detail = error instanceof Error ? error.message : String(error);
 			}
-			if (status < 200 || status >= 300) {
+			if (status < 200 || status >= 300)
+			{
 				const collapsed = detail.replace(/\s+/g, " ").trim();
 				const excerpt = collapsed.length > 200 ? `${collapsed.slice(0, 200)}…` : collapsed;
 				console.warn(
 					`[push] delivery failed origin=${new URL(request.endpoint).origin} status=${status} ${detailKind}=${excerpt}`,
 				);
 			}
-			if (status === 404 || status === 410) {
+			if (status === 404 || status === 410)
+			{
 				// 🧹 The push service says this subscription is gone for good.
 				await this.database.delete(devices).where(eq(devices.id, device.id));
-			} else if (status >= 200 && status < 300) {
+			}
+			else if (status >= 200 && status < 300)
+			{
 				delivered += 1;
 			}
 		}
 		return delivered;
 	}
 
-	override async fetch(request: Request): Promise<Response> {
+	override async fetch(request: Request): Promise<Response>
+	{
 		await this.initialize();
 		const url = new URL(request.url);
-		if (url.pathname === "/api/v1/current-deck/stream") {
-			if (request.headers.get("Upgrade") !== "websocket") {
-				return new Response(null, {status: 426});
+		if (url.pathname === "/api/v1/current-deck/stream")
+		{
+			if (request.headers.get("Upgrade") !== "websocket")
+			{
+				return new Response(
+					null,
+					{
+						status: 426,
+					},
+				);
 			}
 			const connectedMcpClientAuthorizationState = connectedMcpClientAuthorizationStateSchema.safeParse(
 				JSON.parse(request.headers.get("X-YepNope-Connected-Mcp-Client-Authorization") ?? "null") as unknown,
 			);
-			if (!connectedMcpClientAuthorizationState.success) {
-				return new Response(null, {status: 400});
+			if (!connectedMcpClientAuthorizationState.success)
+			{
+				return new Response(
+					null,
+					{
+						status: 400,
+					},
+				);
 			}
 			const pair = new WebSocketPair();
 			this.ctx.acceptWebSocket(pair[1], [CURRENT_DECK_SOCKET_TAG]);
-			pair[1].serializeAttachment({
-				connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationState.data,
-			} satisfies CurrentDeckSocketAttachment);
+			pair[1].serializeAttachment(
+				{
+					connectedMcpClientAuthorizationState: connectedMcpClientAuthorizationState.data,
+				} satisfies CurrentDeckSocketAttachment,
+			);
 			await this.sendCurrentDeckState(pair[1], connectedMcpClientAuthorizationState.data);
-			return new Response(null, {status: 101, webSocket: pair[0]});
+			return new Response(
+				null,
+				{
+					status: 101,
+					webSocket: pair[0],
+				},
+			);
 		}
 		const match = /^\/api\/v1\/questions\/([^/]+)\/stream$/.exec(url.pathname);
-		if (match === null) {
-			return new Response(null, {status: 404});
+		if (match === null)
+		{
+			return new Response(
+				null,
+				{
+					status: 404,
+				},
+			);
 		}
-		if (request.headers.get("Upgrade") !== "websocket") {
-			return new Response(null, {status: 426});
+		if (request.headers.get("Upgrade") !== "websocket")
+		{
+			return new Response(
+				null,
+				{
+					status: 426,
+				},
+			);
 		}
 		const batchId = match[1];
-		if (batchId === undefined || !(await this.batchExists(batchId))) {
-			return new Response(null, {status: 404});
+		if (batchId === undefined || !(await this.batchExists(batchId)))
+		{
+			return new Response(
+				null,
+				{
+					status: 404,
+				},
+			);
 		}
 		const pair = new WebSocketPair();
 		// 😴 Hibernation API: a held-open HTTP request is not hibernation eligible (spec §4.4).
 		this.ctx.acceptWebSocket(pair[1], [batchId]);
 		await this.sendCurrentState(pair[1], batchId);
-		return new Response(null, {status: 101, webSocket: pair[0]});
+		return new Response(
+			null,
+			{
+				status: 101,
+				webSocket: pair[0],
+			},
+		);
 	}
 
 	// 💓 Any inbound frame is a heartbeat (batch identifier option C in .llm/decisions.md).
-	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void> {
+	override async webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): Promise<void>
+	{
 		await this.initialize();
 		const batchId = this.ctx.getTags(socket)[0];
-		if (batchId === CURRENT_DECK_SOCKET_TAG) {
+		if (batchId === CURRENT_DECK_SOCKET_TAG)
+		{
 			await this.sendCurrentDeckState(socket, this.getSocketConnectedMcpClientAuthorizationState(socket));
 			return;
 		}
-		if (batchId === undefined || !(await this.batchExists(batchId))) {
+		if (batchId === undefined || !(await this.batchExists(batchId)))
+		{
 			this.sendWebSocketFrame(
 				socket,
 				errorFrame(batchId ?? "unknown", {}, "unknown_batch", "this batch no longer exists"),
@@ -670,17 +956,29 @@ export class UserDurableObject extends DurableObject<Env> {
 			socket.close(1008, "unknown batch");
 			return;
 		}
-		await this.database.update(batches).set({lastHeartbeatAt: Date.now()}).where(eq(batches.id, batchId));
+		await this.database
+			.update(batches)
+			.set(
+				{
+					lastHeartbeatAt: Date.now(),
+				},
+			)
+			.where(eq(batches.id, batchId));
 		await this.sendCurrentState(socket, batchId);
 	}
 
 	// 🗑️ The single DO alarm serves two deadlines: 7 day retention (spec §13.1) and
 	// heartbeat-and-delete retraction (option C in .llm/decisions.md, spec §5).
-	override async alarm(): Promise<void> {
+	override async alarm(): Promise<void>
+	{
 		await this.initialize();
 		const now = Date.now();
 		const expired = await this.database
-			.select({id: batches.id})
+			.select(
+				{
+					id: batches.id,
+				},
+			)
 			.from(batches)
 			.where(lte(batches.createdAt, now - RETENTION_MILLISECONDS));
 		await this.deleteBatches(
@@ -694,7 +992,11 @@ export class UserDurableObject extends DurableObject<Env> {
 		// user answer into a void. Resolved batches keep their answers until retention so a
 		// returning agent can still collect them.
 		const stale = await this.database
-			.selectDistinct({id: batches.id})
+			.selectDistinct(
+				{
+					id: batches.id,
+				},
+			)
 			.from(batches)
 			.innerJoin(questions, eq(questions.batchId, batches.id))
 			.leftJoin(answers, eq(answers.questionId, questions.id))
@@ -709,28 +1011,52 @@ export class UserDurableObject extends DurableObject<Env> {
 		await this.armNextDeadline();
 	}
 
-	async getRedactedStorageDiagnostics(): Promise<RedactedStorageDiagnostics> {
+	async getRedactedStorageDiagnostics(): Promise<RedactedStorageDiagnostics>
+	{
 		await this.initialize();
 		const tables = this.ctx.storage.sql
-			.exec<{name: string}>("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+			.exec<
+			{
+				name: string;
+			}>("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
 			.toArray()
 			.filter(({name}) => !name.startsWith("_cf_"));
-		const tableCounts = tables.map(({name}) => {
-			if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+		const tableCounts = tables.map(({name}) =>
+		{
+			if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+			{
 				throw new Error("Durable Object contains an unsupported table name");
 			}
-			const row = this.ctx.storage.sql.exec<{rows: number}>(`SELECT count(*) AS rows FROM "${name}"`).one();
-			return {name, rows: row.rows};
+			const row = this.ctx.storage.sql
+				.exec<
+				{
+					rows: number;
+				}>(`SELECT count(*) AS rows FROM "${name}"`)
+				.one();
+			return {
+				name,
+				rows: row.rows,
+			};
 		});
-		return {alarm_set: (await this.ctx.storage.getAlarm()) !== null, table_counts: tableCounts};
+		return {
+			alarm_set: (await this.ctx.storage.getAlarm()) !== null,
+			table_counts: tableCounts,
+		};
 	}
 
-	async deleteAll(): Promise<{deleted: true}> {
-		for (const socket of this.ctx.getWebSockets()) {
+	async deleteAll(): Promise<
+	{
+		deleted: true;
+	}>
+	{
+		for (const socket of this.ctx.getWebSockets())
+		{
 			socket.close(1000, "identity deleted");
 		}
 		await this.ctx.storage.deleteAll();
-		return {deleted: true};
+		return {
+			deleted: true,
+		};
 	}
 
 	private async deleteBatches(
@@ -739,28 +1065,48 @@ export class UserDurableObject extends DurableObject<Env> {
 		code: string,
 		message: string,
 		closeReason: string,
-	): Promise<void> {
-		if (batchIds.length === 0) {
+	): Promise<void>
+	{
+		if (batchIds.length === 0)
+		{
 			return;
 		}
-		const socketClosures: Array<{sockets: WebSocket[]; frame: string}> = [];
-		for (const batchId of batchIds) {
+		const socketClosures: Array<
+		{
+			sockets: WebSocket[];
+			frame: string;
+		}> = [];
+		for (const batchId of batchIds)
+		{
 			const dispositions = await this.batchDispositions(batchId);
-			socketClosures.push({
-				sockets: this.ctx.getWebSockets(batchId),
-				frame: errorFrame(batchId, dispositions, code, message),
-			});
+			socketClosures.push(
+				{
+					sockets: this.ctx.getWebSockets(batchId),
+					frame: errorFrame(batchId, dispositions, code, message),
+				},
+			);
 		}
 		const doomedQuestions = await this.database
-			.select({id: questions.id})
+			.select(
+				{
+					id: questions.id,
+				},
+			)
 			.from(questions)
 			.where(inArray(questions.batchId, batchIds));
 		const doomedQuestionIds = doomedQuestions.map((row) => row.id);
-		this.database.transaction((transaction) => {
-			if (doomedQuestionIds.length > 0) {
+		this.database.transaction((transaction) =>
+		{
+			if (doomedQuestionIds.length > 0)
+			{
 				transaction
 					.update(questionActivity)
-					.set({outcome: activityOutcome, outcomeAt: Date.now()})
+					.set(
+						{
+							outcome: activityOutcome,
+							outcomeAt: Date.now(),
+						},
+					)
 					.where(
 						and(
 							inArray(questionActivity.questionId, doomedQuestionIds),
@@ -773,71 +1119,107 @@ export class UserDurableObject extends DurableObject<Env> {
 			transaction.delete(questions).where(inArray(questions.batchId, batchIds)).run();
 			transaction.delete(batches).where(inArray(batches.id, batchIds)).run();
 		});
-		for (const closure of socketClosures) {
-			for (const socket of closure.sockets) {
+		for (const closure of socketClosures)
+		{
+			for (const socket of closure.sockets)
+			{
 				this.sendWebSocketFrame(socket, closure.frame);
 				socket.close(1000, closeReason);
 			}
 		}
 		await this.broadcastCurrentDeckState();
-		for (const batchId of batchIds) {
+		for (const batchId of batchIds)
+		{
 			await this.sendBatchClearPush(batchId);
 		}
 	}
 
 	// ⏰ Re-arm for whichever deadline comes sooner: retention on any batch, or heartbeat
 	// staleness on a batch that still has unanswered questions.
-	private async armNextDeadline(): Promise<void> {
-		const oldestCreated = await this.database.select({value: min(batches.createdAt)}).from(batches);
+	private async armNextDeadline(): Promise<void>
+	{
+		const oldestCreated = await this.database
+			.select(
+				{
+					value: min(batches.createdAt),
+				},
+			)
+			.from(batches);
 		const oldestUnresolvedHeartbeat = await this.database
-			.select({value: min(batches.lastHeartbeatAt)})
+			.select(
+				{
+					value: min(batches.lastHeartbeatAt),
+				},
+			)
 			.from(batches)
 			.innerJoin(questions, eq(questions.batchId, batches.id))
 			.leftJoin(answers, eq(answers.questionId, questions.id))
 			.where(isNull(answers.questionId));
 		const deadlines: number[] = [];
 		const createdAt = oldestCreated[0]?.value;
-		if (createdAt !== null && createdAt !== undefined) {
+		if (createdAt !== null && createdAt !== undefined)
+		{
 			deadlines.push(createdAt + RETENTION_MILLISECONDS);
 		}
 		const heartbeatAt = oldestUnresolvedHeartbeat[0]?.value;
-		if (heartbeatAt !== null && heartbeatAt !== undefined) {
+		if (heartbeatAt !== null && heartbeatAt !== undefined)
+		{
 			deadlines.push(heartbeatAt + HEARTBEAT_GRACE_MILLISECONDS);
 		}
-		if (deadlines.length > 0) {
+		if (deadlines.length > 0)
+		{
 			await this.ctx.storage.setAlarm(Math.min(...deadlines));
 		}
 	}
 
-	private async armAlarm(expiry: number): Promise<void> {
+	private async armAlarm(expiry: number): Promise<void>
+	{
 		const current = await this.ctx.storage.getAlarm();
-		if (current === null || current > expiry) {
+		if (current === null || current > expiry)
+		{
 			await this.ctx.storage.setAlarm(expiry);
 		}
 	}
 
-	private async batchExists(batchId: string): Promise<boolean> {
-		const rows = await this.database.select({id: batches.id}).from(batches).where(eq(batches.id, batchId));
+	private async batchExists(batchId: string): Promise<boolean>
+	{
+		const rows = await this.database
+			.select(
+				{
+					id: batches.id,
+				},
+			)
+			.from(batches)
+			.where(eq(batches.id, batchId));
 		return rows.length > 0;
 	}
 
-	private async batchDispositions(batchId: string): Promise<DispositionMap> {
+	private async batchDispositions(batchId: string): Promise<DispositionMap>
+	{
 		const rows = await this.database
-			.select({questionId: questions.id, disposition: answers.disposition})
+			.select(
+				{
+					questionId: questions.id,
+					disposition: answers.disposition,
+				},
+			)
 			.from(questions)
 			.leftJoin(answers, eq(answers.questionId, questions.id))
 			.where(eq(questions.batchId, batchId))
 			.orderBy(asc(questions.position));
 		const dispositions: DispositionMap = {};
-		for (const row of rows) {
+		for (const row of rows)
+		{
 			dispositions[row.questionId] = row.disposition === null ? null : dispositionSchema.parse(row.disposition);
 		}
 		return dispositions;
 	}
 
-	private async sendCurrentState(socket: WebSocket, batchId: string): Promise<void> {
+	private async sendCurrentState(socket: WebSocket, batchId: string): Promise<void>
+	{
 		const dispositions = await this.batchDispositions(batchId);
-		if (isComplete(dispositions)) {
+		if (isComplete(dispositions))
+		{
 			this.sendWebSocketFrame(socket, resolvedFrame(batchId, dispositions));
 			socket.close(1000, "resolved");
 			return;
@@ -848,42 +1230,52 @@ export class UserDurableObject extends DurableObject<Env> {
 	private async sendCurrentDeckState(
 		socket: WebSocket,
 		connectedMcpClientAuthorizationState: ConnectedMcpClientAuthorizationState,
-	): Promise<void> {
+	): Promise<void>
+	{
 		this.sendWebSocketFrame(
 			socket,
 			JSON.stringify(await this.getCurrentDeckState(connectedMcpClientAuthorizationState)),
 		);
 	}
 
-	private async broadcastCurrentDeckState(): Promise<void> {
+	private async broadcastCurrentDeckState(): Promise<void>
+	{
 		const sockets = this.ctx.getWebSockets(CURRENT_DECK_SOCKET_TAG);
-		if (sockets.length === 0) {
+		if (sockets.length === 0)
+		{
 			return;
 		}
-		for (const socket of sockets) {
+		for (const socket of sockets)
+		{
 			await this.sendCurrentDeckState(socket, this.getSocketConnectedMcpClientAuthorizationState(socket));
 		}
 	}
 
-	private getSocketConnectedMcpClientAuthorizationState(socket: WebSocket): ConnectedMcpClientAuthorizationState {
+	private getSocketConnectedMcpClientAuthorizationState(socket: WebSocket): ConnectedMcpClientAuthorizationState
+	{
 		return currentDeckSocketAttachmentSchema.parse(socket.deserializeAttachment())
 			.connectedMcpClientAuthorizationState;
 	}
 
-	private async broadcastBatchState(batchId: string): Promise<void> {
+	private async broadcastBatchState(batchId: string): Promise<void>
+	{
 		const dispositions = await this.batchDispositions(batchId);
 		const complete = isComplete(dispositions);
 		const frame = complete ? resolvedFrame(batchId, dispositions) : stateFrame(batchId, dispositions);
-		for (const socket of this.ctx.getWebSockets(batchId)) {
+		for (const socket of this.ctx.getWebSockets(batchId))
+		{
 			this.sendWebSocketFrame(socket, frame);
-			if (complete) {
+			if (complete)
+			{
 				socket.close(1000, "resolved");
 			}
 		}
 	}
 
-	private sendWebSocketFrame(socket: WebSocket, frame: string | ArrayBuffer | ArrayBufferView): void {
-		if (socket.readyState !== WebSocket.OPEN) {
+	private sendWebSocketFrame(socket: WebSocket, frame: string | ArrayBuffer | ArrayBufferView): void
+	{
+		if (socket.readyState !== WebSocket.OPEN)
+		{
 			return;
 		}
 		socket.send(frame);

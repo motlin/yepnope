@@ -10,7 +10,8 @@ const OAUTH_SCOPE_SET: ReadonlySet<string> = new Set(OAUTH_SCOPES);
 
 const storedStringArraySchema = z.array(z.string());
 
-interface DeviceCodeRow {
+interface DeviceCodeRow
+{
 	expires_at: number;
 	id: string;
 	oauth_client_id: string | null;
@@ -21,7 +22,8 @@ interface DeviceCodeRow {
 	client_name: string | null;
 }
 
-export interface PendingDeviceAuthorization {
+export interface PendingDeviceAuthorization
+{
 	clientName: string;
 	scopes: string[];
 	userCode: string;
@@ -30,30 +32,60 @@ export interface PendingDeviceAuthorization {
 export type DeviceAuthorizationDecision = "approved" | "denied";
 
 export type DeviceAuthorizationLookup =
-	| {status: "pending"; authorization: PendingDeviceAuthorization}
-	| {status: "decided"; decision: DeviceAuthorizationDecision}
-	| {status: "expired"}
-	| {status: "not_found"};
+	|
+	  {
+			status: "pending";
+			authorization: PendingDeviceAuthorization;
+	  }
+	|
+	  {
+			status: "decided";
+			decision: DeviceAuthorizationDecision;
+	  }
+	|
+	  {
+			status: "expired";
+	  }
+	|
+	  {
+			status: "not_found";
+	  };
 
 export type DeviceAuthorizationResult =
-	| {status: "decided"; decision: DeviceAuthorizationDecision}
-	| {status: "expired"}
-	| {status: "not_found"}
-	| {status: "taken"};
+	|
+	  {
+			status: "decided";
+			decision: DeviceAuthorizationDecision;
+	  }
+	|
+	  {
+			status: "expired";
+	  }
+	|
+	  {
+			status: "not_found";
+	  }
+	|
+	  {
+			status: "taken";
+	  };
 
 /**
  * The same normalization Better Auth applies when it looks a code up, so a code typed with the
  * dash it was displayed with, or in lower case, finds the row it names.
  */
-function normalizeUserCode(userCode: string): string {
+function normalizeUserCode(userCode: string): string
+{
 	return userCode.replaceAll(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
 
-function parseStoredStringArray(value: string | null): string[] {
+function parseStoredStringArray(value: string | null): string[]
+{
 	return value === null ? [] : storedStringArraySchema.parse(JSON.parse(value) as unknown);
 }
 
-async function findDeviceCode(database: D1Database, userCode: string): Promise<DeviceCodeRow | null> {
+async function findDeviceCode(database: D1Database, userCode: string): Promise<DeviceCodeRow | null>
+{
 	return database
 		.prepare(
 			"SELECT code.id, code.expires_at, code.oauth_client_id, code.resources, code.scope, " +
@@ -65,15 +97,28 @@ async function findDeviceCode(database: D1Database, userCode: string): Promise<D
 		.first<DeviceCodeRow>();
 }
 
-function grantedScopes(row: DeviceCodeRow): string[] {
+function grantedScopes(row: DeviceCodeRow): string[]
+{
 	return (row.scope ?? "")
 		.split(" ")
 		.filter((scope) => OAUTH_SCOPE_SET.has(scope))
 		.sort();
 }
 
-type UnavailableDeviceCode = Exclude<DeviceAuthorizationLookup, {status: "pending"}>;
-type ClaimedDeviceCode = UnavailableDeviceCode | {status: "pending"; clientId: string; row: DeviceCodeRow};
+type UnavailableDeviceCode = Exclude<
+	DeviceAuthorizationLookup,
+	{
+		status: "pending";
+	}
+>;
+type ClaimedDeviceCode =
+	| UnavailableDeviceCode
+	|
+	  {
+			status: "pending";
+			clientId: string;
+			row: DeviceCodeRow;
+	  };
 
 /**
  * Resolves a typed code to the row this account is allowed to decide.
@@ -88,39 +133,66 @@ async function claimDeviceCode(
 	userCode: string,
 	resource: string,
 	now: number,
-): Promise<ClaimedDeviceCode> {
+): Promise<ClaimedDeviceCode>
+{
 	const normalized = normalizeUserCode(userCode);
 	const found = await findDeviceCode(database, normalized);
 	const clientId = found?.oauth_client_id ?? null;
 	// A code that never asked for this deployment's resource would mint a token that authorizes
 	// nothing, so it is not something to put in front of a person as a decision.
-	if (found === null || clientId === null || !parseStoredStringArray(found.resources).includes(resource)) {
-		return {status: "not_found"};
+	if (found === null || clientId === null || !parseStoredStringArray(found.resources).includes(resource))
+	{
+		return {
+			status: "not_found",
+		};
 	}
-	if (found.expires_at <= now) {
-		return {status: "expired"};
+	if (found.expires_at <= now)
+	{
+		return {
+			status: "expired",
+		};
 	}
-	if (found.user_id === null && found.status === "pending") {
+	if (found.user_id === null && found.status === "pending")
+	{
 		const claimed = await database
 			.prepare("UPDATE device_code SET user_id = ? WHERE id = ? AND status = 'pending' AND user_id IS NULL")
 			.bind(userId, found.id)
 			.run();
-		if (claimed.meta.changes === 0) {
-			return {status: "not_found"};
+		if (claimed.meta.changes === 0)
+		{
+			return {
+				status: "not_found",
+			};
 		}
 		found.user_id = userId;
 	}
-	if (found.user_id !== userId) {
-		return {status: "not_found"};
+	if (found.user_id !== userId)
+	{
+		return {
+			status: "not_found",
+		};
 	}
-	if (found.status === "approved" || found.status === "denied") {
-		return {status: "decided", decision: found.status};
+	if (found.status === "approved" || found.status === "denied")
+	{
+		return {
+			status: "decided",
+			decision: found.status,
+		};
 	}
-	return {status: "pending", clientId, row: found};
+	return {
+		status: "pending",
+		clientId,
+		row: found,
+	};
 }
 
-function pendingAuthorization(row: DeviceCodeRow, userCode: string): PendingDeviceAuthorization {
-	return {clientName: row.client_name ?? "A device", scopes: grantedScopes(row), userCode};
+function pendingAuthorization(row: DeviceCodeRow, userCode: string): PendingDeviceAuthorization
+{
+	return {
+		clientName: row.client_name ?? "A device",
+		scopes: grantedScopes(row),
+		userCode,
+	};
 }
 
 /** What the account holder is being asked to authorize. */
@@ -130,10 +202,15 @@ export async function lookupDeviceAuthorization(
 	userCode: string,
 	resource: string,
 	now: number,
-): Promise<DeviceAuthorizationLookup> {
+): Promise<DeviceAuthorizationLookup>
+{
 	const claimed = await claimDeviceCode(database, userId, userCode, resource, now);
 	return "row" in claimed
-		? {status: "pending", authorization: pendingAuthorization(claimed.row, normalizeUserCode(userCode))}
+		?
+			{
+				status: "pending",
+				authorization: pendingAuthorization(claimed.row, normalizeUserCode(userCode)),
+			}
 		: claimed;
 }
 
@@ -149,9 +226,11 @@ export async function decideDeviceAuthorization(
 	decision: DeviceAuthorizationDecision,
 	resource: string,
 	now: number,
-): Promise<DeviceAuthorizationResult> {
+): Promise<DeviceAuthorizationResult>
+{
 	const claimed = await claimDeviceCode(database, userId, userCode, resource, now);
-	if (!("row" in claimed)) {
+	if (!("row" in claimed))
+	{
 		return claimed;
 	}
 	const {clientId, row} = claimed;
@@ -160,7 +239,8 @@ export async function decideDeviceAuthorization(
 			.prepare("UPDATE device_code SET status = ?, user_id = ? WHERE id = ? AND status = 'pending'")
 			.bind(decision, userId, row.id),
 	];
-	if (decision === "approved") {
+	if (decision === "approved")
+	{
 		statements.unshift(
 			database.prepare("DELETE FROM oauth_consent WHERE client_id = ? AND user_id = ?").bind(clientId, userId),
 			database
@@ -182,8 +262,18 @@ export async function decideDeviceAuthorization(
 	}
 	const results = await database.batch(statements);
 	const decided = results.at(-1);
-	if (decided === undefined) {
+	if (decided === undefined)
+	{
 		throw new Error("device authorization batch returned an incomplete result");
 	}
-	return decided.meta.changes === 1 ? {status: "decided", decision} : {status: "taken"};
+	return decided.meta.changes === 1
+		?
+			{
+				status: "decided",
+				decision,
+			}
+		:
+			{
+				status: "taken",
+			};
 }

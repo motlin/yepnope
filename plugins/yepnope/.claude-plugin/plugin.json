@@ -4,7 +4,8 @@
 	"displayName": "YepNope",
 	"version": "0.1.2",
 	"description": "Route brief yes-or-no coding-agent questions to your phone.",
-	"author": {
+	"author":
+	{
 		"name": "YepNope"
 	},
 	"homepage": "https://yepnope.app",

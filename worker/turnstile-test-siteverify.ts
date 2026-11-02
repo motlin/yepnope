@@ -9,7 +9,8 @@ import type {TurnstileSiteverify} from "./turnstile";
 // Nothing in `worker/index.ts` reaches this file. Production always talks to the real endpoint.
 
 /** Cloudflare's documented Turnstile test keys. https://developers.cloudflare.com/turnstile/troubleshooting/testing/ */
-export const TURNSTILE_TEST_KEYS = {
+export const TURNSTILE_TEST_KEYS =
+{
 	// Visible widget that always passes without an interaction.
 	alwaysPassesSiteKey: "1x00000000000000000000AA",
 	// Visible widget that always refuses to issue a token.
@@ -27,73 +28,109 @@ export const TURNSTILE_TEST_KEYS = {
  */
 const TEST_TOKEN_PREFIX = "yepnope-test-turnstile.";
 
-const tokenClaimsSchema = z.object({
-	action: z.string(),
-	expired: z.boolean().optional(),
-	hostname: z.string(),
-	nonce: z.string(),
-});
+const tokenClaimsSchema = z.object(
+	{
+		action: z.string(),
+		expired: z.boolean().optional(),
+		hostname: z.string(),
+		nonce: z.string(),
+	},
+);
 
 type TokenClaims = z.infer<typeof tokenClaimsSchema>;
 
-export function testTurnstileToken(claims: Omit<TokenClaims, "nonce"> & {nonce?: string}): string {
-	return `${TEST_TOKEN_PREFIX}${btoa(JSON.stringify({nonce: crypto.randomUUID(), ...claims}))}`;
+export function testTurnstileToken(
+	claims: Omit<TokenClaims, "nonce"> &
+	{
+		nonce?: string;
+	},
+): string
+{
+	return `${TEST_TOKEN_PREFIX}${btoa(
+		JSON.stringify(
+			{
+				nonce: crypto.randomUUID(),
+				...claims,
+			},
+		),
+	)}`;
 }
 
-function testTurnstileClaims(token: string): TokenClaims | null {
-	if (!token.startsWith(TEST_TOKEN_PREFIX)) {
+function testTurnstileClaims(token: string): TokenClaims | null
+{
+	if (!token.startsWith(TEST_TOKEN_PREFIX))
+	{
 		return null;
 	}
-	try {
+	try
+	{
 		const parsed = tokenClaimsSchema.safeParse(JSON.parse(atob(token.slice(TEST_TOKEN_PREFIX.length))));
 		return parsed.success ? parsed.data : null;
-	} catch {
+	}
+	catch
+	{
 		return null;
 	}
 }
 
-function refusal(...errorCodes: string[]): Response {
-	return Response.json({"error-codes": errorCodes, success: false});
+function refusal(...errorCodes: string[]): Response
+{
+	return Response.json(
+		{
+			"error-codes": errorCodes,
+			success: false,
+		},
+	);
 }
 
 /**
  * One redemption ledger per instance, so a replayed token is refused for the same reason Cloudflare
  * refuses it: the token was already spent.
  */
-export function createTestSiteverify(): TurnstileSiteverify {
+export function createTestSiteverify(): TurnstileSiteverify
+{
 	const spent = new Set<string>();
 	return {
-		fetch: async (request) => {
+		fetch: async (request) =>
+		{
 			const body = await request.formData();
 			const secret = body.get("secret")?.toString() ?? "";
 			const token = body.get("response")?.toString() ?? "";
-			if (secret === TURNSTILE_TEST_KEYS.alwaysFailsSecretKey) {
+			if (secret === TURNSTILE_TEST_KEYS.alwaysFailsSecretKey)
+			{
 				return refusal("invalid-input-response");
 			}
-			if (secret === TURNSTILE_TEST_KEYS.alwaysSpentSecretKey) {
+			if (secret === TURNSTILE_TEST_KEYS.alwaysSpentSecretKey)
+			{
 				return refusal("timeout-or-duplicate");
 			}
-			if (secret !== TURNSTILE_TEST_KEYS.alwaysPassesSecretKey) {
+			if (secret !== TURNSTILE_TEST_KEYS.alwaysPassesSecretKey)
+			{
 				return refusal("invalid-input-secret");
 			}
-			if (token === "") {
+			if (token === "")
+			{
 				return refusal("missing-input-response");
 			}
 			const claims = testTurnstileClaims(token);
-			if (claims === null) {
+			if (claims === null)
+			{
 				return refusal("invalid-input-response");
 			}
-			if (claims.expired === true || spent.has(token)) {
+			if (claims.expired === true || spent.has(token))
+			{
 				return refusal("timeout-or-duplicate");
 			}
 			spent.add(token);
-			return Response.json({
-				action: claims.action,
-				challenge_ts: new Date().toISOString(),
-				"error-codes": [],
-				hostname: claims.hostname,
-				success: true,
-			});
+			return Response.json(
+				{
+					action: claims.action,
+					challenge_ts: new Date().toISOString(),
+					"error-codes": [],
+					hostname: claims.hostname,
+					success: true,
+				},
+			);
 		},
 	};
 }

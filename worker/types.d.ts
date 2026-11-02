@@ -1,4 +1,5 @@
-declare module "*.sql" {
+declare module "*.sql"
+{
 	const content: string;
 	export default content;
 }
@@ -13,27 +14,40 @@ declare module "*.sql" {
 // TURNSTILE_SITEVERIFY is a binding, not a var, and no Wrangler configuration declares it. Only the
 // browser end-to-end Worker supplies one, so that its Playwright suite can redeem tokens in process
 // instead of reaching Cloudflare.
-interface Env {
+interface Env
+{
 	BETTER_AUTH_SECRET: string;
 	GITHUB_CLIENT_ID?: string | undefined;
 	GITHUB_CLIENT_SECRET?: string | undefined;
 	GOOGLE_CLIENT_ID?: string | undefined;
 	GOOGLE_CLIENT_SECRET?: string | undefined;
 	TURNSTILE_SECRET_KEY?: string | undefined;
-	TURNSTILE_SITEVERIFY?: {fetch: (request: Request) => Promise<Response>} | undefined;
+	TURNSTILE_SITEVERIFY?:
+		|
+		  {
+				fetch: (request: Request) => Promise<Response>;
+		  }
+		| undefined;
 	TURNSTILE_SITE_KEY?: string | undefined;
 	VAPID_PRIVATE_JWK: string;
 }
 
-declare namespace Cloudflare {
-	interface Env {
+declare namespace Cloudflare
+{
+	interface Env
+	{
 		BETTER_AUTH_SECRET: string;
 		GITHUB_CLIENT_ID?: string | undefined;
 		GITHUB_CLIENT_SECRET?: string | undefined;
 		GOOGLE_CLIENT_ID?: string | undefined;
 		GOOGLE_CLIENT_SECRET?: string | undefined;
 		TURNSTILE_SECRET_KEY?: string | undefined;
-		TURNSTILE_SITEVERIFY?: {fetch: (request: Request) => Promise<Response>} | undefined;
+		TURNSTILE_SITEVERIFY?:
+			|
+			  {
+					fetch: (request: Request) => Promise<Response>;
+			  }
+			| undefined;
 		TURNSTILE_SITE_KEY?: string | undefined;
 		VAPID_PRIVATE_JWK: string;
 	}

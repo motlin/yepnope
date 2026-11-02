@@ -1,5 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
-import {
+import
+{
 	planRelease,
 	releaseMain,
 	runRelease,
@@ -16,8 +17,12 @@ const PENDING_ANNOTATION = `YepNope release ${TAG}\n\nDeploying commit abc1234 t
 const RELEASED_ANNOTATION =
 	`YepNope release ${TAG}\n\nDeployed commit abc1234 to yepnope.app.\n` + `cloudflare_version_id: ${VERSION_ID}\n`;
 
-function ok(output = ""): CommandResult {
-	return {code: 0, output};
+function ok(output = ""): CommandResult
+{
+	return {
+		code: 0,
+		output,
+	};
 }
 
 const CLEAN_TREE = ok();
@@ -45,7 +50,8 @@ const PLAN_CALLS = [
 // what each missing one does; these only have to get the release past the gate.
 const CONFIGURED_SECRETS = ok(
 	JSON.stringify(
-		["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"].map((name) => ({
+		["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"].map((name) => (
+		{
 			name,
 			type: "secret_text",
 		})),
@@ -100,15 +106,18 @@ const REHEARSAL_CALLS = [
 	["just", ["check-deployment", STAGING_ORIGIN]],
 ];
 
-function releaseRunner(results: CommandResult[]) {
+function releaseRunner(results: CommandResult[])
+{
 	const run = vi.fn<ReleaseDependencies["run"]>();
-	for (const result of results) {
+	for (const result of results)
+	{
 		run.mockResolvedValueOnce(result);
 	}
 	return run;
 }
 
-function dependencies(run: ReturnType<typeof releaseRunner>): ReleaseDependencies {
+function dependencies(run: ReturnType<typeof releaseRunner>): ReleaseDependencies
+{
 	return {
 		now: () => NOW,
 		readTextFile: vi.fn<ReleaseDependencies["readTextFile"]>().mockResolvedValue(STAGING_CONFIGURATION),
@@ -116,43 +125,72 @@ function dependencies(run: ReturnType<typeof releaseRunner>): ReleaseDependencie
 	};
 }
 
-describe("just release", () => {
+describe("just release", () =>
+{
 	it.each([
-		{arguments: [], command: "op run -- just release"},
-		{arguments: ["--dry-run"], command: "op run -- just release --dry-run"},
-	])("refuses unresolved references and suggests $command", async ({arguments: commandArguments, command}) => {
+		{
+			arguments: [],
+			command: "op run -- just release",
+		},
+		{
+			arguments: ["--dry-run"],
+			command: "op run -- just release --dry-run",
+		},
+	])("refuses unresolved references and suggests $command", async ({arguments: commandArguments, command}) =>
+	{
 		using output = vi.spyOn(console, "error").mockImplementation(() => {});
 		const run = releaseRunner([]);
 
 		const result = await releaseMain(
 			dependencies(run),
-			{CLOUDFLARE_API_TOKEN: "op://Example/Cloudflare/token"},
+			{
+				CLOUDFLARE_API_TOKEN: "op://Example/Cloudflare/token",
+			},
 			commandArguments,
 		);
 
-		expect({code: result, calls: run.mock.calls, output: output.mock.calls}).toStrictEqual({
-			code: 1,
-			calls: [],
-			output: [[`Unresolved 1Password secret references in the environment. Run \`${command}\` instead.`]],
-		});
+		expect(
+			{
+				code: result,
+				calls: run.mock.calls,
+				output: output.mock.calls,
+			},
+		).toStrictEqual(
+			{
+				code: 1,
+				calls: [],
+				output: [[`Unresolved 1Password secret references in the environment. Run \`${command}\` instead.`]],
+			},
+		);
 	});
 
-	it.each([{}, {CLOUDFLARE_API_TOKEN: "example-resolved-token"}])(
-		"runs the preflight directly without secret references: %j",
-		async (environment) => {
-			using _output = vi.spyOn(console, "log").mockImplementation(() => {});
-			const run = releaseRunner([CLEAN_TREE, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, UNUSED_TAG, ...PREFLIGHT]);
+	it.each([
+		{},
+		{
+			CLOUDFLARE_API_TOKEN: "example-resolved-token",
+		},
+	])("runs the preflight directly without secret references: %j", async (environment) =>
+	{
+		using _output = vi.spyOn(console, "log").mockImplementation(() => {});
+		const run = releaseRunner([CLEAN_TREE, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, UNUSED_TAG, ...PREFLIGHT]);
 
-			const result = await releaseMain(dependencies(run), environment, ["--dry-run"]);
+		const result = await releaseMain(dependencies(run), environment, ["--dry-run"]);
 
-			expect({code: result, calls: run.mock.calls}).toStrictEqual({
+		expect(
+			{
+				code: result,
+				calls: run.mock.calls,
+			},
+		).toStrictEqual(
+			{
 				code: 0,
 				calls: [...PLAN_CALLS, ...PREFLIGHT_CALLS],
-			});
-		},
-	);
+			},
+		);
+	});
 
-	it.each([0, 1])("keeps stderr diagnostics out of parsed command output with exit code %i", async (code) => {
+	it.each([0, 1])("keeps stderr diagnostics out of parsed command output with exit code %i", async (code) =>
+	{
 		using diagnostics = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
 		const result = await spawnCommand(process.execPath, [
@@ -160,11 +198,17 @@ describe("just release", () => {
 			`process.stdout.write("stdout\\n"); process.stderr.write("diagnostic\\n"); process.exitCode = ${code};`,
 		]);
 
-		expect(result).toStrictEqual({code, output: "stdout\n"});
+		expect(result).toStrictEqual(
+			{
+				code,
+				output: "stdout\n",
+			},
+		);
 		expect(diagnostics.mock.calls.flat().join("").split("\n").sort()).toStrictEqual(["", "diagnostic", "stdout"]);
 	});
 
-	it("plans a clean release when Git prints a filesystem monitor diagnostic", async () => {
+	it("plans a clean release when Git prints a filesystem monitor diagnostic", async () =>
+	{
 		using diagnostics = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		const diagnostic = "error: fsmonitor_ipc__send_query: unspecified error on '.git/fsmonitor--daemon.ipc'\n";
 		const status = await spawnCommand(process.execPath, [
@@ -174,23 +218,33 @@ describe("just release", () => {
 		]);
 		const run = releaseRunner([status, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, UNUSED_TAG]);
 
-		expect(await planRelease(dependencies(run))).toStrictEqual({commit: "abc1234", remote: "origin", tag: TAG});
+		expect(await planRelease(dependencies(run))).toStrictEqual(
+			{
+				commit: "abc1234",
+				remote: "origin",
+				tag: TAG,
+			},
+		);
 		expect(run.mock.calls).toStrictEqual(PLAN_CALLS);
 		expect(diagnostics.mock.calls.flat().join("")).toBe(diagnostic);
 	});
 
-	it("plans a release from the date and the commit without touching the repository", async () => {
+	it("plans a release from the date and the commit without touching the repository", async () =>
+	{
 		const run = releaseRunner([CLEAN_TREE, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, UNUSED_TAG]);
 
-		expect(await planRelease(dependencies(run))).toStrictEqual({
-			commit: "abc1234",
-			remote: "origin",
-			tag: TAG,
-		});
+		expect(await planRelease(dependencies(run))).toStrictEqual(
+			{
+				commit: "abc1234",
+				remote: "origin",
+				tag: TAG,
+			},
+		);
 		expect(run.mock.calls).toStrictEqual(PLAN_CALLS);
 	});
 
-	it("verifies, tags, deploys, records the version id, and pushes the tag last", async () => {
+	it("verifies, tags, deploys, records the version id, and pushes the tag last", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -208,12 +262,14 @@ describe("just release", () => {
 			PUSHED,
 		]);
 
-		expect(await runRelease(dependencies(run))).toStrictEqual({
-			commit: "abc1234",
-			remote: "origin",
-			tag: TAG,
-			version_id: VERSION_ID,
-		});
+		expect(await runRelease(dependencies(run))).toStrictEqual(
+			{
+				commit: "abc1234",
+				remote: "origin",
+				tag: TAG,
+				version_id: VERSION_ID,
+			},
+		);
 		expect(run.mock.calls).toStrictEqual([
 			...PLAN_CALLS,
 			...PREFLIGHT_CALLS,
@@ -226,7 +282,8 @@ describe("just release", () => {
 		]);
 	});
 
-	it("applies unapplied migrations once staging has proven the tree, before anything is tagged", async () => {
+	it("applies unapplied migrations once staging has proven the tree, before anything is tagged", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -249,12 +306,14 @@ describe("just release", () => {
 			PUSHED,
 		]);
 
-		expect(await runRelease(dependencies(run))).toStrictEqual({
-			commit: "abc1234",
-			remote: "origin",
-			tag: TAG,
-			version_id: VERSION_ID,
-		});
+		expect(await runRelease(dependencies(run))).toStrictEqual(
+			{
+				commit: "abc1234",
+				remote: "origin",
+				tag: TAG,
+				version_id: VERSION_ID,
+			},
+		);
 		expect(run.mock.calls).toStrictEqual([
 			...PLAN_CALLS,
 			...PREFLIGHT_CALLS,
@@ -269,7 +328,8 @@ describe("just release", () => {
 		]);
 	});
 
-	it("stops before tagging when applying the migrations fails", async () => {
+	it("stops before tagging when applying the migrations fails", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -303,7 +363,8 @@ describe("just release", () => {
 		]);
 	});
 
-	it("stops before tagging when production still lists the migrations after applying them", async () => {
+	it("stops before tagging when production still lists the migrations after applying them", async () =>
+	{
 		// Wrangler has exited 0 after an API error, so success is read back from the database itself.
 		const run = releaseRunner([
 			CLEAN_TREE,
@@ -337,7 +398,8 @@ describe("just release", () => {
 		]);
 	});
 
-	it("refuses to release a dirty working tree before running anything else", async () => {
+	it("refuses to release a dirty working tree before running anything else", async () =>
+	{
 		const run = releaseRunner([ok(" M worker/index.ts\n")]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
@@ -346,15 +408,23 @@ describe("just release", () => {
 		expect(run.mock.calls).toStrictEqual([["git", ["status", "--porcelain"]]]);
 	});
 
-	it("refuses to release a branch that has no upstream to compare against", async () => {
-		const run = releaseRunner([CLEAN_TREE, {code: 128, output: "fatal: no upstream configured\n"}]);
+	it("refuses to release a branch that has no upstream to compare against", async () =>
+	{
+		const run = releaseRunner([
+			CLEAN_TREE,
+			{
+				code: 128,
+				output: "fatal: no upstream configured\n",
+			},
+		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
 			"the current branch has no upstream branch; push it before releasing",
 		);
 	});
 
-	it("refuses to release a branch that tracks another local branch", async () => {
+	it("refuses to release a branch that tracks another local branch", async () =>
+	{
 		const run = releaseRunner([CLEAN_TREE, ok("main\n")]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
@@ -362,15 +432,24 @@ describe("just release", () => {
 		);
 	});
 
-	it("refuses to trust the behind check when the fetch that refreshes it fails", async () => {
-		const run = releaseRunner([CLEAN_TREE, UPSTREAM, {code: 128, output: "fatal: unable to access origin\n"}]);
+	it("refuses to trust the behind check when the fetch that refreshes it fails", async () =>
+	{
+		const run = releaseRunner([
+			CLEAN_TREE,
+			UPSTREAM,
+			{
+				code: 128,
+				output: "fatal: unable to access origin\n",
+			},
+		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
 			"`git fetch --quiet origin` failed with exit code 128",
 		);
 	});
 
-	it("refuses to release a branch that is behind its upstream", async () => {
+	it("refuses to release a branch that is behind its upstream", async () =>
+	{
 		const run = releaseRunner([CLEAN_TREE, UPSTREAM, FETCHED, ok("1\t3\n")]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
@@ -378,7 +457,8 @@ describe("just release", () => {
 		);
 	});
 
-	it("refuses to release a commit that already carries its release tag", async () => {
+	it("refuses to release a commit that already carries its release tag", async () =>
+	{
 		const run = releaseRunner([CLEAN_TREE, UPSTREAM, FETCHED, IN_SYNC, HEAD_COMMIT, ok(`${TAG}\n`)]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
@@ -386,7 +466,8 @@ describe("just release", () => {
 		);
 	});
 
-	it("stops at a failed verify, before any tag exists", async () => {
+	it("stops at a failed verify, before any tag exists", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -395,14 +476,18 @@ describe("just release", () => {
 			HEAD_COMMIT,
 			UNUSED_TAG,
 			...PREFLIGHT,
-			{code: 1, output: "2 tests failed\n"},
+			{
+				code: 1,
+				output: "2 tests failed\n",
+			},
 		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow("`just verify` failed with exit code 1");
 		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ...PREFLIGHT_CALLS, ["just", ["verify"]]]);
 	});
 
-	it("stops before staging when the post-verify artifact cannot be built", async () => {
+	it("stops before staging when the post-verify artifact cannot be built", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -412,7 +497,10 @@ describe("just release", () => {
 			UNUSED_TAG,
 			...PREFLIGHT,
 			VERIFIED,
-			{code: 1, output: "vite build failed\n"},
+			{
+				code: 1,
+				output: "vite build failed\n",
+			},
 		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
@@ -426,7 +514,8 @@ describe("just release", () => {
 		]);
 	});
 
-	it("refuses an unconfigured deployment before spending a verify or cutting a tag", async () => {
+	it("refuses an unconfigured deployment before spending a verify or cutting a tag", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -434,7 +523,14 @@ describe("just release", () => {
 			IN_SYNC,
 			HEAD_COMMIT,
 			UNUSED_TAG,
-			ok(JSON.stringify([{name: "BETTER_AUTH_SECRET", type: "secret_text"}])),
+			ok(
+				JSON.stringify([
+					{
+						name: "BETTER_AUTH_SECRET",
+						type: "secret_text",
+					},
+				]),
+			),
 			CONFIGURED_BINDINGS,
 		]);
 
@@ -444,7 +540,8 @@ describe("just release", () => {
 		expect(run.mock.calls).toStrictEqual([...PLAN_CALLS, ...PREFLIGHT_CALLS.slice(0, 2)]);
 	});
 
-	it("stops before tagging when this tree cannot be deployed to staging", async () => {
+	it("stops before tagging when this tree cannot be deployed to staging", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -455,7 +552,10 @@ describe("just release", () => {
 			...PREFLIGHT,
 			VERIFIED,
 			BUILT,
-			{code: 1, output: "Authentication error [code: 10000]\n"},
+			{
+				code: 1,
+				output: "Authentication error [code: 10000]\n",
+			},
 		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
@@ -470,7 +570,8 @@ describe("just release", () => {
 		]);
 	});
 
-	it("stops before tagging when the core loop no longer works on a real deployment", async () => {
+	it("stops before tagging when the core loop no longer works on a real deployment", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -482,7 +583,10 @@ describe("just release", () => {
 			VERIFIED,
 			BUILT,
 			STAGING_DEPLOYED,
-			{code: 1, output: "1 failed\n  a deployed YepNope answers an authorized MCP client's question\n"},
+			{
+				code: 1,
+				output: "1 failed\n  a deployed YepNope answers an authorized MCP client's question\n",
+			},
 		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(
@@ -497,7 +601,8 @@ describe("just release", () => {
 		]);
 	});
 
-	it("deletes the local tag and never pushes when the deploy fails", async () => {
+	it("deletes the local tag and never pushes when the deploy fails", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -510,7 +615,10 @@ describe("just release", () => {
 			BUILT,
 			...REHEARSAL,
 			TAGGED,
-			{code: 1, output: "Authentication error [code: 10000]\n"},
+			{
+				code: 1,
+				output: "Authentication error [code: 10000]\n",
+			},
 			ok(`Deleted tag '${TAG}'\n`),
 		]);
 
@@ -520,7 +628,8 @@ describe("just release", () => {
 		expect(run.mock.calls.at(-1)).toStrictEqual(["git", ["tag", "--delete", TAG]]);
 	});
 
-	it("deletes the local tag when the deploy reports no version id to record", async () => {
+	it("deletes the local tag when the deploy reports no version id to record", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -544,7 +653,8 @@ describe("just release", () => {
 		expect(run.mock.calls.at(-1)).toStrictEqual(["git", ["tag", "--delete", TAG]]);
 	});
 
-	it("fails loudly with the deployed version id when pushing the tag fails", async () => {
+	it("fails loudly with the deployed version id when pushing the tag fails", async () =>
+	{
 		const run = releaseRunner([
 			CLEAN_TREE,
 			UPSTREAM,
@@ -559,7 +669,10 @@ describe("just release", () => {
 			TAGGED,
 			DEPLOYED,
 			TAGGED,
-			{code: 1, output: "! [remote rejected]\n"},
+			{
+				code: 1,
+				output: "! [remote rejected]\n",
+			},
 		]);
 
 		await expect(runRelease(dependencies(run))).rejects.toThrow(

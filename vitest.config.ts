@@ -8,21 +8,27 @@ const projectJsdomEnvironment = fileURLToPath(new URL("./scripts/vitest-jsdom-en
 // See: https://github.com/storybookjs/storybook/issues/33287
 export default mergeConfig(
 	viteConfig,
-	defineConfig({
-		resolve: {
-			alias: {
-				"vitest-environment-project-jsdom": projectJsdomEnvironment,
+	defineConfig(
+		{
+			resolve:
+			{
+				alias:
+				{
+					"vitest-environment-project-jsdom": projectJsdomEnvironment,
+				},
+			},
+			test:
+			{
+				exclude: ["**/node_modules/**", ".llm/**", "tests/browser/**", "tests/deployed/**", "worker/**"],
+				globals: true,
+				environment: "node",
+				pool: "threads",
+				isolate: true,
+				experimental:
+				{
+					fsModuleCache: true,
+				},
 			},
 		},
-		test: {
-			exclude: ["**/node_modules/**", ".llm/**", "tests/browser/**", "tests/deployed/**", "worker/**"],
-			globals: true,
-			environment: "node",
-			pool: "threads",
-			isolate: true,
-			experimental: {
-				fsModuleCache: true,
-			},
-		},
-	}),
+	),
 );

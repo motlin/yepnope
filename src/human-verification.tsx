@@ -4,7 +4,8 @@ import {HUMAN_VERIFICATION_FAILED_MESSAGE, type HumanVerification, type HumanVer
 // 🤖 The visible half of human verification. `src/turnstile.ts` holds the widget itself and the
 // token it mints; this file is only how that work reads to the person waiting on it.
 
-const HUMAN_VERIFICATION_COPY: Readonly<Record<HumanVerificationStatus, string>> = {
+const HUMAN_VERIFICATION_COPY: Readonly<Record<HumanVerificationStatus, string>> =
+{
 	expired: "That check expired. Running it again…",
 	failed: HUMAN_VERIFICATION_FAILED_MESSAGE,
 	loading: "Loading the human-verification check…",
@@ -13,7 +14,8 @@ const HUMAN_VERIFICATION_COPY: Readonly<Record<HumanVerificationStatus, string>>
 	waived: "",
 };
 
-interface HumanVerificationFieldProps {
+interface HumanVerificationFieldProps
+{
 	verification: HumanVerification;
 }
 
@@ -22,8 +24,10 @@ interface HumanVerificationFieldProps {
  * change politely rather than interrupting, and offers a keyboard-reachable retry when the check
  * cannot finish on its own.
  */
-export function HumanVerificationField({verification}: HumanVerificationFieldProps): ReactElement | null {
-	if (verification.status === "waived") {
+export function HumanVerificationField({verification}: HumanVerificationFieldProps): ReactElement | null
+{
+	if (verification.status === "waived")
+	{
 		return null;
 	}
 	const failed = verification.status === "failed";

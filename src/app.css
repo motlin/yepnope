@@ -6,7 +6,8 @@
    choice exists, and once for the `data-theme` attribute `src/theme.ts` writes when one does. No
    colour is ever defined only inside a media or attribute block, so every rule below can reach a
    value whatever the visitor chose. */
-:root {
+:root
+{
 	color-scheme: light;
 
 	/* Surfaces */
@@ -66,8 +67,10 @@
 	--card-skip: #5a606b;
 }
 
-@media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) {
+@media (prefers-color-scheme: dark)
+{
+	:root:not([data-theme="light"])
+	{
 		color-scheme: dark;
 		--surface-page: #17181c;
 		--surface-panel: #1d1f24;
@@ -99,7 +102,8 @@
 	}
 }
 
-:root[data-theme="dark"] {
+:root[data-theme="dark"]
+{
 	color-scheme: dark;
 	--surface-page: #17181c;
 	--surface-panel: #1d1f24;
@@ -130,16 +134,19 @@
 	--success-text: #b6f1d2;
 }
 
-* {
+*
+{
 	box-sizing: border-box;
 }
 
 html,
-body {
+body
+{
 	height: 100%;
 }
 
-body {
+body
+{
 	margin: 0;
 	background: var(--surface-page);
 	color: var(--text-body);
@@ -148,16 +155,19 @@ body {
 }
 
 /* Every control gets the same ring, and the ring is a token, so it stays visible in both themes. */
-:focus-visible {
+:focus-visible
+{
 	outline: 2px solid var(--focus-ring);
 	outline-offset: 2px;
 }
 
-#app {
+#app
+{
 	height: 100%;
 }
 
-.app {
+.app
+{
 	height: 100%;
 	max-width: 480px;
 	margin: 0 auto;
@@ -167,13 +177,15 @@ body {
 	min-height: 0;
 }
 
-.app-settings {
+.app-settings
+{
 	height: auto;
 	max-width: 880px;
 	min-height: 100%;
 }
 
-.app-header {
+.app-header
+{
 	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
@@ -181,14 +193,16 @@ body {
 	padding: 4px 2px 6px;
 }
 
-.app-header .meta {
+.app-header .meta
+{
 	display: flex;
 	align-items: center;
 	gap: 8px;
 }
 
 .afk-toggle,
-.account-status {
+.account-status
+{
 	border: 1px solid var(--border-control);
 	border-radius: 999px;
 	background: none;
@@ -200,43 +214,50 @@ body {
 	cursor: pointer;
 }
 
-.afk-toggle.afk-off {
+.afk-toggle.afk-off
+{
 	border-color: var(--border-control-strong);
 	background: var(--overlay-soft);
 	color: var(--text-secondary);
 }
 
-.afk-toggle.afk-on {
+.afk-toggle.afk-on
+{
 	border-color: var(--yep-ink);
 	background: var(--yep-tint);
 	color: var(--yep-ink);
 }
 
-.afk-toggle:hover:not(:disabled) {
+.afk-toggle:hover:not(:disabled)
+{
 	border-color: var(--border-control-strong);
 	background: var(--overlay-hover);
 	color: var(--text-strong);
 }
 
-.afk-toggle.afk-on:hover:not(:disabled) {
+.afk-toggle.afk-on:hover:not(:disabled)
+{
 	border-color: var(--yep-ink);
 	background: var(--yep-tint-hover);
 	color: var(--yep-ink);
 }
 
 /* Touch never hovers, so the pressed state restates its own colour rather than inheriting one. */
-.afk-toggle:active:not(:disabled) {
+.afk-toggle:active:not(:disabled)
+{
 	background: var(--overlay-active);
 	color: var(--text-strong);
 	transform: translateY(1px);
 }
 
-.afk-toggle.afk-on:active:not(:disabled) {
+.afk-toggle.afk-on:active:not(:disabled)
+{
 	background: var(--yep-tint-active);
 	color: var(--yep-ink);
 }
 
-.afk-toggle:disabled {
+.afk-toggle:disabled
+{
 	border-color: var(--border-control);
 	background: var(--overlay-faint);
 	color: var(--text-muted);
@@ -244,12 +265,14 @@ body {
 	opacity: 1;
 }
 
-.afk-toggle.afk-checking:disabled {
+.afk-toggle.afk-checking:disabled
+{
 	border-style: dashed;
 	cursor: progress;
 }
 
-.settings-button {
+.settings-button
+{
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -260,12 +283,14 @@ body {
 	padding: 2px 4px;
 }
 
-.settings-button svg {
+.settings-button svg
+{
 	width: 20px;
 	height: 20px;
 }
 
-.deck-header {
+.deck-header
+{
 	flex: 0 0 auto;
 	display: flex;
 	align-items: baseline;
@@ -273,25 +298,29 @@ body {
 	padding: 0 2px 6px;
 }
 
-.deck-header .project {
+.deck-header .project
+{
 	font-size: 15px;
 	font-weight: 600;
 	color: var(--text-strong);
 }
 
-.deck-header .count {
+.deck-header .count
+{
 	font-size: 13px;
 	color: var(--text-faint);
 }
 
-.deck {
+.deck
+{
 	flex: 1 1 auto;
 	position: relative;
 	min-height: 0;
 	margin-top: 4px;
 }
 
-.card-behind {
+.card-behind
+{
 	position: absolute;
 	inset: 8px 10px auto;
 	height: 24px;
@@ -299,7 +328,8 @@ body {
 	border-radius: 20px 20px 0 0;
 }
 
-.card {
+.card
+{
 	position: absolute;
 	inset: 20px 0 0;
 	background: var(--card-bg);
@@ -317,22 +347,26 @@ body {
 	will-change: transform;
 }
 
-.card.dragging {
+.card.dragging
+{
 	cursor: grabbing;
 }
 
-.card.springing {
+.card.springing
+{
 	transition: transform 0.25s ease;
 }
 
-.card.flying {
+.card.flying
+{
 	transition:
 		transform 0.3s ease-in,
 		opacity 0.3s ease-in;
 	opacity: 0;
 }
 
-.chip-row {
+.chip-row
+{
 	display: flex;
 	flex: 0 0 auto;
 	flex-wrap: wrap;
@@ -340,7 +374,8 @@ body {
 	margin: 0 0 10px;
 }
 
-.chip {
+.chip
+{
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
 	font-size: 11px;
 	color: var(--card-chip-text);
@@ -353,7 +388,8 @@ body {
 	text-overflow: ellipsis;
 }
 
-.card .title {
+.card .title
+{
 	font-size: 19px;
 	line-height: 1.25;
 	font-weight: 700;
@@ -361,7 +397,8 @@ body {
 	flex: 0 0 auto;
 }
 
-.card .body {
+.card .body
+{
 	font-size: 15px;
 	line-height: 1.4;
 	flex: 1 1 auto;
@@ -369,20 +406,24 @@ body {
 	overflow: hidden;
 }
 
-.card .body p {
+.card .body p
+{
 	margin: 0 0 9px;
 }
 
-.card .body ul {
+.card .body ul
+{
 	margin: 0 0 9px;
 	padding-left: 20px;
 }
 
-.card .body li {
+.card .body li
+{
 	margin: 0 0 3px;
 }
 
-.card .body code {
+.card .body code
+{
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
 	font-size: 0.88em;
 	background: var(--card-code-bg);
@@ -390,7 +431,8 @@ body {
 	padding: 1px 5px;
 }
 
-.stamp {
+.stamp
+{
 	position: absolute;
 	top: 50%;
 	left: 50%;
@@ -405,25 +447,29 @@ body {
 	background: var(--card-stamp-backing);
 }
 
-.stamp.yep {
+.stamp.yep
+{
 	color: var(--card-yep);
 	border-color: var(--card-yep);
 	transform: translate(-50%, -50%) rotate(-12deg);
 }
 
-.stamp.nope {
+.stamp.nope
+{
 	color: var(--card-nope);
 	border-color: var(--card-nope);
 	transform: translate(-50%, -50%) rotate(12deg);
 }
 
-.stamp.skip {
+.stamp.skip
+{
 	color: var(--card-skip);
 	border-color: var(--card-skip);
 	transform: translate(-50%, -50%) rotate(-4deg);
 }
 
-.resolved {
+.resolved
+{
 	position: absolute;
 	inset: 20px 0 0;
 	display: flex;
@@ -434,19 +480,22 @@ body {
 	text-align: center;
 }
 
-.resolved h3 {
+.resolved h3
+{
 	margin: 0 0 6px;
 	font-size: 17px;
 	color: var(--text-strong);
 }
 
-.resolved p {
+.resolved p
+{
 	margin: 0;
 	font-size: 14px;
 	color: var(--text-faint);
 }
 
-.undo-bar {
+.undo-bar
+{
 	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
@@ -461,7 +510,8 @@ body {
 	color: var(--text-faint);
 }
 
-.undo-message {
+.undo-message
+{
 	display: flex;
 	flex-wrap: wrap;
 	align-items: baseline;
@@ -469,27 +519,33 @@ body {
 	min-width: 0;
 }
 
-.undo-disposition {
+.undo-disposition
+{
 	font-weight: 600;
 }
 
-.undo-countdown {
+.undo-countdown
+{
 	font-variant-numeric: tabular-nums;
 }
 
-.undo-disposition.yep {
+.undo-disposition.yep
+{
 	color: var(--yep-ink);
 }
 
-.undo-disposition.nope {
+.undo-disposition.nope
+{
 	color: var(--nope-ink);
 }
 
-.undo-disposition.skip {
+.undo-disposition.skip
+{
 	color: var(--skip-ink);
 }
 
-.undo-button {
+.undo-button
+{
 	background: none;
 	border: 1.5px solid var(--border-control-strong);
 	border-radius: 18px;
@@ -500,11 +556,13 @@ body {
 	cursor: pointer;
 }
 
-.undo-button:hover {
+.undo-button:hover
+{
 	background: var(--overlay-hover);
 }
 
-.actions {
+.actions
+{
 	flex: 0 0 auto;
 	display: flex;
 	justify-content: space-between;
@@ -513,7 +571,8 @@ body {
 	font-size: 13px;
 }
 
-.actions button {
+.actions button
+{
 	background: none;
 	border: 1.5px solid;
 	border-radius: 18px;
@@ -523,26 +582,31 @@ body {
 	cursor: pointer;
 }
 
-.actions .btn-nope {
+.actions .btn-nope
+{
 	color: var(--nope-ink);
 	border-color: var(--nope-ink);
 }
 
-.actions .btn-skip {
+.actions .btn-skip
+{
 	color: var(--skip-ink);
 	border-color: var(--skip-ink);
 }
 
-.actions .btn-yep {
+.actions .btn-yep
+{
 	color: var(--yep-ink);
 	border-color: var(--yep-ink);
 }
 
-.actions button:hover {
+.actions button:hover
+{
 	background: var(--overlay-hover);
 }
 
-.loading {
+.loading
+{
 	flex: 1 1 auto;
 	display: flex;
 	align-items: center;
@@ -551,7 +615,8 @@ body {
 	font-size: 14px;
 }
 
-.settings {
+.settings
+{
 	flex: 1 1 auto;
 	display: flex;
 	flex-direction: column;
@@ -560,14 +625,17 @@ body {
 	padding-top: 8px;
 }
 
-@media (width >= 768px) {
-	.app-settings {
+@media (width >= 768px)
+{
+	.app-settings
+	{
 		padding-right: 32px;
 		padding-left: 32px;
 	}
 }
 
-.account-route {
+.account-route
+{
 	flex: 1 1 auto;
 	display: flex;
 	align-items: center;
@@ -576,7 +644,8 @@ body {
 	padding: 16px 0;
 }
 
-.account-panel {
+.account-panel
+{
 	width: 100%;
 	background: var(--surface-panel);
 	border: 1px solid var(--border-panel);
@@ -584,13 +653,15 @@ body {
 	padding: 22px;
 }
 
-.account-panel h1 {
+.account-panel h1
+{
 	margin: 0 0 8px;
 	color: var(--text-strong);
 	font-size: 23px;
 }
 
-.account-panel > p {
+.account-panel > p
+{
 	margin: 0 0 18px;
 	color: var(--text-secondary);
 	font-size: 14px;
@@ -600,7 +671,8 @@ body {
 .account-panel > button,
 .account-form > button,
 .signed-out-actions > button,
-.sign-in-alternatives > button {
+.sign-in-alternatives > button
+{
 	width: 100%;
 	border: 0;
 	border-radius: 10px;
@@ -612,30 +684,35 @@ body {
 	padding: 11px 14px;
 }
 
-.account-panel > p.signed-out-privacy {
+.account-panel > p.signed-out-privacy
+{
 	color: var(--text-muted);
 	font-size: 13px;
 }
 
-.signed-out-actions {
+.signed-out-actions
+{
 	display: grid;
 	gap: 10px;
 }
 
 .signed-out-actions > button.secondary,
-.sign-in-alternatives > button.secondary {
+.sign-in-alternatives > button.secondary
+{
 	border: 1px solid var(--border-control-strong);
 	background: transparent;
 	color: var(--text-strong);
 }
 
-.account-form {
+.account-form
+{
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
 }
 
-.account-form label {
+.account-form label
+{
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
@@ -644,7 +721,8 @@ body {
 	font-weight: 600;
 }
 
-.account-form input {
+.account-form input
+{
 	width: 100%;
 	border: 1px solid var(--border-control);
 	border-radius: 9px;
@@ -655,12 +733,14 @@ body {
 	padding: 11px 12px;
 }
 
-.account-form input:focus {
+.account-form input:focus
+{
 	border-color: var(--yep-ink);
 	outline: 2px solid var(--yep-halo);
 }
 
-.account-links {
+.account-links
+{
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: center;
@@ -668,7 +748,8 @@ body {
 	margin-top: 16px;
 }
 
-.account-links button {
+.account-links button
+{
 	border: 0;
 	background: none;
 	color: var(--text-tertiary);
@@ -679,14 +760,16 @@ body {
 	text-underline-offset: 3px;
 }
 
-.sign-in-alternatives {
+.sign-in-alternatives
+{
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 	margin-top: 16px;
 }
 
-.sign-in-alternatives-divider {
+.sign-in-alternatives-divider
+{
 	display: flex;
 	align-items: center;
 	gap: 10px;
@@ -698,56 +781,65 @@ body {
 }
 
 .sign-in-alternatives-divider::before,
-.sign-in-alternatives-divider::after {
+.sign-in-alternatives-divider::after
+{
 	content: "";
 	flex: 1;
 	border-top: 1px solid var(--border-subtle);
 }
 
-.sign-in-methods > button {
+.sign-in-methods > button
+{
 	width: 100%;
 	margin-top: 8px;
 }
 
 /* 🤖 The human-verification check sits in the same column as the inputs above it and stays inside
    the panel on the narrowest phone, where Turnstile's flexible widget fills the available width. */
-.human-verification {
+.human-verification
+{
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 }
 
-.human-verification-widget {
+.human-verification-widget
+{
 	display: flex;
 	min-height: 66px;
 	max-width: 100%;
 	overflow: hidden;
 }
 
-.human-verification-widget iframe {
+.human-verification-widget iframe
+{
 	max-width: 100%;
 }
 
-.human-verification-status {
+.human-verification-status
+{
 	margin: 0;
 	color: var(--text-tertiary);
 	font-size: 12px;
 	line-height: 1.4;
 }
 
-.human-verification-disclosure {
+.human-verification-disclosure
+{
 	margin: 0;
 	color: var(--text-muted);
 	font-size: 11px;
 	line-height: 1.45;
 }
 
-.human-verification-disclosure a {
+.human-verification-disclosure a
+{
 	color: var(--text-tertiary);
 	text-underline-offset: 3px;
 }
 
-.human-verification > button.secondary {
+.human-verification > button.secondary
+{
 	width: 100%;
 	border: 1px solid var(--border-control-strong);
 	border-radius: 10px;
@@ -760,13 +852,15 @@ body {
 }
 
 .account-form > button:disabled,
-.account-panel > button:disabled {
+.account-panel > button:disabled
+{
 	cursor: not-allowed;
 	opacity: 0.55;
 }
 
 .form-error,
-.form-success {
+.form-success
+{
 	margin: 0;
 	border-radius: 8px;
 	font-size: 13px;
@@ -774,23 +868,27 @@ body {
 	padding: 9px 10px;
 }
 
-.form-error {
+.form-error
+{
 	background: var(--danger-surface);
 	color: var(--danger-text);
 }
 
-.form-success {
+.form-success
+{
 	background: var(--success-surface);
 	color: var(--success-text);
 }
 
 /* A notice the whole app carries rather than one form, so it keeps its own place in the column. */
-.app-notice {
+.app-notice
+{
 	flex: 0 0 auto;
 	margin: 0 0 10px;
 }
 
-.oauth-capabilities {
+.oauth-capabilities
+{
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
@@ -799,7 +897,8 @@ body {
 	list-style: none;
 }
 
-.oauth-capabilities li {
+.oauth-capabilities li
+{
 	display: flex;
 	flex-direction: column;
 	gap: 3px;
@@ -808,25 +907,29 @@ body {
 	padding: 12px;
 }
 
-.oauth-capabilities strong {
+.oauth-capabilities strong
+{
 	color: var(--text-strong);
 	font-size: 14px;
 }
 
-.oauth-capabilities span {
+.oauth-capabilities span
+{
 	color: var(--text-tertiary);
 	font-size: 13px;
 	line-height: 1.4;
 }
 
-.oauth-actions {
+.oauth-actions
+{
 	display: grid;
 	grid-template-columns: 1fr 1fr;
 	gap: 10px;
 	margin-top: 18px;
 }
 
-.oauth-actions button {
+.oauth-actions button
+{
 	border: 0;
 	border-radius: 10px;
 	background: var(--yep-fill);
@@ -837,12 +940,14 @@ body {
 	padding: 11px 14px;
 }
 
-.oauth-actions button.secondary {
+.oauth-actions button.secondary
+{
 	background: var(--surface-raised);
 	color: var(--text-strong);
 }
 
-.oauth-handoff {
+.oauth-handoff
+{
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
@@ -851,39 +956,45 @@ body {
 	padding: 14px;
 }
 
-.oauth-handoff strong {
+.oauth-handoff strong
+{
 	color: var(--text-strong);
 	font-size: 15px;
 	line-height: 1.35;
 }
 
-.oauth-handoff span {
+.oauth-handoff span
+{
 	color: var(--text-tertiary);
 	font-size: 13px;
 	line-height: 1.45;
 }
 
-.hint {
+.hint
+{
 	background: var(--surface-panel);
 	border: 1px solid var(--border-panel);
 	border-radius: 14px;
 	padding: 14px 16px;
 }
 
-.hint h3 {
+.hint h3
+{
 	margin: 0 0 6px;
 	font-size: 15px;
 	color: var(--text-strong);
 }
 
-.hint p {
+.hint p
+{
 	margin: 0 0 8px;
 	font-size: 14px;
 	color: var(--text-secondary);
 	line-height: 1.4;
 }
 
-.hint button {
+.hint button
+{
 	background: var(--yep-fill);
 	color: var(--yep-on-fill);
 	border: 0;
@@ -894,13 +1005,15 @@ body {
 	cursor: pointer;
 }
 
-.settings-actions {
+.settings-actions
+{
 	flex-wrap: wrap;
 	display: flex;
 	gap: 8px;
 }
 
-.hint h4 {
+.hint h4
+{
 	margin: 16px 0 8px;
 	color: var(--text-body);
 	font-size: 13px;
@@ -908,7 +1021,8 @@ body {
 
 /* 🌗 The theme control. Native radios so the group is arrow-key navigable, labelled by its legend,
    and its current value exposed without any ARIA of our own. */
-.theme-options {
+.theme-options
+{
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px 16px;
@@ -917,7 +1031,8 @@ body {
 	padding: 0;
 }
 
-.theme-options legend {
+.theme-options legend
+{
 	margin-bottom: 8px;
 	padding: 0;
 	color: var(--text-body);
@@ -925,7 +1040,8 @@ body {
 	font-weight: 600;
 }
 
-.theme-option {
+.theme-option
+{
 	display: flex;
 	align-items: center;
 	gap: 7px;
@@ -934,7 +1050,8 @@ body {
 	cursor: pointer;
 }
 
-.theme-option input {
+.theme-option input
+{
 	accent-color: var(--yep-ink);
 	margin: 0;
 	width: 16px;
@@ -942,7 +1059,8 @@ body {
 	cursor: pointer;
 }
 
-.device-list {
+.device-list
+{
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
@@ -951,7 +1069,8 @@ body {
 	list-style: none;
 }
 
-.managed-device {
+.managed-device
+{
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -961,52 +1080,61 @@ body {
 }
 
 .managed-device strong,
-.managed-device small {
+.managed-device small
+{
 	display: block;
 }
 
-.managed-device strong {
+.managed-device strong
+{
 	color: var(--text-strong);
 	font-size: 14px;
 }
 
-.managed-device small {
+.managed-device small
+{
 	margin-top: 3px;
 	color: var(--text-muted);
 	font-size: 11px;
 	line-height: 1.35;
 }
 
-.device-actions {
+.device-actions
+{
 	display: flex;
 	flex: 0 0 auto;
 	gap: 6px;
 }
 
-.managed-device .device-actions button {
+.managed-device .device-actions button
+{
 	padding: 6px 9px;
 	font-size: 12px;
 }
 
 .device-rename,
-.device-rename label {
+.device-rename label
+{
 	display: flex;
 	width: 100%;
 }
 
-.device-rename {
+.device-rename
+{
 	align-items: flex-end;
 	gap: 8px;
 }
 
-.device-rename label {
+.device-rename label
+{
 	flex-direction: column;
 	gap: 5px;
 	color: var(--text-secondary);
 	font-size: 12px;
 }
 
-.device-rename input {
+.device-rename input
+{
 	min-width: 0;
 	border: 1px solid var(--border-control);
 	border-radius: 8px;
@@ -1016,25 +1144,29 @@ body {
 	padding: 7px 8px;
 }
 
-.hint button.secondary {
+.hint button.secondary
+{
 	border: 1px solid var(--border-control);
 	background: transparent;
 	color: var(--text-body);
 }
 
-.account-email {
+.account-email
+{
 	color: var(--text-strong) !important;
 	font-weight: 650;
 }
 
-.install-steps {
+.install-steps
+{
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 	margin: 14px 0;
 }
 
-.install-command {
+.install-command
+{
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: center;
@@ -1046,17 +1178,20 @@ body {
 }
 
 .install-command strong,
-.install-command code {
+.install-command code
+{
 	display: block;
 }
 
-.install-command strong {
+.install-command strong
+{
 	margin-bottom: 5px;
 	color: var(--text-body);
 	font-size: 12px;
 }
 
-.install-command code {
+.install-command code
+{
 	overflow-wrap: anywhere;
 	color: var(--text-strong);
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -1065,34 +1200,40 @@ body {
 	user-select: text;
 }
 
-.install-command small {
+.install-command small
+{
 	grid-column: 1 / -1;
 	color: var(--danger-text);
 	font-size: 11px;
 }
 
-.client-setup a {
+.client-setup a
+{
 	color: var(--success-text);
 }
 
 /* 🧭 One card per supported client, so nobody reads Cursor steps as Claude Code steps. */
-.client-setup h4 {
+.client-setup h4
+{
 	margin-top: 0;
 	color: var(--text-strong);
 	font-size: 15px;
 }
 
-.client-setups h3:focus-visible {
+.client-setups h3:focus-visible
+{
 	outline: 2px solid var(--success-text);
 	outline-offset: 4px;
 }
 
-.client-actions {
+.client-actions
+{
 	flex-wrap: wrap;
 	margin-top: 12px;
 }
 
-.settings .back {
+.settings .back
+{
 	margin-top: auto;
 	background: var(--surface-raised);
 	color: var(--text-body);
@@ -1103,29 +1244,35 @@ body {
 	cursor: pointer;
 }
 
-.settings h1 {
+.settings h1
+{
 	margin: 4px 0;
 	font-size: 26px;
 	color: var(--text-strong);
 }
-.settings h1:focus {
+.settings h1:focus
+{
 	outline: none;
 }
-.settings-breadcrumbs {
+.settings-breadcrumbs
+{
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px 24px;
 }
-.settings-breadcrumbs a {
+.settings-breadcrumbs a
+{
 	padding: 12px 0;
 	color: var(--text-body);
 }
-.settings-destinations {
+.settings-destinations
+{
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 	gap: 12px;
 }
-.settings-destinations a {
+.settings-destinations a
+{
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
@@ -1136,12 +1283,14 @@ body {
 	color: var(--text-strong);
 	text-decoration: none;
 }
-.settings-destinations span {
+.settings-destinations span
+{
 	color: var(--text-secondary);
 	font-size: 14px;
 	line-height: 1.4;
 }
-.settings a:focus-visible {
+.settings a:focus-visible
+{
 	outline: 2px solid var(--success-text);
 	outline-offset: 4px;
 }

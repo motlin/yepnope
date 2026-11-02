@@ -61,7 +61,8 @@ const DEPLOYED_PLAYWRIGHT_CONFIG = "playwright.deployed.config.ts";
  * the deployment: the browser signs the challenge with it exactly as a phone's secure element would,
  * and the Worker verifies the signature against the public key it recorded at enrollment.
  */
-export interface AutomationPasskey {
+export interface AutomationPasskey
+{
 	credentialId: string;
 	privateKey: string;
 	rpId: string;
@@ -69,45 +70,56 @@ export interface AutomationPasskey {
 	userHandle: string;
 }
 
-export interface DeploymentTarget {
+export interface DeploymentTarget
+{
 	origin: string;
 	passkey: AutomationPasskey;
 }
 
 const automationPasskeySchema = z
-	.object({
-		credentialId: z.string().min(1),
-		privateKey: z.string().min(1),
-		rpId: z.string().min(1),
-		signCount: z.number().int().min(0),
-		userHandle: z.string().min(1),
-	})
+	.object(
+		{
+			credentialId: z.string().min(1),
+			privateKey: z.string().min(1),
+			rpId: z.string().min(1),
+			signCount: z.number().int().min(0),
+			userHandle: z.string().min(1),
+		},
+	)
 	.strict();
 
-export function encodeAutomationPasskey(passkey: AutomationPasskey): string {
+export function encodeAutomationPasskey(passkey: AutomationPasskey): string
+{
 	return Buffer.from(JSON.stringify(passkey), "utf8").toString("base64");
 }
 
-function decodeAutomationPasskey(encoded: string): AutomationPasskey {
+function decodeAutomationPasskey(encoded: string): AutomationPasskey
+{
 	const rejection = new Error(
 		`${DEPLOYMENT_PASSKEY_VARIABLE} is not an enrolled automation passkey. ` +
 			"Enroll one with `just enroll-deployment-passkey` and store what it prints, unedited.",
 	);
 	let parsed: unknown;
-	try {
+	try
+	{
 		parsed = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
-	} catch {
+	}
+	catch
+	{
 		throw rejection;
 	}
 	const credential = automationPasskeySchema.safeParse(parsed);
-	if (!credential.success) {
+	if (!credential.success)
+	{
 		throw rejection;
 	}
 	return credential.data;
 }
 
-function deploymentOrigin(printed: string | undefined): URL {
-	if (printed === undefined || printed.trim() === "") {
+function deploymentOrigin(printed: string | undefined): URL
+{
+	if (printed === undefined || printed.trim() === "")
+	{
 		throw new Error(
 			`${DEPLOYMENT_ORIGIN_VARIABLE} is not set, so there is no deployment to prove the core loop against. ` +
 				"Set it to the staging Worker's origin; `just deploy-staging` prints it.",
@@ -115,15 +127,20 @@ function deploymentOrigin(printed: string | undefined): URL {
 	}
 	const value = printed.trim();
 	let url: URL;
-	try {
+	try
+	{
 		url = new URL(value);
-	} catch {
+	}
+	catch
+	{
 		throw new Error(`${DEPLOYMENT_ORIGIN_VARIABLE} must be an https origin, but it is "${value}"`);
 	}
-	if (url.protocol !== "https:") {
+	if (url.protocol !== "https:")
+	{
 		throw new Error(`${DEPLOYMENT_ORIGIN_VARIABLE} must be an https origin, but it is "${value}"`);
 	}
-	if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+	if (url.pathname !== "/" || url.search !== "" || url.hash !== "")
+	{
 		throw new Error(`${DEPLOYMENT_ORIGIN_VARIABLE} must be a bare origin, but it is "${value}"`);
 	}
 	return url;
@@ -134,9 +151,11 @@ function deploymentOrigin(printed: string | undefined): URL {
  * Production is refused by name rather than by accident: the check turns AFK on and answers the
  * questions it asks, which on the real deployment happens on the real phone.
  */
-export function resolveDeploymentTarget(environment: Record<string, string | undefined>): DeploymentTarget {
+export function resolveDeploymentTarget(environment: Record<string, string | undefined>): DeploymentTarget
+{
 	const url = deploymentOrigin(environment[DEPLOYMENT_ORIGIN_VARIABLE]);
-	if (url.hostname === PRODUCTION_HOSTNAME && environment[DEPLOYMENT_PRODUCTION_OVERRIDE_VARIABLE] !== "1") {
+	if (url.hostname === PRODUCTION_HOSTNAME && environment[DEPLOYMENT_PRODUCTION_OVERRIDE_VARIABLE] !== "1")
+	{
 		throw new Error(
 			`refusing to run the deployed core-loop check against ${PRODUCTION_HOSTNAME}: it turns AFK on, ` +
 				"routes real questions to the account's deck, and answers them. Set " +
@@ -144,30 +163,38 @@ export function resolveDeploymentTarget(environment: Record<string, string | und
 		);
 	}
 	const encodedPasskey = environment[DEPLOYMENT_PASSKEY_VARIABLE];
-	if (encodedPasskey === undefined || encodedPasskey.trim() === "") {
+	if (encodedPasskey === undefined || encodedPasskey.trim() === "")
+	{
 		throw new Error(
 			`${DEPLOYMENT_PASSKEY_VARIABLE} is not set, so the check cannot sign a browser in. ` +
 				"Enroll one once with `just enroll-deployment-passkey`.",
 		);
 	}
 	const passkey = decodeAutomationPasskey(encodedPasskey.trim());
-	if (passkey.rpId !== url.hostname) {
+	if (passkey.rpId !== url.hostname)
+	{
 		throw new Error(
 			`${DEPLOYMENT_PASSKEY_VARIABLE} was enrolled against ${passkey.rpId}, but ` +
 				`${DEPLOYMENT_ORIGIN_VARIABLE} is ${url.hostname}. ` +
 				"A passkey only signs in to the origin it was created on.",
 		);
 	}
-	return {origin: url.origin, passkey};
+	return {
+		origin: url.origin,
+		passkey,
+	};
 }
 
-async function runPlaywright(target: DeploymentTarget): Promise<number> {
-	return new Promise((resolve, reject) => {
+async function runPlaywright(target: DeploymentTarget): Promise<number>
+{
+	return new Promise((resolve, reject) =>
+	{
 		const child = spawn(
 			process.execPath,
 			["node_modules/playwright/cli.js", "test", "--config", DEPLOYED_PLAYWRIGHT_CONFIG],
 			{
-				env: {
+				env:
+				{
 					...process.env,
 					[DEPLOYMENT_ORIGIN_VARIABLE]: target.origin,
 					[DEPLOYMENT_PASSKEY_VARIABLE]: encodeAutomationPasskey(target.passkey),
@@ -176,7 +203,8 @@ async function runPlaywright(target: DeploymentTarget): Promise<number> {
 			},
 		);
 		child.on("error", reject);
-		child.on("close", (code) => {
+		child.on("close", (code) =>
+		{
 			resolve(code ?? 1);
 		});
 	});
@@ -187,15 +215,22 @@ async function runPlaywright(target: DeploymentTarget): Promise<number> {
  * Turnstile challenge and, the first time, following the emailed verification link — and this
  * registers a passkey against a virtual authenticator and prints the credential to store.
  */
-async function enrollPasskey(origin: string, sessionToken: string | undefined): Promise<void> {
+async function enrollPasskey(origin: string, sessionToken: string | undefined): Promise<void>
+{
 	const {chromium} = await import("playwright");
 	// A session handed in was established in a person's own browser, where Turnstile passes, so the
 	// ceremony needs no window and no one to watch it. Without one, a window has to open, and only
 	// the paths outside `HUMAN_VERIFICATION_ACTIONS` — social and passkey — can complete in it.
-	const browser = await chromium.launch({headless: sessionToken !== undefined});
-	try {
+	const browser = await chromium.launch(
+		{
+			headless: sessionToken !== undefined,
+		},
+	);
+	try
+	{
 		const context = await browser.newContext();
-		if (sessionToken !== undefined) {
+		if (sessionToken !== undefined)
+		{
 			await context.addCookies([
 				{
 					domain: new URL(origin).hostname,
@@ -211,17 +246,22 @@ async function enrollPasskey(origin: string, sessionToken: string | undefined): 
 		const page = await context.newPage();
 		const client = await context.newCDPSession(page);
 		await client.send("WebAuthn.enable");
-		const {authenticatorId} = await client.send("WebAuthn.addVirtualAuthenticator", {
-			options: {
-				automaticPresenceSimulation: true,
-				hasResidentKey: true,
-				hasUserVerification: true,
-				isUserVerified: true,
-				protocol: "ctap2",
-				transport: "internal",
+		const {authenticatorId} = await client.send(
+			"WebAuthn.addVirtualAuthenticator",
+			{
+				options:
+				{
+					automaticPresenceSimulation: true,
+					hasResidentKey: true,
+					hasUserVerification: true,
+					isUserVerified: true,
+					protocol: "ctap2",
+					transport: "internal",
+				},
 			},
-		});
-		if (sessionToken === undefined) {
+		);
+		if (sessionToken === undefined)
+		{
 			await page.goto(`${origin}/sign-in`);
 			process.stderr.write(
 				"Sign in to the deployment in the window that just opened, then leave it alone.\n" +
@@ -230,26 +270,59 @@ async function enrollPasskey(origin: string, sessionToken: string | undefined): 
 			);
 			await page.waitForURL(
 				(url) => !url.pathname.startsWith("/sign-in") && !url.pathname.startsWith("/register"),
-				{timeout: 15 * 60 * 1000},
+				{
+					timeout: 15 * 60 * 1000,
+				},
 			);
 		}
 		await page.goto(`${origin}/settings`);
 		await page
-			.getByRole("region", {name: "Sign-in methods"})
-			.getByRole("button", {name: "Add a passkey"})
-			.click({timeout: 60_000});
-		await page.getByRole("region", {name: "Sign-in methods"}).getByRole("listitem").first().waitFor();
-		const {credentials} = await client.send("WebAuthn.getCredentials", {authenticatorId});
+			.getByRole(
+				"region",
+				{
+					name: "Sign-in methods",
+				},
+			)
+			.getByRole(
+				"button",
+				{
+					name: "Add a passkey",
+				},
+			)
+			.click(
+				{
+					timeout: 60_000,
+				},
+			);
+		await page
+			.getByRole(
+				"region",
+				{
+					name: "Sign-in methods",
+				},
+			)
+			.getByRole("listitem")
+			.first()
+			.waitFor();
+		const {credentials} = await client.send(
+			"WebAuthn.getCredentials",
+			{
+				authenticatorId,
+			},
+		);
 		const credential = credentials.at(-1);
-		if (credential === undefined) {
+		if (credential === undefined)
+		{
 			throw new Error("the passkey ceremony completed without leaving a credential on the authenticator");
 		}
-		if (credential.userHandle === undefined || credential.rpId === undefined) {
+		if (credential.userHandle === undefined || credential.rpId === undefined)
+		{
 			// A discoverable credential always carries both, and the check signs in without a
 			// username, so one that does not is unusable rather than merely incomplete.
 			throw new Error("the enrolled passkey is not discoverable, so it cannot sign in without a username");
 		}
-		const passkey: AutomationPasskey = {
+		const passkey: AutomationPasskey =
+		{
 			credentialId: credential.credentialId,
 			privateKey: credential.privateKey,
 			rpId: credential.rpId,
@@ -258,13 +331,17 @@ async function enrollPasskey(origin: string, sessionToken: string | undefined): 
 		};
 		process.stderr.write(`\nStore this as ${DEPLOYMENT_PASSKEY_VARIABLE}:\n\n`);
 		console.log(encodeAutomationPasskey(passkey));
-	} finally {
+	}
+	finally
+	{
 		await browser.close();
 	}
 }
 
-async function main(): Promise<void> {
-	if (process.argv.includes("--enroll")) {
+async function main(): Promise<void>
+{
+	if (process.argv.includes("--enroll"))
+	{
 		const session = process.env[DEPLOYMENT_SESSION_VARIABLE]?.trim();
 		await enrollPasskey(
 			deploymentOrigin(process.env[DEPLOYMENT_ORIGIN_VARIABLE]).origin,
@@ -276,6 +353,7 @@ async function main(): Promise<void> {
 }
 
 const entryPath = process.argv.at(1);
-if (entryPath !== undefined && import.meta.url === pathToFileURL(entryPath).href) {
+if (entryPath !== undefined && import.meta.url === pathToFileURL(entryPath).href)
+{
 	await main();
 }

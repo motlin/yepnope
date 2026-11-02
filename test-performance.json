@@ -6,12 +6,16 @@
 		"Vitest reports transform time only for the whole run. scripts/vitest-timing-reporter.ts records the per-file environment, prepare, setup, collect, and test durations Vitest exposes.",
 		"Per-file diagnostics are from a separate after run, so their parallel aggregate is not the suite wall time."
 	],
-	"suites": {
-		"browser": {
-			"after": {
+	"suites":
+	{
+		"browser":
+		{
+			"after":
+			{
 				"passedTests": 47,
 				"wallSeconds": 97.19,
-				"worstSpecsMilliseconds": {
+				"worstSpecsMilliseconds":
+				{
 					"identity registration, recovery, connected clients, answers, revocation, and deletion": 22531,
 					"public authentication contracts do not reveal account state": 18558,
 					"browser OAuth authorizes a real Streamable HTTP MCP client": 17252,
@@ -19,10 +23,12 @@
 					"a device-authorized hook is approved in the browser and dies the moment Settings revokes it": 5472
 				}
 			},
-			"baseline": {
+			"baseline":
+			{
 				"passedTests": 47,
 				"wallSeconds": 97.54,
-				"worstSpecsMilliseconds": {
+				"worstSpecsMilliseconds":
+				{
 					"identity registration, recovery, connected clients, answers, revocation, and deletion": 22646,
 					"public authentication contracts do not reveal account state": 18449,
 					"browser OAuth authorizes a real Streamable HTTP MCP client": 17343,
@@ -33,8 +39,10 @@
 			"command": "/usr/bin/time -p vp run test:browser",
 			"wallDeltaPercent": -0.36
 		},
-		"node": {
-			"after": {
+		"node":
+		{
+			"after":
+			{
 				"collectMilliseconds": 1770,
 				"environmentMilliseconds": 3390,
 				"passedFiles": 23,
@@ -71,7 +79,8 @@
 					}
 				]
 			},
-			"baseline": {
+			"baseline":
+			{
 				"collectMilliseconds": 2160,
 				"environmentMilliseconds": 3680,
 				"passedFiles": 23,
@@ -86,8 +95,10 @@
 			"perFileCommand": "node node_modules/vitest/dist/cli.js run --reporter=scripts/vitest-timing-reporter.ts --silent=passed-only",
 			"wallDeltaPercent": -4.53
 		},
-		"worker": {
-			"after": {
+		"worker":
+		{
+			"after":
+			{
 				"collectMilliseconds": 1390,
 				"environmentMilliseconds": 2,
 				"passedFiles": 26,
@@ -124,7 +135,8 @@
 					}
 				]
 			},
-			"baseline": {
+			"baseline":
+			{
 				"collectMilliseconds": 1450,
 				"environmentMilliseconds": 1,
 				"passedFiles": 26,
@@ -134,7 +146,8 @@
 				"transformMilliseconds": 54230,
 				"vitestSeconds": 34.93,
 				"wallSeconds": 35.6,
-				"worstTestsMilliseconds": {
+				"worstTestsMilliseconds":
+				{
 					"never retries a delivery another attempt cannot fix": 4094,
 					"creates, verifies, restores, signs out, and recovers a verified email account": 3595,
 					"keeps every public account-state contract indistinguishable": 3540,

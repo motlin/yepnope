@@ -15,7 +15,8 @@ const storedStringArraySchema = z.array(z.string());
  */
 const MCP_CLIENT_USE_RESOLUTION_MILLISECONDS = 60_000;
 
-interface OAuthGrantRow {
+interface OAuthGrantRow
+{
 	client_id: string;
 	client_disabled: number | null;
 	client_name: string | null;
@@ -30,7 +31,8 @@ interface OAuthGrantRow {
 	last_used_at: number | null;
 }
 
-interface OAuthClientAuthorization {
+interface OAuthClientAuthorization
+{
 	clientId: string;
 	displayName: string;
 	authorizedAt: number;
@@ -40,11 +42,13 @@ interface OAuthClientAuthorization {
 	revokedAt: number | null;
 }
 
-interface ConnectedMcpClientAuthorizationState {
+interface ConnectedMcpClientAuthorizationState
+{
 	activeClientCount: number;
 }
 
-interface ConnectedMcpClient {
+interface ConnectedMcpClient
+{
 	id: string;
 	displayName: string;
 	authorizedAt: number;
@@ -54,11 +58,13 @@ interface ConnectedMcpClient {
 	revokedAt: number | null;
 }
 
-function parseStoredStringArray(value: string | null): string[] {
+function parseStoredStringArray(value: string | null): string[]
+{
 	return value === null ? [] : storedStringArraySchema.parse(JSON.parse(value) as unknown);
 }
 
-function authorizesResource(resources: string | null, scopes: string | null, resource: string): boolean {
+function authorizesResource(resources: string | null, scopes: string | null, resource: string): boolean
+{
 	return (
 		parseStoredStringArray(resources).includes(resource) && parseStoredStringArray(scopes).includes(QUESTION_SCOPE)
 	);
@@ -69,7 +75,8 @@ async function oauthClientAuthorizations(
 	userId: string,
 	resource: string,
 	now: number,
-): Promise<OAuthClientAuthorization[]> {
+): Promise<OAuthClientAuthorization[]>
+{
 	const result = await database
 		.prepare(
 			"SELECT consent.client_id, client.name AS client_name, client.disabled AS client_disabled, " +
@@ -89,12 +96,15 @@ async function oauthClientAuthorizations(
 		.bind(userId)
 		.all<OAuthGrantRow>();
 	const authorizations = new Map<string, OAuthClientAuthorization>();
-	for (const row of result.results) {
-		if (!authorizesResource(row.consent_resources, row.consent_scopes, resource)) {
+	for (const row of result.results)
+	{
+		if (!authorizesResource(row.consent_resources, row.consent_scopes, resource))
+		{
 			continue;
 		}
 		const existing = authorizations.get(row.client_id);
-		const authorization = existing ?? {
+		const authorization = existing ??
+		{
 			clientId: row.client_id,
 			displayName: row.client_name ?? "MCP client",
 			authorizedAt: row.consent_created_at,
@@ -111,7 +121,8 @@ async function oauthClientAuthorizations(
 			row.refresh_revoked_at === null &&
 			authorizesResource(row.refresh_resources, row.refresh_scopes, resource);
 		authorization.active ||= refreshIsActive;
-		if (row.refresh_revoked_at !== null) {
+		if (row.refresh_revoked_at !== null)
+		{
 			authorization.revokedAt = Math.max(authorization.revokedAt ?? 0, row.refresh_revoked_at);
 		}
 		authorizations.set(row.client_id, authorization);
@@ -119,7 +130,8 @@ async function oauthClientAuthorizations(
 	return [...authorizations.values()];
 }
 
-async function managementId(userId: string, clientId: string): Promise<string> {
+async function managementId(userId: string, clientId: string): Promise<string>
+{
 	return hashToken(`connected-mcp-client\0${userId}\0${clientId}`);
 }
 
@@ -128,9 +140,12 @@ export async function getConnectedMcpClientAuthorizationState(
 	userId: string,
 	resource: string,
 	now = Date.now(),
-): Promise<ConnectedMcpClientAuthorizationState> {
+): Promise<ConnectedMcpClientAuthorizationState>
+{
 	const authorizations = await oauthClientAuthorizations(database, userId, resource, now);
-	return {activeClientCount: authorizations.filter(({active}) => active).length};
+	return {
+		activeClientCount: authorizations.filter(({active}) => active).length,
+	};
 }
 
 export async function listConnectedMcpClients(
@@ -138,12 +153,14 @@ export async function listConnectedMcpClients(
 	userId: string,
 	resource: string,
 	now = Date.now(),
-): Promise<ConnectedMcpClient[]> {
+): Promise<ConnectedMcpClient[]>
+{
 	const authorizations = await oauthClientAuthorizations(database, userId, resource, now);
 	return Promise.all(
 		authorizations
 			.filter(({active}) => active)
-			.map(async (authorization) => ({
+			.map(async (authorization) => (
+			{
 				id: await managementId(userId, authorization.clientId),
 				displayName: authorization.displayName,
 				authorizedAt: authorization.authorizedAt,
@@ -166,15 +183,27 @@ export async function recordConnectedMcpClientUse(
 	userId: string,
 	clientId: string,
 	usedAt: number,
-): Promise<void> {
+): Promise<void>
+{
 	await drizzle(database)
 		.insert(mcpClientUses)
-		.values({userId, clientId, lastUsedAt: usedAt})
-		.onConflictDoUpdate({
-			target: [mcpClientUses.userId, mcpClientUses.clientId],
-			set: {lastUsedAt: usedAt},
-			setWhere: sql`${usedAt} - ${mcpClientUses.lastUsedAt} >= ${MCP_CLIENT_USE_RESOLUTION_MILLISECONDS}`,
-		});
+		.values(
+			{
+				userId,
+				clientId,
+				lastUsedAt: usedAt,
+			},
+		)
+		.onConflictDoUpdate(
+			{
+				target: [mcpClientUses.userId, mcpClientUses.clientId],
+				set:
+				{
+					lastUsedAt: usedAt,
+				},
+				setWhere: sql`${usedAt} - ${mcpClientUses.lastUsedAt} >= ${MCP_CLIENT_USE_RESOLUTION_MILLISECONDS}`,
+			},
+		);
 }
 
 export async function revokeConnectedMcpClient(
@@ -184,16 +213,20 @@ export async function revokeConnectedMcpClient(
 	resource: string,
 	connectedMcpClientId: string,
 	revokedAt: number,
-): Promise<boolean> {
+): Promise<boolean>
+{
 	const authorizations = await oauthClientAuthorizations(database, userId, resource, revokedAt);
 	let ownedClientId: string | undefined;
-	for (const authorization of authorizations) {
-		if ((await managementId(userId, authorization.clientId)) === connectedMcpClientId) {
+	for (const authorization of authorizations)
+	{
+		if ((await managementId(userId, authorization.clientId)) === connectedMcpClientId)
+		{
 			ownedClientId = authorization.clientId;
 			break;
 		}
 	}
-	if (ownedClientId === undefined) {
+	if (ownedClientId === undefined)
+	{
 		return false;
 	}
 	await database.batch([

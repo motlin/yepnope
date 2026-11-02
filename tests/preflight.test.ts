@@ -1,13 +1,18 @@
 import {describe, expect, it, vi} from "vitest";
-import {
+import
+{
 	preflightDeployment,
 	DeploymentNotConfiguredError,
 	type CommandResult,
 	type PreflightDependencies,
 } from "../scripts/preflight";
 
-function ok(output = ""): CommandResult {
-	return {code: 0, output};
+function ok(output = ""): CommandResult
+{
+	return {
+		code: 0,
+		output,
+	};
 }
 
 // The `env.NAME (value)` rows `wrangler deploy --dry-run` prints for a correctly configured
@@ -28,7 +33,8 @@ const PRODUCTION_SECRETS: readonly string[] = [
 	"VAPID_PRIVATE_JWK",
 ];
 
-function bindings(rows: readonly string[] = PRODUCTION_BINDINGS): CommandResult {
+function bindings(rows: readonly string[] = PRODUCTION_BINDINGS): CommandResult
+{
 	return ok(
 		[
 			" ⛅️ wrangler 4.123.0",
@@ -46,14 +52,20 @@ function bindings(rows: readonly string[] = PRODUCTION_BINDINGS): CommandResult 
 }
 
 /** The production binding rows with one name dropped, standing in for a configuration that lost it. */
-function bindingsWithout(name: string): readonly string[] {
+function bindingsWithout(name: string): readonly string[]
+{
 	return PRODUCTION_BINDINGS.filter((row) => !row.startsWith(`env.${name} `));
 }
 
-function secrets(names: readonly string[] = PRODUCTION_SECRETS): CommandResult {
+function secrets(names: readonly string[] = PRODUCTION_SECRETS): CommandResult
+{
 	return ok(
 		JSON.stringify(
-			names.map((name) => ({name, type: "secret_text"})),
+			names.map((name) => (
+			{
+				name,
+				type: "secret_text",
+			})),
 			null,
 			2,
 		),
@@ -73,7 +85,8 @@ const NO_PENDING_MIGRATIONS = ok(
 );
 
 /** The same listing when production is behind, box-drawn table and all. */
-function pendingMigrations(names: readonly string[]): CommandResult {
+function pendingMigrations(names: readonly string[]): CommandResult
+{
 	const width = 43;
 	const row = (text: string) => `│ ${text.padEnd(width)} │`;
 	return ok(
@@ -101,13 +114,15 @@ const PREFLIGHT_CALLS = [
 const STAGING_ORIGIN = "https://yepnope-staging.example.workers.dev";
 const STAGING_CALL = ["vp", ["exec", "wrangler", "deploy", "--dry-run", "--config", "wrangler.staging.jsonc"]];
 
-function stagingConfiguration(origin: string | null = STAGING_ORIGIN): string {
+function stagingConfiguration(origin: string | null = STAGING_ORIGIN): string
+{
 	const originDeclaration = origin === null ? "" : `\t\t"BETTER_AUTH_URL": "${origin}",\n`;
 	return `{\n\t"vars": {\n${originDeclaration}\t}\n}\n`;
 }
 
 /** The staging dry run, whose only interesting row is the origin the core-loop check will target. */
-function stagingBindings(origin: string = STAGING_ORIGIN): CommandResult {
+function stagingBindings(origin: string = STAGING_ORIGIN): CommandResult
+{
 	return bindings([
 		"env.USER_DO (UserDurableObject)                                         Durable Object            ",
 		"env.DB (yepnope-staging)                                                D1 Database               ",
@@ -115,9 +130,11 @@ function stagingBindings(origin: string = STAGING_ORIGIN): CommandResult {
 	]);
 }
 
-function preflightRunner(results: readonly CommandResult[]) {
+function preflightRunner(results: readonly CommandResult[])
+{
 	const run = vi.fn<PreflightDependencies["run"]>();
-	for (const result of results) {
+	for (const result of results)
+	{
 		run.mockResolvedValueOnce(result);
 	}
 	return run;
@@ -126,18 +143,24 @@ function preflightRunner(results: readonly CommandResult[]) {
 function preflightDependencies(
 	run: ReturnType<typeof preflightRunner>,
 	configuration: string = stagingConfiguration(),
-): PreflightDependencies {
+): PreflightDependencies
+{
 	return {
 		readTextFile: vi.fn<PreflightDependencies["readTextFile"]>().mockResolvedValue(configuration),
 		run,
 	};
 }
 
-async function refusal(run: ReturnType<typeof preflightRunner>): Promise<DeploymentNotConfiguredError> {
-	try {
+async function refusal(run: ReturnType<typeof preflightRunner>): Promise<DeploymentNotConfiguredError>
+{
+	try
+	{
 		await preflightDeployment(preflightDependencies(run));
-	} catch (error) {
-		if (error instanceof DeploymentNotConfiguredError) {
+	}
+	catch (error)
+	{
+		if (error instanceof DeploymentNotConfiguredError)
+		{
 			return error;
 		}
 		throw error;
@@ -145,21 +168,26 @@ async function refusal(run: ReturnType<typeof preflightRunner>): Promise<Deploym
 	throw new Error("the preflight accepted a deployment the test expected it to refuse");
 }
 
-describe("release preflight", () => {
-	it("accepts a deployment that has every binding and secret the Worker reads", async () => {
+describe("release preflight", () =>
+{
+	it("accepts a deployment that has every binding and secret the Worker reads", async () =>
+	{
 		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
-		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual({
-			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
-			secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
-			staging: STAGING_ORIGIN,
-			pending_migrations: [],
-			target: "yepnope.app",
-		});
+		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual(
+			{
+				bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
+				secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
+				staging: STAGING_ORIGIN,
+				pending_migrations: [],
+				target: "yepnope.app",
+			},
+		);
 		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
 	});
 
-	it("refuses a production deployment that has neither Turnstile key, which fails closed", async () => {
+	it("refuses a production deployment that has neither Turnstile key, which fails closed", async () =>
+	{
 		const run = preflightRunner([secrets(["BETTER_AUTH_SECRET", "VAPID_PRIVATE_JWK"]), bindings()]);
 
 		const error = await refusal(run);
@@ -169,7 +197,8 @@ describe("release preflight", () => {
 		expect(error.message).toContain("vp exec wrangler secret put TURNSTILE_SITE_KEY");
 	});
 
-	it("refuses a half-configured Turnstile pair", async () => {
+	it("refuses a half-configured Turnstile pair", async () =>
+	{
 		const run = preflightRunner([
 			secrets(["BETTER_AUTH_SECRET", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"]),
 			bindings(),
@@ -178,7 +207,8 @@ describe("release preflight", () => {
 		expect((await refusal(run)).missing).toStrictEqual(["TURNSTILE_SECRET_KEY"]);
 	});
 
-	it("accepts a public key carried as a plain var instead of a secret", async () => {
+	it("accepts a public key carried as a plain var instead of a secret", async () =>
+	{
 		const run = preflightRunner([
 			secrets(["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "VAPID_PRIVATE_JWK"]),
 			bindings([
@@ -192,7 +222,8 @@ describe("release preflight", () => {
 		expect((await preflightDeployment(preflightDependencies(run))).bindings).toContain("TURNSTILE_SITE_KEY");
 	});
 
-	it("refuses a deployment with no signing secret, whatever else is configured", async () => {
+	it("refuses a deployment with no signing secret, whatever else is configured", async () =>
+	{
 		const run = preflightRunner([
 			secrets(["TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"]),
 			bindings(),
@@ -201,7 +232,8 @@ describe("release preflight", () => {
 		expect((await refusal(run)).missing).toStrictEqual(["BETTER_AUTH_SECRET"]);
 	});
 
-	it("refuses a deployment whose configuration lost the email binding", async () => {
+	it("refuses a deployment whose configuration lost the email binding", async () =>
+	{
 		const run = preflightRunner([secrets(), bindings(bindingsWithout("EMAIL"))]);
 
 		const error = await refusal(run);
@@ -210,7 +242,8 @@ describe("release preflight", () => {
 		expect(error.message).toContain("wrangler.jsonc");
 	});
 
-	it("names every unmet requirement in one refusal rather than only the first", async () => {
+	it("names every unmet requirement in one refusal rather than only the first", async () =>
+	{
 		const run = preflightRunner([secrets([]), bindings(bindingsWithout("DB"))]);
 
 		expect((await refusal(run)).missing).toStrictEqual([
@@ -222,7 +255,8 @@ describe("release preflight", () => {
 		]);
 	});
 
-	it("refuses a deployment whose origin is not the production hostname", async () => {
+	it("refuses a deployment whose origin is not the production hostname", async () =>
+	{
 		const run = preflightRunner([
 			secrets(),
 			bindings([
@@ -237,7 +271,8 @@ describe("release preflight", () => {
 		expect(error.message).toContain('is "https://staging.example.com"');
 	});
 
-	it("refuses an origin that is not a URL at all", async () => {
+	it("refuses an origin that is not a URL at all", async () =>
+	{
 		const run = preflightRunner([
 			secrets(),
 			bindings([
@@ -249,7 +284,8 @@ describe("release preflight", () => {
 		expect((await refusal(run)).missing).toStrictEqual(["BETTER_AUTH_URL"]);
 	});
 
-	it("refuses a loopback origin, the one place missing Turnstile keys would be legal", async () => {
+	it("refuses a loopback origin, the one place missing Turnstile keys would be legal", async () =>
+	{
 		const run = preflightRunner([
 			secrets(["BETTER_AUTH_SECRET", "VAPID_PRIVATE_JWK"]),
 			bindings([
@@ -265,8 +301,14 @@ describe("release preflight", () => {
 		]);
 	});
 
-	it("fails loudly when the secret list cannot be read at all", async () => {
-		const run = preflightRunner([{code: 1, output: "Authentication error [code: 10000]\n"}]);
+	it("fails loudly when the secret list cannot be read at all", async () =>
+	{
+		const run = preflightRunner([
+			{
+				code: 1,
+				output: "Authentication error [code: 10000]\n",
+			},
+		]);
 
 		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
 			"`wrangler secret list` failed with exit code 1, so this release cannot tell whether yepnope.app is configured",
@@ -274,7 +316,8 @@ describe("release preflight", () => {
 		expect(run.mock.calls).toStrictEqual([PREFLIGHT_CALLS[0]]);
 	});
 
-	it("fails loudly when the secret list is not the documented JSON array", async () => {
+	it("fails loudly when the secret list is not the documented JSON array", async () =>
+	{
 		const run = preflightRunner([ok("no secrets here\n")]);
 
 		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
@@ -282,15 +325,23 @@ describe("release preflight", () => {
 		);
 	});
 
-	it("fails loudly when the configuration cannot be resolved", async () => {
-		const run = preflightRunner([secrets(), {code: 1, output: "The assets directory ./dist does not exist.\n"}]);
+	it("fails loudly when the configuration cannot be resolved", async () =>
+	{
+		const run = preflightRunner([
+			secrets(),
+			{
+				code: 1,
+				output: "The assets directory ./dist does not exist.\n",
+			},
+		]);
 
 		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
 			"`wrangler deploy --dry-run` failed with exit code 1, so this release cannot tell what yepnope.app would be deployed with",
 		);
 	});
 
-	it("fails loudly when the dry run lists no bindings at all", async () => {
+	it("fails loudly when the dry run lists no bindings at all", async () =>
+	{
 		const run = preflightRunner([secrets(), bindings([])]);
 
 		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
@@ -298,7 +349,8 @@ describe("release preflight", () => {
 		);
 	});
 
-	it("refuses a staging configuration still carrying its placeholder origin", async () => {
+	it("refuses a staging configuration still carrying its placeholder origin", async () =>
+	{
 		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
 		await expect(
@@ -311,7 +363,8 @@ describe("release preflight", () => {
 		);
 	});
 
-	it("refuses to rehearse the release on production itself", async () => {
+	it("refuses to rehearse the release on production itself", async () =>
+	{
 		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
 		await expect(
@@ -322,7 +375,8 @@ describe("release preflight", () => {
 		);
 	});
 
-	it("refuses a staging configuration that declares no origin", async () => {
+	it("refuses a staging configuration that declares no origin", async () =>
+	{
 		const run = preflightRunner([secrets(), bindings(), NO_PENDING_MIGRATIONS, stagingBindings()]);
 
 		await expect(preflightDeployment(preflightDependencies(run, stagingConfiguration(null)))).rejects.toThrow(
@@ -331,12 +385,16 @@ describe("release preflight", () => {
 		);
 	});
 
-	it("fails loudly when the staging configuration cannot be resolved", async () => {
+	it("fails loudly when the staging configuration cannot be resolved", async () =>
+	{
 		const run = preflightRunner([
 			secrets(),
 			bindings(),
 			NO_PENDING_MIGRATIONS,
-			{code: 1, output: "Could not resolve D1 database\n"},
+			{
+				code: 1,
+				output: "Could not resolve D1 database\n",
+			},
 		]);
 
 		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
@@ -345,7 +403,8 @@ describe("release preflight", () => {
 		);
 	});
 
-	it("uses the exact configured staging origin when Wrangler truncates its displayed value", async () => {
+	it("uses the exact configured staging origin when Wrangler truncates its displayed value", async () =>
+	{
 		const run = preflightRunner([
 			secrets(),
 			bindings(),
@@ -353,16 +412,19 @@ describe("release preflight", () => {
 			stagingBindings("https://yepnope-staging.example.worke..."),
 		]);
 
-		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual({
-			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
-			secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
-			staging: STAGING_ORIGIN,
-			pending_migrations: [],
-			target: "yepnope.app",
-		});
+		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual(
+			{
+				bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
+				secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
+				staging: STAGING_ORIGIN,
+				pending_migrations: [],
+				target: "yepnope.app",
+			},
+		);
 		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
 	});
-	it("hands unapplied migrations to the release rather than refusing, naming each one", async () => {
+	it("hands unapplied migrations to the release rather than refusing, naming each one", async () =>
+	{
 		const run = preflightRunner([
 			secrets(),
 			bindings(),
@@ -370,18 +432,28 @@ describe("release preflight", () => {
 			stagingBindings(),
 		]);
 
-		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual({
-			bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
-			pending_migrations: ["002_remove_inactive_mcp_authorizations.sql", "003_phone_pairing.sql"],
-			secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
-			staging: STAGING_ORIGIN,
-			target: "yepnope.app",
-		});
+		expect(await preflightDeployment(preflightDependencies(run))).toStrictEqual(
+			{
+				bindings: ["AUTH_EMAIL_FROM", "BETTER_AUTH_URL", "DB", "EMAIL", "USER_DO", "VAPID_SUBJECT"],
+				pending_migrations: ["002_remove_inactive_mcp_authorizations.sql", "003_phone_pairing.sql"],
+				secrets: ["BETTER_AUTH_SECRET", "TURNSTILE_SECRET_KEY", "TURNSTILE_SITE_KEY", "VAPID_PRIVATE_JWK"],
+				staging: STAGING_ORIGIN,
+				target: "yepnope.app",
+			},
+		);
 		expect(run.mock.calls).toStrictEqual([...PREFLIGHT_CALLS, STAGING_CALL]);
 	});
 
-	it("fails loudly when the migration list cannot be read", async () => {
-		const run = preflightRunner([secrets(), bindings(), {code: 1, output: "Authentication error [code: 10000]\n"}]);
+	it("fails loudly when the migration list cannot be read", async () =>
+	{
+		const run = preflightRunner([
+			secrets(),
+			bindings(),
+			{
+				code: 1,
+				output: "Authentication error [code: 10000]\n",
+			},
+		]);
 
 		await expect(preflightDeployment(preflightDependencies(run))).rejects.toThrow(
 			"`wrangler d1 migrations list yepnope --remote` failed with exit code 1, so this release cannot " +
@@ -389,7 +461,8 @@ describe("release preflight", () => {
 		);
 	});
 
-	it("fails loudly when the migration list reports neither outcome, as Wrangler does on an auth error", async () => {
+	it("fails loudly when the migration list reports neither outcome, as Wrangler does on an auth error", async () =>
+	{
 		// Wrangler exits 0 after printing an API error here, so the exit code alone proves nothing.
 		const run = preflightRunner([
 			secrets(),
