@@ -192,7 +192,7 @@ async function authorizeClient(
 		process.stderr.write(`[deployed core loop] ${name} MCP error: ${error.message}\n`);
 	};
 	try {
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 	} catch (error) {
 		if (error instanceof StreamableHTTPError) {
 			throw new Error(`${name} failed to initialize with status ${String(error.code)}`);

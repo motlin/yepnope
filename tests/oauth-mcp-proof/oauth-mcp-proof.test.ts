@@ -321,7 +321,7 @@ describe("Better Auth OAuth and remote MCP local proof", () => {
 			requestInit: {headers: {Authorization: `Bearer ${tokens.access_token}`}},
 		});
 		const client = new Client({name: "oauth-proof-client", version: "1.0.0"});
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 		const result = await client.callTool({name: "protected_echo", arguments: {text: "proof text"}});
 		expect(result).toStrictEqual({
 			content: [
@@ -339,7 +339,7 @@ describe("Better Auth OAuth and remote MCP local proof", () => {
 			requestInit: {headers: {Authorization: `Bearer ${tokens.access_token}`}},
 		});
 		const client = new Client({name: "oauth-cancellation-proof-client", version: "1.0.0"});
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 		const abortController = new AbortController();
 		const call = client.callTool(
 			{name: "ask_yep_nope", arguments: {question: "Should cancellation retract this question?"}},

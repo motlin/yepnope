@@ -320,7 +320,7 @@ async function createProtocolClient(name: string, accessToken: string): Promise<
 	});
 	const client = new Client({name, version: "1.0.0"});
 	try {
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 	} catch (error) {
 		if (error instanceof StreamableHTTPError) {
 			throw new Error(`Streamable HTTP initialization failed with status ${String(error.code)}`);
