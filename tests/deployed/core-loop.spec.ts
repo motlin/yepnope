@@ -290,7 +290,7 @@ async function authorizeClient(request: APIRequestContext, page: Page, name: str
 	};
 	try
 	{
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 	}
 	catch (error)
 	{
