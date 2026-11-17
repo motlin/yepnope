@@ -79,7 +79,7 @@
 		"jsdom": "^31.0.0",
 		"markdownlint-cli2": "^0.24.0",
 		"playwright": "^1.63.0",
-		"storybook": "^10.6.6",
+		"storybook": "^10.6.7",
 		"typescript": "^7.0.2",
 		"vite": "catalog:",
 		"vite-plus": "catalog:",
