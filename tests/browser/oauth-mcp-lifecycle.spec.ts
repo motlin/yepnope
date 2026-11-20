@@ -502,7 +502,7 @@ async function createProtocolClient(name: string, accessToken: string): Promise<
 	);
 	try
 	{
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 	}
 	catch (error)
 	{
