@@ -74,7 +74,7 @@
 		"esbuild": "^0.28.2",
 		"eslint": "^10.14.0",
 		"eslint-plugin-storybook": "^10.6.7",
-		"fallow": "^3.42.0",
+		"fallow": "^3.43.1",
 		"jiti": "^2.7.0",
 		"jsdom": "^31.0.1",
 		"markdownlint-cli2": "^0.24.1",
