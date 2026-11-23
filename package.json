@@ -72,7 +72,7 @@
 		"@vitejs/plugin-react": "^6.3.0",
 		"drizzle-kit": "^0.31.11",
 		"esbuild": "^0.28.2",
-		"eslint": "^10.14.0",
+		"eslint": "^10.15.0",
 		"eslint-plugin-storybook": "^10.6.7",
 		"fallow": "^3.43.1",
 		"jiti": "^2.7.0",
