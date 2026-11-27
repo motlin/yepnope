@@ -64,7 +64,7 @@
 		"@storybook/addon-onboarding": "^10.6.7",
 		"@storybook/addon-vitest": "^10.6.7",
 		"@storybook/react-vite": "^10.6.7",
-		"@storybook/test-runner": "^0.26.0",
+		"@storybook/test-runner": "^0.26.1",
 		"@testing-library/react": "^16.3.3",
 		"@types/node": "^26.6.6",
 		"@types/react": "^19.3.0",
