@@ -448,7 +448,7 @@ describe("Better Auth OAuth and remote MCP local proof", () =>
 				version: "1.0.0",
 			},
 		);
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 		const result = await client.callTool(
 			{
 				name: "protected_echo",
@@ -491,7 +491,7 @@ describe("Better Auth OAuth and remote MCP local proof", () =>
 				version: "1.0.0",
 			},
 		);
-		await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+		await client.connect(transport);
 		const abortController = new AbortController();
 		const call = client.callTool(
 			{
