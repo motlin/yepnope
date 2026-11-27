@@ -73,7 +73,7 @@
 		"drizzle-kit": "^0.31.11",
 		"esbuild": "^0.28.2",
 		"eslint": "^10.15.0",
-		"eslint-plugin-storybook": "^10.6.7",
+		"eslint-plugin-storybook": "^10.6.8",
 		"fallow": "^3.45.0",
 		"jiti": "^2.7.0",
 		"jsdom": "^31.0.1",
